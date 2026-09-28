@@ -309,6 +309,7 @@
       <div id="fbWarning">協力プレイが使えません（FirebaseのAPIキー未設定、または通信環境の制限でFirebaseの読み込みがブロックされている可能性があります）。「ダンジョン」だけ利用できます。</div>
       <button id="createRoomBtn">ルームを作成</button>
       <button id="createFrontlineRoomBtn" style="background:#4fd67a;">最北戦線のルームを作成</button>
+      <button id="createNightmareRoomBtn" style="background:#9b4dff;">ナイトメアのルームを作成</button>
       <div class="joinRow">
         <input type="text" id="roomCodeInput" placeholder="ルームコード" maxlength="5">
         <button id="joinRoomBtn">参加</button>
@@ -340,6 +341,7 @@
     <div class="lobbyBox lobbySide lobbyRight">
       <button id="bossRushBtn" class="challengeBtn" style="background:#ff8a5b;">ボスラッシュ</button>
       <button id="frontlineBtn" class="challengeBtn" style="background:#4fd67a;">最北戦線</button>
+      <button id="nightmareBtn" class="challengeBtn" style="background:#9b4dff;">ナイトメアダンジョン</button>
     </div>
   </div>
 </div>
@@ -1091,7 +1093,7 @@ const FRONTLINE = {
   chestChance: 0.01 / 3,                          // 武器強化の宝箱が出る確率（約0.33%。平均300体に1回くらい）
   potionChance: 0.05 / 3,                         // 包帯が出る確率（約1.67%）
   // ボス：時間が経つと出現する。倒すと力尽きた仲間（ゴースト）が復活＋確率で宝箱。HPの全回復はしない。倒してから bossInterval 秒後に次のボスが出る。
-  bossFirst: 180, bossInterval: 120,              // 最初のボスが出る時間（秒）／ボスを倒してから次が出るまで（秒）
+  bossFirst: 120, bossInterval: 120,              // 最初のボスが出る時間（秒）／ボスを倒してから次が出るまで（秒）
   bossIntervalHalfLife: 300, bossIntervalMin: 30, // ボスの間隔は時間とともに縮む：300秒ごとに半分、最短30秒
   bossScalePerBoss: 0.4,                          // ボスが出るたびに、ボスのHP・攻撃力が（初回比で）これだけ増える
   dropLife: 45,                                   // 落ちた宝箱・包帯が消えるまでの時間（秒）
@@ -1116,6 +1118,10 @@ const FRONTLINE = {
     { key: 'spore',   from: 240, weight: 1,   over: { aggroRange: Infinity, chaseBias: 0.6 } },
   ],
 };
+
+// ============== ナイトメアダンジョン（通常ダンジョンの高難度版・ソロ専用）の調整用パラメータ ==============
+// 1階層からボスが出て、すべての敵（ボス含む）のHPと攻撃力が上がる。
+const NIGHTMARE = { hpMult: 2, dmgMult: 2 };
 
 // ============== 通常ダンジョン：雑魚敵を倒した時の低確率ドロップ ==============
 // 最北戦線のドロップの仕組み（emitDrop→全員に配信→早い者勝ちで拾う）を流用する。
@@ -1496,6 +1502,7 @@ class GameScene extends Phaser.Scene {
     // デベロッパーモード（名前を「developer」にすると使える）では、指定した階から
     // テストプレイを始められる。協力プレイでは部屋側の階を優先する。
     this.bossRush = !this.mp && !!app.bossRush; // ボスラッシュ（ソロ専用）
+    this.nightmare = !!app.nightmare; // ナイトメアダンジョン（ソロ／協力プレイ。協力プレイはルームのmodeで全員そろう）
     this.frontline = !!app.frontline; // 最北戦線（ソロ／協力プレイ）
     this.tx = null; this.fl = null;
     this.runStats = { time: 0, kills: 0, bosses: 0 }; // リザルト用の集計（kills/bossesはソロのみ使用。timeは協力プレイでも数える）
@@ -1655,7 +1662,7 @@ class GameScene extends Phaser.Scene {
         this.net.listenShots(payload => this.onIncomingShot(payload));
         this.net.listenEnemyShots(payload => this.onIncomingEnemyShot(payload));
         this.net.listenRevive(pos => this.onRevive(pos));
-        this.net.onConnectFail = () => this.showBanner('📶 接続できませんでした。ホストがモバイル通信を使用してください', 8000); // TURNなし：直接つなげない時の案内
+        this.net.onConnectFail = () => this.showBanner('📶 接続できませんでした。ホストがモバイル通信を使用してください', 8000); // TURN（中継）を使っても繋がらなかった時の案内
         if (this.frontline) {
           this.net.listenFrontline(obj => this.onFrontlineSync(obj)); // 発信機のHP・経過時間・ボスの予定（ホストが配信）
           this.net.listenDrops(v => this.onFrontlineDrop(v));         // 宝箱・包帯のドロップ（ホストが決めて全員に配信）
@@ -2122,12 +2129,21 @@ class GameScene extends Phaser.Scene {
       }
       snap[e.id] = entry;
       const p = prev && prev[e.id];
-      // 遠くの敵はAI自体を間引いて静止させているので、位置・HP・状態が
-      // 何も変わっていない場合はこの敵だけ差分から除外する（1px未満の丸め誤差は無視）。
-      if (!p || p.x !== x || p.y !== y || p.hp !== entry.hp || p.maxHp !== entry.maxHp || p.state !== entry.state || (p.tp || 0) !== (entry.tp || 0) || p.ws !== entry.ws || p.as !== entry.as || p.rs !== entry.rs ||
-          p.sm !== entry.sm || p.df !== entry.df || p.be !== entry.be || p.bp !== entry.bp || p.ce !== entry.ce || p.cp !== entry.cp || p.cs !== entry.cs) {
+      // 遠くの敵はAI自体を間引いて静止させているので、何も変わっていない敵は差分から除外する。
+      // 変化があった敵も、変わった「項目」だけを送る（HP・種類などは変わった時だけ）。
+      // 出現直後の敵（前回に無い敵）だけは、ゲストが実体を作れるように全項目を送る。
+      if (!p) {
         diff[e.id] = entry;
         anyDiff = true;
+      } else {
+        let fd = null;
+        for (const k in entry) {
+          if (p[k] !== entry[k]) { (fd || (fd = {}))[k] = entry[k]; }
+        }
+        for (const k in p) {
+          if (!(k in entry)) { (fd || (fd = {}))[k] = null; } // 無くなった項目（例：分身攻撃の予告が終わった）はnullで削除を伝える
+        }
+        if (fd) { diff[e.id] = fd; anyDiff = true; }
       }
     }
     if (prev) {
@@ -2137,15 +2153,15 @@ class GameScene extends Phaser.Scene {
         if (!snap[id]) { diff[id] = null; anyDiff = true; }
       }
     }
-    if (!anyDiff) return; // 何も変わっていなければFirebaseへは一切書き込まない
     // [調査用] NET_DEBUG_LOG: ホストが実際に書き込んでいる差分のサイズ(バイト)と件数を記録。
     // これはゲスト側が受け取る全データ量(recv)とは別物（recvは差分ではなく毎回フルセット）。
-    if (NET_DEBUG_LOG) {
+    if (NET_DEBUG_LOG && anyDiff) {
       const bytes = JSON.stringify(diff).length;
       this._netLogMaxDiffBytes = Math.max(this._netLogMaxDiffBytes || 0, bytes);
       this._netLogMaxDiffCount = Math.max(this._netLogMaxDiffCount || 0, Object.keys(diff).length);
     }
     this._lastPublishedSnapshot = snap;
+    // 差分が空でも呼ぶ：Net側が「一定間隔ごとの全体配信」を出すため（取りこぼしの自己修復用）
     this.net.publishEnemies(this.floor, diff);
   }
 
@@ -2380,7 +2396,7 @@ class GameScene extends Phaser.Scene {
       this._prevFloorForListeners = this.floor;
     }
 
-    document.getElementById('floorLabel').textContent = this.bossRush ? 'ボス' : (this.frontline ? '生存' : '階層');
+    document.getElementById('floorLabel').textContent = this.bossRush ? 'ボス' : (this.frontline ? '生存' : (this.nightmare ? '悪夢階層' : '階層'));
     document.getElementById('floorNum').textContent = this.frontline ? '0:00' : this.floor;
     document.getElementById('seedWrap').style.display = this.frontline ? 'none' : '';
     document.getElementById('txHud').style.display = this.frontline ? 'block' : 'none';
@@ -2399,8 +2415,8 @@ class GameScene extends Phaser.Scene {
     const eligible = ENEMY_TYPES.filter(t => t.minFloor <= this.floor && !t.isBoss);
     const startRoom = d.rooms[0];
     const candidateRooms = d.rooms.filter(r => r !== startRoom);
-    const hpMult = 1 + (this.floor - 1) * 0.16;
-    const dmgMult = 1 + (this.floor - 1) * 0.10;
+    const hpMult = (1 + (this.floor - 1) * 0.16) * (this.nightmare ? NIGHTMARE.hpMult : 1);
+    const dmgMult = (1 + (this.floor - 1) * 0.10) * (this.nightmare ? NIGHTMARE.dmgMult : 1);
 
     this.enemies = [];
     const count = Math.min(d.enemyBudget, candidateRooms.length * 3);
@@ -2435,16 +2451,17 @@ class GameScene extends Phaser.Scene {
     // 10階以降は、かなり低確率でフロアに1体だけ強力なボスを配置する（出ない階もある。
     // 出現数の上限は特に設けない＝毎回この確率だけで独立抽選する）。
     // ボスは複数種類の中からランダムに選ばれる（現状: オーバーロード、カルテット）。
-    if (this.floor >= 10) {
+    if (this.floor >= 10 || this.nightmare) { // ナイトメアは1階からボスが出る
       const BOSS_SPAWN_CHANCE = 1.0; // 検証用に一旦100%出現。ボスの種類は、bossSpawn:trueの全種類（オーバーロード/カルテット/デトネーター/ゾートロープ）から均等に抽選する
-      const bossPool = ENEMY_TYPES.filter(t => t.bossSpawn && t.minFloor <= this.floor);
+      const bossPool = ENEMY_TYPES.filter(t => t.bossSpawn && (this.nightmare || t.minFloor <= this.floor));
       const brand = mulberry32(this.baseSeed + this.floor * 911382323);
       if (bossPool.length && candidateRooms.length && brand() < BOSS_SPAWN_CHANCE) {
         const bossType = bossPool[Math.floor(brand() * bossPool.length)];
         const room = candidateRooms[Math.floor(brand() * candidateRooms.length)];
         const bx = (room.x + 1 + brand() * Math.max(1, room.w - 2)) * TILE;
         const by = (room.y + 1 + brand() * Math.max(1, room.h - 2)) * TILE;
-        const bossScale = 1 + (this.floor - 10) * 0.12; // 10階より深くなるほどさらに強化
+        // 10階より深くなるほどさらに強化。ナイトメアはHP・攻撃力が上がる（_bossScaleが技のダメージにも反映される）
+        const bossScale = (1 + Math.max(0, this.floor - 10) * 0.12) * (this.nightmare ? NIGHTMARE.hpMult : 1);
 
         const gfx = this.add.circle(bx, by, bossType.radius, bossType.color).setDepth(4);
         gfx.setStrokeStyle(3, 0xffd54c, 0.9);
@@ -4019,8 +4036,8 @@ class GameScene extends Phaser.Scene {
     sx = Phaser.Math.Clamp(sx, TILE, maxX - TILE);
     sy = Phaser.Math.Clamp(sy, TILE, maxY - TILE);
 
-    const hpMult = 1 + (this.floor - 1) * 0.16;
-    const dmgMult = 1 + (this.floor - 1) * 0.10;
+    const hpMult = (1 + (this.floor - 1) * 0.16) * (this.nightmare ? NIGHTMARE.hpMult : 1);
+    const dmgMult = (1 + (this.floor - 1) * 0.10) * (this.nightmare ? NIGHTMARE.dmgMult : 1);
     const gfx = this.add.circle(sx, sy, t.radius, CHARGE_GHOST_FILL_COLOR).setDepth(4);
     gfx.setStrokeStyle(2, CHARGE_GHOST_STROKE_COLOR, 0.8);
     gfx.setAlpha(CHARGE_GHOST_ALPHA);
@@ -4468,8 +4485,8 @@ class GameScene extends Phaser.Scene {
     if (this.mp && !this.isHost) return; // 増殖の権威もホストのみが持つ
     const t = enemy.type;
     const count = t.multiplyCount || 10;
-    const hpMult = 1 + (this.floor - 1) * 0.16;
-    const dmgMult = 1 + (this.floor - 1) * 0.10;
+    const hpMult = (1 + (this.floor - 1) * 0.16) * (this.nightmare ? NIGHTMARE.hpMult : 1);
+    const dmgMult = (1 + (this.floor - 1) * 0.10) * (this.nightmare ? NIGHTMARE.dmgMult : 1);
     const ox = enemy.gfx.x, oy = enemy.gfx.y;
 
     for (let i = 0; i < count; i++) {
@@ -8435,7 +8452,7 @@ class GameScene extends Phaser.Scene {
       rows.push(['倒した雑魚敵', st.kills + '体']);
       rows.push(['倒したボス', st.bosses + '体']);
     }
-    document.getElementById('resultMode').textContent = this.isDevMode ? 'DEVELOPER' : (this.bossRush ? 'BOSS RUSH' : (this.frontline ? 'NORTHERN FRONT' : 'DUNGEON'));
+    document.getElementById('resultMode').textContent = this.isDevMode ? 'DEVELOPER' : (this.bossRush ? 'BOSS RUSH' : (this.frontline ? 'NORTHERN FRONT' : (this.nightmare ? 'NIGHTMARE' : 'DUNGEON')));
     document.getElementById('resultStats').innerHTML = rows.map(r =>
       '<div class="resultRow"><span>' + escapeHtml(r[0]) + '</span><b>' + escapeHtml(r[1]) + '</b></div>').join('');
     const weapons = Object.entries(this.weaponLevels).map(([key, lv]) => {
@@ -8968,17 +8985,41 @@ const FIREBASE_CONFIG = {
 // 再接続は今回のスコープ外。
 //
 // TURN（中継サーバー）について：
-// 現在はTURNを使っていない（STUNのみ）。STUNだけでは「お互いのIPを教え合う」ことしか
-// できないため、Symmetric NATや、UDP自体を塞ぐ厳しい社内/学校ネットワークでは
-// 直接接続(ICE)が最後まで失敗することがある。その場合は、接続できなかった側に
-// 「ホストがモバイル通信を使用してください」と表示する（Net.onConnectFail → GameScene）。
-// TURNを復活させたい時は、下のiceServersに { urls: 'turn:...', username, credential } を追加する。
+// STUNだけでは「お互いのIPを教え合う」ことしかできないため、Symmetric NATや、UDP自体を
+// 塞ぐ厳しい社内/学校ネットワークでは直接接続(ICE)が最後まで失敗することがある。
+// そのため、ExpressTURN（無料プラン：月1000GBまで）を中継サーバーとして追加してある。
+// 直接つながる時はTURNは使われず（通信量に数えられない）、つながらない時だけ中継される。
+// それでも接続できなかった側には「ホストがモバイル通信を使用してください」と表示する
+// （Net.onConnectFail → GameScene）。
+// 注意：ユーザー名・パスワードはこのファイルを開けば誰でも見える。無料枠を他人に使われる
+// 可能性があるので、ファイルを公開する場合は必要に応じて再発行する。
 const RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun.relay.metered.ca:80' },
+    { urls: ['turn:free.expressturn.com:3478', 'turn:free.expressturn.com:3478?transport=tcp'],
+      username: '000000002105953495', credential: 'i66kD0qSSN2WKrnDBGAYRLOAgMc=' },
   ],
 };
+
+// 敵の同期データは通信量を減らすため、送る時だけ項目名を短くする（x,y はそのまま）。
+// 受け取った側（ゲスト）で元の名前に戻すので、ゲーム側のコードは元の名前のまま使える。
+const ENEMY_KEY_SHORT = { hp: 'h', maxHp: 'M', type: 't', state: 's', dmg: 'd', bg: 'g', tp: 'p', ws: 'w', as: 'a', rs: 'r', sm: 'm', df: 'f', be: 'e', bp: 'b', ce: 'c', cp: 'C', cs: 'S' };
+const ENEMY_KEY_LONG = {};
+for (const k in ENEMY_KEY_SHORT) ENEMY_KEY_LONG[ENEMY_KEY_SHORT[k]] = k;
+function encodeEnemyEntry(en) {
+  const o = {};
+  for (const k in en) o[ENEMY_KEY_SHORT[k] || k] = en[k];
+  return o;
+}
+function decodeEnemyEntry(en) {
+  const o = {};
+  for (const k in en) o[ENEMY_KEY_LONG[k] || k] = en[k];
+  return o;
+}
+// 敵の「全体」を送り直す間隔（ミリ秒）。あいだは変化した項目だけの差分を送る。
+// 状態の通信は順序保証も再送も無いので、差分を取りこぼしても、この間隔で自動的に正しい状態に戻る。
+const ENEMY_FULL_INTERVAL_MS = 1000;
 
 class Net {
   constructor(config) {
@@ -9071,7 +9112,7 @@ class Net {
     return s;
   }
 
-  // mode：ルームの遊び方。通常のダンジョンなら省略、最北戦線なら 'frontline'（参加した人が同じモードで始まる）
+  // mode：ルームの遊び方。通常のダンジョンなら省略、最北戦線なら 'frontline'、ナイトメアなら 'nightmare'（参加した人が同じモードで始まる）
   async createRoom(startFloor, mode) {
     await this.signIn();
     const roomId = this.genRoomCode();
@@ -9399,8 +9440,27 @@ class Net {
     } else if (msg.t === 'enemies') {
       if (!(msg.seq > (this._enemySeqByFloor[msg.floor] || 0))) return;
       this._enemySeqByFloor[msg.floor] = msg.seq;
-      this._enemyMirrorByFloor[msg.floor] = msg.p;
-      if (this._enemiesCb && this._enemiesFloor === msg.floor) this._enemiesCb(msg.p);
+      let mirror;
+      if (msg.f) {
+        // 全体：これで丸ごと置き換える（差分の取りこぼしがあってもここで直る）
+        mirror = {};
+        for (const id in msg.p) mirror[id] = decodeEnemyEntry(msg.p[id]);
+      } else {
+        // 差分：ミラーに項目ごとに重ねる。nullは「消えた敵」または「消えた項目」
+        mirror = Object.assign({}, this._enemyMirrorByFloor[msg.floor] || {});
+        for (const id in msg.p) {
+          const v = msg.p[id];
+          if (v === null) { delete mirror[id]; continue; }
+          const d = decodeEnemyEntry(v);
+          const old = mirror[id];
+          if (!old && d.type === undefined) continue; // 出現時の配信を取りこぼした敵：次の全体配信を待つ
+          const merged = Object.assign({}, old || {});
+          for (const k in d) { if (d[k] === null) delete merged[k]; else merged[k] = d[k]; }
+          mirror[id] = merged;
+        }
+      }
+      this._enemyMirrorByFloor[msg.floor] = mirror;
+      if (this._enemiesCb && this._enemiesFloor === msg.floor) this._enemiesCb(mirror);
     } else if (msg.t === 'frontline') {
       if (!(msg.seq > (this._frontlineSeqSeen || 0))) return;
       this._frontlineSeqSeen = msg.seq;
@@ -9525,14 +9585,39 @@ class Net {
   // 送る（順序保証も再送もしないWebRTCの上で差分だけを送ると、取りこぼしや順序入れ替えで
   // 永久にズレたままになりかねないため。全体を毎回送ればどれか1つでも届けばそれで正しい状態になる）。
   publishEnemies(floor, diffObj) {
-    if (!diffObj || Object.keys(diffObj).length === 0) return;
-    const full = Object.assign({}, this._enemyFullByFloor[floor] || {});
-    for (const id in diffObj) {
-      if (diffObj[id] === null) delete full[id]; else full[id] = diffObj[id];
+    // ホスト側の「確定済みの全体状態」に、項目ごとの差分を重ねる
+    const full = this._enemyFullByFloor[floor] || (this._enemyFullByFloor[floor] = {});
+    let changed = false;
+    if (diffObj) {
+      for (const id in diffObj) {
+        changed = true;
+        const v = diffObj[id];
+        if (v === null) { delete full[id]; continue; }
+        const merged = Object.assign({}, full[id] || {});
+        for (const k in v) { if (v[k] === null) delete merged[k]; else merged[k] = v[k]; }
+        full[id] = merged;
+      }
     }
-    this._enemyFullByFloor[floor] = full;
+    // 全体を送るのは、一定間隔ごと／そのフロアで最初の配信／ゲストが増えた時（途中参加・再接続）。
+    // それ以外は変化した項目だけの差分を送る。
+    let openGuests = 0;
+    if (this._guestPeers) this._guestPeers.forEach(entry => { const ch = entry.channels && entry.channels.state; if (ch && ch.readyState === 'open') openGuests++; });
+    const now = Date.now();
+    this._enemyLastFullAt = this._enemyLastFullAt || {};
+    const lastFull = this._enemyLastFullAt[floor];
+    const sendFull = lastFull === undefined || now - lastFull >= ENEMY_FULL_INTERVAL_MS || openGuests > (this._enemyLastFullGuests || 0);
+    if (!sendFull && !changed) return; // 何も変わっていなければ何も送らない
+    this._enemyLastFullGuests = openGuests;
     this._enemySeq[floor] = (this._enemySeq[floor] || 0) + 1;
-    this._broadcastToGuests('state', { t: 'enemies', floor, seq: this._enemySeq[floor], p: full });
+    const payload = {};
+    if (sendFull) {
+      this._enemyLastFullAt[floor] = now;
+      for (const id in full) payload[id] = encodeEnemyEntry(full[id]);
+      this._broadcastToGuests('state', { t: 'enemies', floor, seq: this._enemySeq[floor], f: 1, p: payload });
+    } else {
+      for (const id in diffObj) payload[id] = diffObj[id] === null ? null : encodeEnemyEntry(diffObj[id]);
+      this._broadcastToGuests('state', { t: 'enemies', floor, seq: this._enemySeq[floor], p: payload });
+    }
   }
 
   listenEnemies(floor, cb) {
@@ -9659,7 +9744,7 @@ function setLobbyStatus(msg) { document.getElementById('lobbyStatus').textConten
 
 // ルーム作成・参加の通信中は他のロビー操作を一切できないようにする。
 // （連打での二重作成や、入力途中でのボタン誤操作を防ぐため）
-const LOBBY_CONTROL_IDS = ['soloBtn', 'bossRushBtn', 'frontlineBtn', 'createRoomBtn', 'createFrontlineRoomBtn', 'joinRoomBtn', 'roomCodeInput', 'nameInput'];
+const LOBBY_CONTROL_IDS = ['soloBtn', 'bossRushBtn', 'frontlineBtn', 'nightmareBtn', 'createRoomBtn', 'createFrontlineRoomBtn', 'createNightmareRoomBtn', 'joinRoomBtn', 'roomCodeInput', 'nameInput'];
 function setLobbyBusy(busy) {
   LOBBY_CONTROL_IDS.forEach(id => { document.getElementById(id).disabled = busy; });
   document.querySelectorAll('#colorPicker .swatch').forEach(sw => {
@@ -9683,6 +9768,7 @@ function startGame(mode, extra) {
     devWeaponLevel: devMode ? Math.max(1, parseInt(document.getElementById('devWeaponLevelInput').value, 10) || 5) : null,
     devMode, // リザルト画面の表示（DEVELOPER）切り替え用
     bossRush: !!(extra && extra.bossRush),
+    nightmare: !!(extra && extra.nightmare), // ナイトメアダンジョン（ソロ／協力プレイ）
     frontline: !!(extra && extra.frontline), // 最北戦線（ソロ／協力プレイ）
     rushWeaponKey: (extra && extra.weaponKey) || null,
     joinAsGhost: !!(extra && extra.joinAsGhost), // 2階層以降のルームに途中参加：ゴーストとして入る
@@ -9693,6 +9779,7 @@ function startGame(mode, extra) {
 }
 
 document.getElementById('soloBtn').addEventListener('click', () => startGame('solo'));
+document.getElementById('nightmareBtn').addEventListener('click', () => startGame('solo', { nightmare: true }));
 // ボスラッシュ：まず武器選択画面を出し、選んだ武器のLv.5でスタートする。
 // ダメージの無い十字架はボスを倒せないので候補から除く。
 const RUSH_WEAPON_DESC = {
@@ -9786,6 +9873,21 @@ document.getElementById('createFrontlineRoomBtn').addEventListener('click', () =
   }, null, FRONTLINE_ROOM_WEAPONS);
 });
 
+// ナイトメアダンジョンの協力プレイ：ルームのmodeを 'nightmare' にして作る（参加した人も自動で同じモードになる）
+document.getElementById('createNightmareRoomBtn').addEventListener('click', async () => {
+  setLobbyBusy(true);
+  setLobbyStatus('ルームを作成中...');
+  try {
+    const startFloor = isDevName() ? Math.max(1, parseInt(document.getElementById('devFloorInput').value, 10) || 10) : 1;
+    const info = await netInstance.createRoom(startFloor, 'nightmare');
+    startGame('mp', Object.assign({}, info, { nightmare: true }));
+    setLobbyBusy(false);
+  } catch (e) {
+    setLobbyStatus('エラー: ' + e.message);
+    setLobbyBusy(false);
+  }
+});
+
 document.getElementById('joinRoomBtn').addEventListener('click', async () => {
   const code = document.getElementById('roomCodeInput').value;
   setLobbyBusy(true);
@@ -9801,7 +9903,7 @@ document.getElementById('joinRoomBtn').addEventListener('click', async () => {
         () => { netInstance.roomId = null; setLobbyStatus(''); });
       return;
     }
-    startGame('mp', info);
+    startGame('mp', Object.assign({}, info, { nightmare: info.mode === 'nightmare' })); // ナイトメアのルームなら同じモードで入る
     setLobbyBusy(false);
   } catch (e) {
     setLobbyStatus('エラー: ' + e.message);
