@@ -1084,18 +1084,19 @@ const FRONTLINE = {
   txHitInterval: 0.6,                             // 同じ敵が発信機を殴る間隔（秒）
   playerAggro: 130,                               // プレイヤーがこの距離以内にいる敵は、発信機よりプレイヤーを狙う
   firstSpawnDelay: 3,                             // 開始から最初の敵が出るまでの猶予（秒）
-  spawnInterval0: 4, spawnHalfLife: 150, spawnMin: 1.5, // 出現間隔：最初は4秒ごと、150秒ごとに半分、最短1.5秒（シマハル版で緩めに変更）
-  maxAlive: 25,                                   // 同時に存在できる敵の上限
+  spawnInterval0: 2.2, spawnHalfLife: 150, spawnMin: 0.25, // 出現間隔：最初は2.2秒ごと、150秒ごとに半分、最短0.25秒
+  maxAlive: 70,                                   // 同時に存在できる敵の上限
   hpPerSec: 1 / 150, dmgPerSec: 1 / 400,          // 経過時間に応じた敵HP・攻撃力の上昇（1秒あたりの増分）
   // ドロップは確率制：敵を1体倒すごとに1回抽選（宝箱 → 包帯の順に判定）
-  chestChance: 0.01,                              // 武器強化の宝箱が出る確率（従来の1/4。平均100体に1回くらい）
-  potionChance: 0.05,                             // 包帯が出る確率
+  chestChance: 0.01 / 3,                          // 武器強化の宝箱が出る確率（約0.33%。平均300体に1回くらい）
+  potionChance: 0.05 / 3,                         // 包帯が出る確率（約1.67%）
   // ボス：時間が経つと出現する。倒すと力尽きた仲間（ゴースト）が復活＋確率で宝箱。HPの全回復はしない。倒してから bossInterval 秒後に次のボスが出る。
   bossFirst: 180, bossInterval: 120,              // 最初のボスが出る時間（秒）／ボスを倒してから次が出るまで（秒）
+  bossIntervalHalfLife: 300, bossIntervalMin: 30, // ボスの間隔は時間とともに縮む：300秒ごとに半分、最短30秒
   bossScalePerBoss: 0.4,                          // ボスが出るたびに、ボスのHP・攻撃力が（初回比で）これだけ増える
   dropLife: 45,                                   // 落ちた宝箱・包帯が消えるまでの時間（秒）
   bossTxDamageMult: 0.5,                          // ボスが発信機に与えるダメージは、通常の敵よりこの倍率だけ控えめにする
-  bossChestChance: 1,                             // ボスを倒した時に宝箱が出る確率（1＝必ず）
+  bossChestChance: 0.05,                          // ボスを倒した時に宝箱が出る確率（5%）
   bossKeys: ['overlord', 'quartet', 'detonator', 'zoetrope'], // 出てくるボス（シャッフルして順番に出す）
   // ボスも廊下を降りて発信機を目指す。ボスごとの調整：
   bossOver: {
@@ -1106,13 +1107,13 @@ const FRONTLINE = {
   },
   // 出現する敵の表：from＝何秒経ったら出始めるか、weight＝出やすさ、over＝この敵だけ変える性質
   // （廊下の奥から発信機まで一直線に向かってくるように、索敵範囲などを無限にしてある）
-  // 【ギャグ版】出てくる雑魚は全部シマハル。ボスと違って倒せる程度に弱体化してある。
   spawnTable: [
-    { key: 'simahar', from: 0, weight: 1, over: {
-        aggroRange: Infinity, chaseWhileIdle: true,
-        hp: 120, damage: 15, speed: 60,        // 本家は hp1040 / damage99999 なので、雑魚サイズに調整
-        isBoss: false, bossSpawn: false,       // ボス扱いを外す（ボス枠を塞がない・専用UIを出さない）
-      } },
+    { key: 'slime',   from: 0,   weight: 5,   over: { behavior: 'chase', aggroRange: Infinity } },
+    { key: 'bat',     from: 20,  weight: 3,   over: {} },
+    { key: 'charger', from: 60,  weight: 2.5, over: { chaseWhileIdle: true, chaseRange: Infinity } },
+    { key: 'shooter', from: 100, weight: 2,   over: {} },
+    { key: 'brute',   from: 150, weight: 2,   over: { aggroRange: Infinity } },
+    { key: 'spore',   from: 240, weight: 1,   over: { aggroRange: Infinity, chaseBias: 0.6 } },
   ],
 };
 
@@ -1654,6 +1655,7 @@ class GameScene extends Phaser.Scene {
         this.net.listenShots(payload => this.onIncomingShot(payload));
         this.net.listenEnemyShots(payload => this.onIncomingEnemyShot(payload));
         this.net.listenRevive(pos => this.onRevive(pos));
+        this.net.onConnectFail = () => this.showBanner('📶 接続できませんでした。ホストがモバイル通信を使用してください', 8000); // TURNなし：直接つなげない時の案内
         if (this.frontline) {
           this.net.listenFrontline(obj => this.onFrontlineSync(obj)); // 発信機のHP・経過時間・ボスの予定（ホストが配信）
           this.net.listenDrops(v => this.onFrontlineDrop(v));         // 宝箱・包帯のドロップ（ホストが決めて全員に配信）
@@ -8894,7 +8896,7 @@ class GameScene extends Phaser.Scene {
     if (this.frontline) {
       // 最北戦線：確率で宝箱（HPは回復しない）。次のボスは倒してから bossInterval 秒後に出る
       this.hideBossUi();
-      if (this.fl) this.fl.nextBossAt = this.fl.elapsed + FRONTLINE.bossInterval;
+      if (this.fl) this.fl.nextBossAt = this.fl.elapsed + Math.max(FRONTLINE.bossIntervalMin, FRONTLINE.bossInterval * Math.pow(0.5, this.fl.elapsed / FRONTLINE.bossIntervalHalfLife));
       if (Math.random() < FRONTLINE.bossChestChance) this.dropFrontlineChest(pos.x, pos.y);
       if (this.mp && this.net) {
         // 協力プレイ：力尽きた仲間（ゴースト）だけが発信機のそばで復活する
@@ -8965,25 +8967,16 @@ const FIREBASE_CONFIG = {
 // [既知の制限] ホストが途中で交代するケース（元のホストが抜けた場合）の
 // 再接続は今回のスコープ外。
 //
-// TURN（保険）について：
-// STUNだけでは「お互いのIPを教え合う」ことしかできず、Symmetric NATや、UDP自体を
-// 塞ぐ厳しい社内/学校ネットワークでは直接接続(ICE)が最後まで失敗する。
-// その場合の保険として、直接繋がらない時だけ自動的に使われる中継(TURN)サーバーを
-// 追加しておく。UDP/TCP(443)/TLSの3経路を並べておくことで、UDPそのものが
-// 禁止されている環境でもTCP/TLS経由でなら繋がる可能性を上げている。
-// ※ここで使っているのはMetered (metered.ca) の、このゲーム用に発行したTURN認証情報。
-//   以前はOpen Relay Projectの共有の公開認証情報（openrelayproject）を使っていたが、
-//   今は実質使えないため、自分のアカウントの認証情報に差し替えた。
-//   注意：この認証情報はHTMLに直接書いてあるため、ページを開いた人には見える。
-//   使用量が想定外に増えたらMeteredのダッシュボードで認証情報を作り直す（ローテーションする）こと。
+// TURN（中継サーバー）について：
+// 現在はTURNを使っていない（STUNのみ）。STUNだけでは「お互いのIPを教え合う」ことしか
+// できないため、Symmetric NATや、UDP自体を塞ぐ厳しい社内/学校ネットワークでは
+// 直接接続(ICE)が最後まで失敗することがある。その場合は、接続できなかった側に
+// 「ホストがモバイル通信を使用してください」と表示する（Net.onConnectFail → GameScene）。
+// TURNを復活させたい時は、下のiceServersに { urls: 'turn:...', username, credential } を追加する。
 const RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun.relay.metered.ca:80' },
-    { urls: 'turn:global.relay.metered.ca:80', username: '45a5a86f34ea816f17314335', credential: 'k0dokHxoA6sJ6oeD' },
-    { urls: 'turn:global.relay.metered.ca:80?transport=tcp', username: '45a5a86f34ea816f17314335', credential: 'k0dokHxoA6sJ6oeD' },
-    { urls: 'turn:global.relay.metered.ca:443', username: '45a5a86f34ea816f17314335', credential: 'k0dokHxoA6sJ6oeD' },
-    { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username: '45a5a86f34ea816f17314335', credential: 'k0dokHxoA6sJ6oeD' },
   ],
 };
 
@@ -9025,6 +9018,8 @@ class Net {
     this._guestPeers = null; this._guestSeq = {};                // ホスト側：ゲストuid -> {pc, channels}
     this._hostingStarted = false;
     this._stateSeq = 0; this._playersSeq = 0;
+    this.onConnectFail = null;   // WebRTCが繋がらなかった時に呼ばれる（GameSceneが表示を設定する）
+    this._lastConnFailAt = 0;
 
     if (this.enabled) {
       try {
@@ -9220,10 +9215,15 @@ class Net {
     // 接続試行ごとに別パス（generation単位）を使い、古いデータが新しいpcに混ざらないようにする。
     const gen = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
     pc.onicecandidate = (e) => { if (e.candidate) sigRef.child(`candidates/${this.uid}/guest/${gen}`).push(e.candidate.toJSON()); };
+    // 15秒たっても繋がらない、またはICEが失敗した場合は「繋げなかった」として知らせる
+    let everConnected = false;
+    const failTimer = setTimeout(() => { if (!everConnected && this._hostPc === pc) this._notifyConnectFail(); }, 15000);
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
+        everConnected = true; clearTimeout(failTimer);
         this._connectedHostUid = hostUid; this._connectingHostUid = null;
       } else if (pc.connectionState === 'failed' || pc.connectionState === 'closed' || pc.connectionState === 'disconnected') {
+        if (pc.connectionState === 'failed' && !everConnected && this._hostPc === pc) { clearTimeout(failTimer); this._notifyConnectFail(); }
         if (this._connectedHostUid === hostUid) this._connectedHostUid = null;
         this._connectingHostUid = null;
       }
@@ -9263,6 +9263,14 @@ class Net {
     } catch (e) {
       this._connectingHostUid = null;
     }
+  }
+
+  // WebRTCが繋がらなかった時の通知（何度も繋ぎ直す間に連続表示されないよう、20秒に1回まで）
+  _notifyConnectFail() {
+    const now = Date.now();
+    if (now - this._lastConnFailAt < 20000) return;
+    this._lastConnFailAt = now;
+    try { this.onConnectFail && this.onConnectFail(); } catch (e) {}
   }
 
   _teardownPeer() {
@@ -9313,8 +9321,14 @@ class Net {
       entry.channels[e.channel.label] = e.channel;
       this._wireHostChannel(guestUid, e.channel);
     };
+    // ゲストが15秒たっても繋がらない、またはICEが失敗した場合は、ホスト側にも知らせる
+    let everConnected = false;
+    const failTimer = setTimeout(() => { if (!everConnected && this._guestPeers && this._guestPeers.get(guestUid) === entry) this._notifyConnectFail(); }, 15000);
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed' || pc.connectionState === 'closed' || pc.connectionState === 'disconnected') {
+      if (pc.connectionState === 'connected') {
+        everConnected = true; clearTimeout(failTimer);
+      } else if (pc.connectionState === 'failed' || pc.connectionState === 'closed' || pc.connectionState === 'disconnected') {
+        if (pc.connectionState === 'failed' && !everConnected && this._guestPeers && this._guestPeers.get(guestUid) === entry) { clearTimeout(failTimer); this._notifyConnectFail(); }
         this._onGuestDisconnected(guestUid);
       }
     };
