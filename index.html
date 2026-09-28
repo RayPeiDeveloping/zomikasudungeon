@@ -916,6 +916,12 @@ const ENEMY_TYPES = [
     enrageHpRatio: 0.5, enrageComboRest: 3, // HPが半分以下になると、次の連続突進までの間隔が comboRest → enrageComboRest（3秒）に縮まる
     chargeAngleJitterDeg: 10, // 突進の向きのランダムなブレ（プレイヤーへ向けた角度から±この度数の範囲で毎回ランダムにずらす。0でブレなし）
     chargeDirLeadTime: 0, // 突進する向きを決めるタイミングを、突進が始まる0秒前にする（0＝従来通り予備動作の終わりに決める）
+    // 連続突進のうち最初のcount回だけ、突進のleadTime秒前に向きを決め、その向きにjitterDeg(±度)のランダムなブレを足す。
+    // 残りの突進は上のchargeDirLeadTime／chargeAngleJitterDegのまま（従来通り）。
+    chargeEarlyAim: { count: 3, leadTime: 0.5, jitterDeg: 20 },
+    // 連続突進の各回の予備動作(telegraph)の長さ（秒）。1回目から順に使い、だんだん短くなる。
+    // 配列より回数が多い場合は最後の値を使う。未設定のタイプは従来通り（1回目0.4秒、2回目以降comboTelegraph）。
+    chargeTelegraphSeq: [0.5, 0.41, 0.33, 0.24, 0.15],
     chargeCombo: 5, comboTelegraph: 0.15, comboGap: 0.15, comboRest: 10, // 連続突進：5連続（合間は短い溜め）。次の5連続までの間隔は10秒（その間は歩いて追いかけてくる）
     chaseWhileIdle: true,
     initialChargeDelay: 3, // 登場してから最初の連続突進を始めるまでの猶予（秒）
@@ -1767,10 +1773,6 @@ class GameScene extends Phaser.Scene {
     }
     // ゾートロープ：ゲストからの攻撃申告でも、ホストが代わりにテレポートさせる。
     if (payload.damage > 0 && t.teleportOnHit && enemy.hp > 0) this.requestTeleport(enemy);
-    // オーバーロード：ゲストからの攻撃申告でも、突進中に被弾していれば同様に突進を打ち切って3秒硬直させる。
-    if (payload.damage > 0 && enemy.hp > 0 && t.key === 'overlord' && enemy.state === 'dash') {
-      enemy.state = 'cooldown'; enemy.timer = 3; enemy.comboLeft = 0;
-    }
     // カルテット系ボス：ゲストからの攻撃申告でも同様に、初撃でその場で分裂させる。
     // ここが抜けているとホスト自身が殴った時しか分裂しなくなってしまう。
     if (payload.damage > 0 && t.splitOnHit && !enemy._hasSplit) {
@@ -4375,11 +4377,6 @@ class GameScene extends Phaser.Scene {
     }
     // ゾートロープ：攻撃を受けるたびにプレイヤーの近くへ飛ぶ（実際の移動は updateEnemy 側）
     if (damage > 0 && t.teleportOnHit && enemy.hp > 0) this.requestTeleport(enemy);
-    // オーバーロード：突進中に攻撃を受けたら、そこで突進（連続突進の残りも含めて）を打ち切り、
-    // その場で3秒間硬直する（硬直明けは通常通りidleへ戻り、また間合いに入れば突進し直す）。
-    if (damage > 0 && enemy.hp > 0 && t.key === 'overlord' && enemy.state === 'dash') {
-      enemy.state = 'cooldown'; enemy.timer = 3; enemy.comboLeft = 0;
-    }
     if (wasAlive && enemy.hp <= 0 && !enemy._skipBossReward) this.creditKill(enemy);
   }
 
@@ -7121,10 +7118,25 @@ class GameScene extends Phaser.Scene {
   }
 
   // 突進の向きに足すランダムなブレ（ラジアン）。敵タイプの chargeAngleJitterDeg（±度）で決まり、未設定なら0。
-  chargeAngleJitter(t) {
-    const deg = t && t.chargeAngleJitterDeg;
+  chargeAngleJitter(t, degOverride) {
+    const deg = degOverride != null ? degOverride : (t && t.chargeAngleJitterDeg);
     if (!deg) return 0;
     return Phaser.Math.DegToRad((Math.random() * 2 - 1) * deg);
+  }
+
+  // 突進の予備動作(telegraph)に入る時に呼ぶ。この突進が連続突進の何回目かを見て、向きを決めるタイミング(e._aimLead)と
+  // 向きのブレ(e._aimJitter：nullなら敵タイプ既定値)を決める。chargeEarlyAim未設定のタイプは従来通り。
+  // 呼ぶ前にe.comboLeft（この突進の分を引いた残り回数）を更新しておくこと。戻り値は予備動作の長さの下限(lead)。
+  setupChargeAim(e, t) {
+    const idx = (t.chargeCombo || 1) - e.comboLeft; // 今から始まるのが何回目の突進か（1始まり）
+    const ea = t.chargeEarlyAim;
+    if (ea && idx <= ea.count) { e._aimLead = ea.leadTime; e._aimJitter = ea.jitterDeg; }
+    else { e._aimLead = t.chargeDirLeadTime || 0; e._aimJitter = null; }
+    e.chargeAngleDecided = false; // このtelegraph中はまだ向きを決めていない
+    // この突進の予備動作の長さ（chargeTelegraphSeq指定時のみ。未指定ならnullで、呼び出し側が従来の長さを使う）
+    const seq = t.chargeTelegraphSeq;
+    e._aimDur = (seq && seq.length) ? seq[Math.min(idx, seq.length) - 1] : null;
+    return e._aimLead;
   }
 
   // 突進が止まった後の硬直時間。連続突進の途中なら短い間隔(comboGap)で次へ、
@@ -7248,23 +7260,22 @@ class GameScene extends Phaser.Scene {
           moveX = e.dirX * 0.4; moveY = e.dirY * 0.4;
         }
         if (playerDist < (t.chargeRange || 170) && playerDist > 30 && !(e.chargeLock > 0)) {
-          const lead = t.chargeDirLeadTime || 0; // 突進の向きを決めるタイミングを、突進開始のこの秒数前にする（0なら従来通り直前に決定）
-          e.state = 'telegraph'; e.timer = Math.max(0.4, lead);
           e.comboLeft = (t.chargeCombo || 1) - 1; // 連続突進の残り回数（1回目を除く）
-          e.chargeAngleDecided = false; // このtelegraph中はまだ向きを決めていない
+          const lead = this.setupChargeAim(e, t); // 突進の向きを決めるタイミングを、突進開始のこの秒数前にする（0なら従来通り直前に決定）
+          e.state = 'telegraph'; e.timer = e._aimDur != null ? e._aimDur : Math.max(0.4, lead);
         }
       } else if (e.state === 'telegraph') {
         moveX = 0; moveY = 0;
-        const lead = t.chargeDirLeadTime || 0;
+        const lead = e._aimLead != null ? e._aimLead : (t.chargeDirLeadTime || 0);
         // 向きを早めに確定させるタイプ：残り時間がlead秒まで減った瞬間（＝突進開始のlead秒前）に、その時点の
         // プレイヤー位置で向きを決める（早く決めすぎない・遅く決めすぎないよう、ちょうどそのタイミングで1回だけ）
         if (lead > 0 && !e.chargeAngleDecided && e.timer <= lead) {
-          e.chargeAngle = playerAngle + this.chargeAngleJitter(t);
+          e.chargeAngle = playerAngle + this.chargeAngleJitter(t, e._aimJitter);
           e.chargeAngleDecided = true;
         }
         if (e.timer <= 0) {
           // lead未設定（0）のタイプは、シマハルと同様、予備動作が終わる瞬間のプレイヤー位置で決める
-          if (!(lead > 0)) e.chargeAngle = playerAngle + this.chargeAngleJitter(t);
+          if (!(lead > 0)) e.chargeAngle = playerAngle + this.chargeAngleJitter(t, e._aimJitter);
           e.state = 'dash'; e.timer = 0.5;
         }
       } else if (e.state === 'dash') {
@@ -7277,9 +7288,8 @@ class GameScene extends Phaser.Scene {
           if (e.comboLeft > 0) {
             // 連続突進：短い溜めのあと、その時点のプレイヤーの方向へ再度突進する（狙いはtelegraph中に決定）
             e.comboLeft--;
-            const lead = t.chargeDirLeadTime || 0;
-            e.state = 'telegraph'; e.timer = Math.max(t.comboTelegraph || 0.2, lead);
-            e.chargeAngleDecided = false; // このtelegraph中はまだ向きを決めていない
+            const lead = this.setupChargeAim(e, t);
+            e.state = 'telegraph'; e.timer = e._aimDur != null ? e._aimDur : Math.max(t.comboTelegraph || 0.2, lead);
           } else {
             e.state = 'idle';
           }
