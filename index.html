@@ -921,7 +921,7 @@ const ENEMY_TYPES = [
     chargeEarlyAim: { count: 3, leadTime: 0.5, jitterDeg: 20 },
     // 連続突進の各回の予備動作(telegraph)の長さ（秒）。1回目から順に使い、だんだん短くなる。
     // 配列より回数が多い場合は最後の値を使う。未設定のタイプは従来通り（1回目0.4秒、2回目以降comboTelegraph）。
-    chargeTelegraphSeq: [0.5, 0.41, 0.33, 0.24, 0.15],
+    chargeTelegraphSeq: [1, 0.75, 0.5, 0.25, 0], // 1秒から0秒まで均等に短くなる（0秒＝予備動作なしで即突進）
     chargeCombo: 5, comboTelegraph: 0.15, comboGap: 0.15, comboRest: 10, // 連続突進：5連続（合間は短い溜め）。次の5連続までの間隔は10秒（その間は歩いて追いかけてくる）
     chaseWhileIdle: true,
     initialChargeDelay: 3, // 登場してから最初の連続突進を始めるまでの猶予（秒）
