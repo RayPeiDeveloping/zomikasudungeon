@@ -309,7 +309,6 @@
       <div id="fbWarning">協力プレイが使えません（FirebaseのAPIキー未設定、または通信環境の制限でFirebaseの読み込みがブロックされている可能性があります）。「ダンジョン」だけ利用できます。</div>
       <button id="createRoomBtn">ルームを作成</button>
       <button id="createFrontlineRoomBtn" style="background:#4fd67a;">最北戦線のルームを作成</button>
-      <button id="createNightmareRoomBtn" style="background:#9b4dff;">ナイトメアのルームを作成</button>
       <div class="joinRow">
         <input type="text" id="roomCodeInput" placeholder="ルームコード" maxlength="5">
         <button id="joinRoomBtn">参加</button>
@@ -341,7 +340,6 @@
     <div class="lobbyBox lobbySide lobbyRight">
       <button id="bossRushBtn" class="challengeBtn" style="background:#ff8a5b;">ボスラッシュ</button>
       <button id="frontlineBtn" class="challengeBtn" style="background:#4fd67a;">最北戦線</button>
-      <button id="nightmareBtn" class="challengeBtn" style="background:#9b4dff;">ナイトメアダンジョン</button>
     </div>
   </div>
 </div>
@@ -1119,10 +1117,6 @@ const FRONTLINE = {
   ],
 };
 
-// ============== ナイトメアダンジョン（通常ダンジョンの高難度版・ソロ専用）の調整用パラメータ ==============
-// 1階層からボスが出て、すべての敵（ボス含む）のHPと攻撃力が上がる。
-const NIGHTMARE = { hpMult: 2, dmgMult: 2 };
-
 // ============== 通常ダンジョン：雑魚敵を倒した時の低確率ドロップ ==============
 // 最北戦線のドロップの仕組み（emitDrop→全員に配信→早い者勝ちで拾う）を流用する。
 const DUNGEON_KILL_DROP = {
@@ -1502,7 +1496,6 @@ class GameScene extends Phaser.Scene {
     // デベロッパーモード（名前を「developer」にすると使える）では、指定した階から
     // テストプレイを始められる。協力プレイでは部屋側の階を優先する。
     this.bossRush = !this.mp && !!app.bossRush; // ボスラッシュ（ソロ専用）
-    this.nightmare = !!app.nightmare; // ナイトメアダンジョン（ソロ／協力プレイ。協力プレイはルームのmodeで全員そろう）
     this.frontline = !!app.frontline; // 最北戦線（ソロ／協力プレイ）
     this.tx = null; this.fl = null;
     this.runStats = { time: 0, kills: 0, bosses: 0 }; // リザルト用の集計（kills/bossesはソロのみ使用。timeは協力プレイでも数える）
@@ -2396,7 +2389,7 @@ class GameScene extends Phaser.Scene {
       this._prevFloorForListeners = this.floor;
     }
 
-    document.getElementById('floorLabel').textContent = this.bossRush ? 'ボス' : (this.frontline ? '生存' : (this.nightmare ? '悪夢階層' : '階層'));
+    document.getElementById('floorLabel').textContent = this.bossRush ? 'ボス' : (this.frontline ? '生存' : '階層');
     document.getElementById('floorNum').textContent = this.frontline ? '0:00' : this.floor;
     document.getElementById('seedWrap').style.display = this.frontline ? 'none' : '';
     document.getElementById('txHud').style.display = this.frontline ? 'block' : 'none';
@@ -2415,8 +2408,8 @@ class GameScene extends Phaser.Scene {
     const eligible = ENEMY_TYPES.filter(t => t.minFloor <= this.floor && !t.isBoss);
     const startRoom = d.rooms[0];
     const candidateRooms = d.rooms.filter(r => r !== startRoom);
-    const hpMult = (1 + (this.floor - 1) * 0.16) * (this.nightmare ? NIGHTMARE.hpMult : 1);
-    const dmgMult = (1 + (this.floor - 1) * 0.10) * (this.nightmare ? NIGHTMARE.dmgMult : 1);
+    const hpMult = (1 + (this.floor - 1) * 0.16);
+    const dmgMult = (1 + (this.floor - 1) * 0.10);
 
     this.enemies = [];
     const count = Math.min(d.enemyBudget, candidateRooms.length * 3);
@@ -2451,17 +2444,17 @@ class GameScene extends Phaser.Scene {
     // 10階以降は、かなり低確率でフロアに1体だけ強力なボスを配置する（出ない階もある。
     // 出現数の上限は特に設けない＝毎回この確率だけで独立抽選する）。
     // ボスは複数種類の中からランダムに選ばれる（現状: オーバーロード、カルテット）。
-    if (this.floor >= 10 || this.nightmare) { // ナイトメアは1階からボスが出る
+    if (this.floor >= 10) {
       const BOSS_SPAWN_CHANCE = 1.0; // 検証用に一旦100%出現。ボスの種類は、bossSpawn:trueの全種類（オーバーロード/カルテット/デトネーター/ゾートロープ）から均等に抽選する
-      const bossPool = ENEMY_TYPES.filter(t => t.bossSpawn && (this.nightmare || t.minFloor <= this.floor));
+      const bossPool = ENEMY_TYPES.filter(t => t.bossSpawn && t.minFloor <= this.floor);
       const brand = mulberry32(this.baseSeed + this.floor * 911382323);
       if (bossPool.length && candidateRooms.length && brand() < BOSS_SPAWN_CHANCE) {
         const bossType = bossPool[Math.floor(brand() * bossPool.length)];
         const room = candidateRooms[Math.floor(brand() * candidateRooms.length)];
         const bx = (room.x + 1 + brand() * Math.max(1, room.w - 2)) * TILE;
         const by = (room.y + 1 + brand() * Math.max(1, room.h - 2)) * TILE;
-        // 10階より深くなるほどさらに強化。ナイトメアはHP・攻撃力が上がる（_bossScaleが技のダメージにも反映される）
-        const bossScale = (1 + Math.max(0, this.floor - 10) * 0.12) * (this.nightmare ? NIGHTMARE.hpMult : 1);
+        // 10階より深くなるほどさらに強化（_bossScaleが技のダメージにも反映される）
+        const bossScale = (1 + Math.max(0, this.floor - 10) * 0.12);
 
         const gfx = this.add.circle(bx, by, bossType.radius, bossType.color).setDepth(4);
         gfx.setStrokeStyle(3, 0xffd54c, 0.9);
@@ -4036,8 +4029,8 @@ class GameScene extends Phaser.Scene {
     sx = Phaser.Math.Clamp(sx, TILE, maxX - TILE);
     sy = Phaser.Math.Clamp(sy, TILE, maxY - TILE);
 
-    const hpMult = (1 + (this.floor - 1) * 0.16) * (this.nightmare ? NIGHTMARE.hpMult : 1);
-    const dmgMult = (1 + (this.floor - 1) * 0.10) * (this.nightmare ? NIGHTMARE.dmgMult : 1);
+    const hpMult = (1 + (this.floor - 1) * 0.16);
+    const dmgMult = (1 + (this.floor - 1) * 0.10);
     const gfx = this.add.circle(sx, sy, t.radius, CHARGE_GHOST_FILL_COLOR).setDepth(4);
     gfx.setStrokeStyle(2, CHARGE_GHOST_STROKE_COLOR, 0.8);
     gfx.setAlpha(CHARGE_GHOST_ALPHA);
@@ -4485,8 +4478,8 @@ class GameScene extends Phaser.Scene {
     if (this.mp && !this.isHost) return; // 増殖の権威もホストのみが持つ
     const t = enemy.type;
     const count = t.multiplyCount || 10;
-    const hpMult = (1 + (this.floor - 1) * 0.16) * (this.nightmare ? NIGHTMARE.hpMult : 1);
-    const dmgMult = (1 + (this.floor - 1) * 0.10) * (this.nightmare ? NIGHTMARE.dmgMult : 1);
+    const hpMult = (1 + (this.floor - 1) * 0.16);
+    const dmgMult = (1 + (this.floor - 1) * 0.10);
     const ox = enemy.gfx.x, oy = enemy.gfx.y;
 
     for (let i = 0; i < count; i++) {
@@ -8452,7 +8445,7 @@ class GameScene extends Phaser.Scene {
       rows.push(['倒した雑魚敵', st.kills + '体']);
       rows.push(['倒したボス', st.bosses + '体']);
     }
-    document.getElementById('resultMode').textContent = this.isDevMode ? 'DEVELOPER' : (this.bossRush ? 'BOSS RUSH' : (this.frontline ? 'NORTHERN FRONT' : (this.nightmare ? 'NIGHTMARE' : 'DUNGEON')));
+    document.getElementById('resultMode').textContent = this.isDevMode ? 'DEVELOPER' : (this.bossRush ? 'BOSS RUSH' : (this.frontline ? 'NORTHERN FRONT' : 'DUNGEON'));
     document.getElementById('resultStats').innerHTML = rows.map(r =>
       '<div class="resultRow"><span>' + escapeHtml(r[0]) + '</span><b>' + escapeHtml(r[1]) + '</b></div>').join('');
     const weapons = Object.entries(this.weaponLevels).map(([key, lv]) => {
@@ -9112,7 +9105,7 @@ class Net {
     return s;
   }
 
-  // mode：ルームの遊び方。通常のダンジョンなら省略、最北戦線なら 'frontline'、ナイトメアなら 'nightmare'（参加した人が同じモードで始まる）
+  // mode：ルームの遊び方。通常のダンジョンなら省略、最北戦線なら 'frontline'（参加した人が同じモードで始まる）
   async createRoom(startFloor, mode) {
     await this.signIn();
     const roomId = this.genRoomCode();
@@ -9744,7 +9737,7 @@ function setLobbyStatus(msg) { document.getElementById('lobbyStatus').textConten
 
 // ルーム作成・参加の通信中は他のロビー操作を一切できないようにする。
 // （連打での二重作成や、入力途中でのボタン誤操作を防ぐため）
-const LOBBY_CONTROL_IDS = ['soloBtn', 'bossRushBtn', 'frontlineBtn', 'nightmareBtn', 'createRoomBtn', 'createFrontlineRoomBtn', 'createNightmareRoomBtn', 'joinRoomBtn', 'roomCodeInput', 'nameInput'];
+const LOBBY_CONTROL_IDS = ['soloBtn', 'bossRushBtn', 'frontlineBtn', 'createRoomBtn', 'createFrontlineRoomBtn', 'joinRoomBtn', 'roomCodeInput', 'nameInput'];
 function setLobbyBusy(busy) {
   LOBBY_CONTROL_IDS.forEach(id => { document.getElementById(id).disabled = busy; });
   document.querySelectorAll('#colorPicker .swatch').forEach(sw => {
@@ -9768,7 +9761,6 @@ function startGame(mode, extra) {
     devWeaponLevel: devMode ? Math.max(1, parseInt(document.getElementById('devWeaponLevelInput').value, 10) || 5) : null,
     devMode, // リザルト画面の表示（DEVELOPER）切り替え用
     bossRush: !!(extra && extra.bossRush),
-    nightmare: !!(extra && extra.nightmare), // ナイトメアダンジョン（ソロ／協力プレイ）
     frontline: !!(extra && extra.frontline), // 最北戦線（ソロ／協力プレイ）
     rushWeaponKey: (extra && extra.weaponKey) || null,
     joinAsGhost: !!(extra && extra.joinAsGhost), // 2階層以降のルームに途中参加：ゴーストとして入る
@@ -9779,7 +9771,6 @@ function startGame(mode, extra) {
 }
 
 document.getElementById('soloBtn').addEventListener('click', () => startGame('solo'));
-document.getElementById('nightmareBtn').addEventListener('click', () => startGame('solo', { nightmare: true }));
 // ボスラッシュ：まず武器選択画面を出し、選んだ武器のLv.5でスタートする。
 // ダメージの無い十字架はボスを倒せないので候補から除く。
 const RUSH_WEAPON_DESC = {
@@ -9873,21 +9864,6 @@ document.getElementById('createFrontlineRoomBtn').addEventListener('click', () =
   }, null, FRONTLINE_ROOM_WEAPONS);
 });
 
-// ナイトメアダンジョンの協力プレイ：ルームのmodeを 'nightmare' にして作る（参加した人も自動で同じモードになる）
-document.getElementById('createNightmareRoomBtn').addEventListener('click', async () => {
-  setLobbyBusy(true);
-  setLobbyStatus('ルームを作成中...');
-  try {
-    const startFloor = isDevName() ? Math.max(1, parseInt(document.getElementById('devFloorInput').value, 10) || 10) : 1;
-    const info = await netInstance.createRoom(startFloor, 'nightmare');
-    startGame('mp', Object.assign({}, info, { nightmare: true }));
-    setLobbyBusy(false);
-  } catch (e) {
-    setLobbyStatus('エラー: ' + e.message);
-    setLobbyBusy(false);
-  }
-});
-
 document.getElementById('joinRoomBtn').addEventListener('click', async () => {
   const code = document.getElementById('roomCodeInput').value;
   setLobbyBusy(true);
@@ -9903,7 +9879,7 @@ document.getElementById('joinRoomBtn').addEventListener('click', async () => {
         () => { netInstance.roomId = null; setLobbyStatus(''); });
       return;
     }
-    startGame('mp', Object.assign({}, info, { nightmare: info.mode === 'nightmare' })); // ナイトメアのルームなら同じモードで入る
+    startGame('mp', info);
     setLobbyBusy(false);
   } catch (e) {
     setLobbyStatus('エラー: ' + e.message);
