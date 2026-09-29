@@ -3150,8 +3150,14 @@ class GameScene extends Phaser.Scene {
 
   pvpSetSpectator(on) {
     this.isGhost = on;
+    // ダンジョン/最北戦線のゴースト(enterGhostMode)と同じ状態にする。this.eliminated を立てておかないと、
+    // 0.06秒ごとの通常の状態送信が eliminated:false で上書きして、他の人には生きているように見えてしまう。
+    this.eliminated = !!on;
     const a = on ? 0.35 : 1;
     this.player.setAlpha(a); this.facing.setAlpha(a);
+    this.player.setFillStyle(on ? 0xdfe8ff : this.playerColor);
+    const gi = document.getElementById('ghostIndicator');
+    if (gi) gi.style.display = on ? 'block' : 'none';
     if (this.net) this.net.updateOwnState({ eliminated: on, hp: on ? 0 : this.playerHp, maxHp: this.playerMaxHp });
   }
 
@@ -9122,7 +9128,7 @@ class GameScene extends Phaser.Scene {
   // 自分が力尽きていて、部屋にいる他の全員も力尽きていたら、リザルト画面へ進む。
   // （ダウン中の人はまだ蘇生される可能性があるので「生きている」扱い。ダウンが尽きてゴーストになった時点で全滅となる）
   checkMpGameOver() {
-    if (!this.mp || this._mpResultStarted || !this.eliminated) return;
+    if (!this.mp || this.pvp || this._mpResultStarted || !this.eliminated) return; // PvPは全員脱落でも協力用リザルトを出さない（PvP専用の終了処理を使う）
     const players = this.latestPlayers || {};
     for (const uid in players) {
       if (this.net && uid === this.net.uid) continue;
