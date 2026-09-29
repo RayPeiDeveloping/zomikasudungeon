@@ -293,9 +293,16 @@
   }
   #mpPanel b { color: #b388ff; }
   .plRow { display: flex; justify-content: space-between; gap: 1.5vh; }
-  #mpPanel button { margin-top: 1.5vh; width: 100%; padding: 1.25vh; border-radius: 1.5vh; border: none; background: #333; color: #fff; font-size: 2.75vh; cursor: pointer; }
-  #mpPanel #leaveRoomBtn { background: #6a2b2b; }
-  #mpPanel #leaveRoomBtn:disabled { opacity: 0.6; }
+  /* 部屋コードの行：コードの右隣に、コピー・退出の小さいアイコンボタンを並べる */
+  #mpCodeRow { display: flex; align-items: center; gap: 1.2vh; }
+  #mpCodeRow .mpIconBtn {
+    width: 4.4vh; height: 4.4vh; padding: 0; margin: 0; flex: none; line-height: 1;
+    border-radius: 1vh; border: none; background: #333; color: #fff; font-size: 2.4vh; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  #mpCodeRow #leaveRoomBtn { background: #6a2b2b; }
+  #mpCodeRow #leaveRoomBtn.armed { background: #d63a3a; box-shadow: 0 0 1vh rgba(255,80,80,0.8); } /* 1回押した状態（もう一度押すと退出） */
+  #mpCodeRow #leaveRoomBtn:disabled { opacity: 0.6; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.70.0/phaser.min.js"></script>
 <!-- ===== Firebase (協力プレイ用) ===== -->
@@ -390,10 +397,12 @@
   <div id="bandageIndicator" style="display:none;color:#ff8fae;margin-top:4px;">🩹 応急手当中…（攻撃/被弾で中断）</div>
 </div>
 <div id="mpPanel">
-  <div>ルーム: <b id="mpRoomCode">-</b></div>
+  <div id="mpCodeRow">
+    <span>ルーム: <b id="mpRoomCode">-</b></span>
+    <button id="copyRoomBtn" class="mpIconBtn" title="コードをコピー" aria-label="コードをコピー">📋</button>
+    <button id="leaveRoomBtn" class="mpIconBtn" title="退出する" aria-label="退出する">🚪</button>
+  </div>
   <div id="mpPlayerList"></div>
-  <button id="copyRoomBtn">コードをコピー</button>
-  <button id="leaveRoomBtn">退出する</button>
 </div>
 <div id="banner"></div>
 <div id="bossNameBanner"></div>
@@ -779,7 +788,13 @@ function generateFrontlineMap() {
 const PVP = {
   prep:   { x: 2,  y: 2, w: 16, h: 16 },   // 準備室
   battle: { x: 24, y: 2, w: 64, h: 64 },   // バトルフィールド
-  circleR: 2.5,          // 準備室の赤い円の半径
+  circleR: 1.8,          // 準備室の各円の半径
+  // 準備室の3つの円（dx：準備室の中心からの横のずれ[タイル]）。全員が同じ円に入って countdown 秒たつとその モードで開始
+  circles: [
+    { key: 'race',      label: '準備中…',       dx: -5, disabled: true, color: 0x3bd16f, stroke: 0x5be08a, text: '#9af0b6' },
+    { key: 'bodycount', label: 'ボディカウント', dx: 0,  color: 0xffd23b, stroke: 0xffe15b, text: '#ffe89a' },
+    { key: 'survival',  label: 'サバイバル',     dx: 5,  color: 0xff3b3b, stroke: 0xff5b5b, text: '#ff9a9a' },
+  ],
   weaponZone: { cx: 10, cy: 4.5, size: 4, holdTime: 3 }, // 武器変更ゾーン（準備室の上側の正方形。中心タイル座標・一辺のタイル数）。holdTime：武器固定の時、全員が入ってからホストが選び直すまでの秒数
   countdown: 10,         // 全員が円に入ってからワープまでの秒数
   minPlayers: 2,         // 開始に必要な最低人数
@@ -787,6 +802,7 @@ const PVP = {
   ringClear: 3.5,        // 配置の円周まわりには柱を置かない幅
   pillarCount: 45, pillarSeed: 20260929,
   pillarMin: 2, pillarMax: 5,   // 柱1本の一辺の大きさ（タイル）。この範囲でランダム
+  bodycount: { time: 600, respawnTime: 10, potionEvery: 60 }, // ボディカウント：制限時間(秒)／やられてからリスポーンまで(秒)／回復アイテムを補充する間隔(秒)
   damageDiv: 5,          // PvPのダメージを割る値（大きいほど倒れにくい）
   potionCount: 3,        // バトル開始のたびにフィールドに落ちる回復アイテムの数
   spawnGrace: 2,         // ワープ直後の無敵秒数
@@ -2041,18 +2057,22 @@ class GameScene extends Phaser.Scene {
     // リロードする（待たずにリロードすると削除が送り切れず、ホスト交代がFirebaseの切断待ちになる）。
     const leaveBtn = document.getElementById('leaveRoomBtn');
     leaveBtn.disabled = false;
-    leaveBtn.textContent = '退出する';
+    leaveBtn.classList.remove('armed');
+    leaveBtn.textContent = '🚪';
     let armTimer = null;
     leaveBtn.onclick = async () => {
       if (leaveBtn.disabled) return;
       if (!armTimer) {
-        leaveBtn.textContent = 'もう一度押すと退出';
-        armTimer = setTimeout(() => { armTimer = null; leaveBtn.textContent = '退出する'; }, 3000);
+        leaveBtn.classList.add('armed');
+        this.showBanner('もう一度押すと退出します', 3000);
+        armTimer = setTimeout(() => { armTimer = null; leaveBtn.classList.remove('armed'); }, 3000);
         return;
       }
       clearTimeout(armTimer); armTimer = null;
       leaveBtn.disabled = true;
-      leaveBtn.textContent = '退出中…';
+      leaveBtn.classList.remove('armed');
+      leaveBtn.textContent = '…';
+      this.showBanner('退出中…', 3000);
       window.removeEventListener('pagehide', this._onPageHide); // 二重に退出処理が走らないように
       const others = Object.keys(this.latestPlayers || {}).filter(uid => uid !== this.net.uid);
       try {
@@ -2800,21 +2820,23 @@ class GameScene extends Phaser.Scene {
   }
 
   // ===================== PvPモード =====================
-  // 流れ：準備室(prep) → 全員が赤い円に入って10秒 → バトルフィールドへワープ(battle) → 1人になったら勝者表示(over) → 準備室に戻る
+  // 流れ：準備室(prep) → 全員が同じ円（サバイバル/ボディカウント/レース）に入って10秒 → バトルフィールドへワープ(battle) → 1人になったら勝者表示(over) → 準備室に戻る
   // ダメージ判定は「攻撃した側」が行う。他プレイヤーを「見えない敵(_pvp)」として this.enemies に入れておくので、既存の全武器がそのまま当たる。
   // 当たった分は damageEnemy() で横取りして集計し、0.1秒ごとに「pvp/hit」イベントで本人へ送る（受けた側がHPを減らす）。
   setupPvp() {
     const P = PVP, d = this.dungeon;
-    this.pv = { phase: 'prep', cd: P.countdown, cdShown: -1, counting: false, ids: [], alive: new Set(), out: {}, outTimer: 0, dead: false, grace: 0, resetAt: 0, endSent: false, proxies: {}, kills: {}, dmg: {}, info: {} };
+    this.pv = { phase: 'prep', cd: P.countdown, cdShown: -1, counting: false, ids: [], alive: new Set(), out: {}, outTimer: 0, dead: false, grace: 0, resetAt: 0, endSent: false, proxies: {}, kills: {}, deaths: {}, dmg: {}, info: {}, mode: null, winners: null, endAt: 0, respLeft: 0, respShown: -1, nextPotion: 1 };
     this.pv.fixed = !!((window.APP || {}).fixedWeapon); // 武器固定ルームかどうか
     this.pv.wcd = P.weaponZone.holdTime; this.pv.wcdShown = -1; this.pv.wpicking = false; this.pv.wlock = false; this.pv.wzOpen = false; this.pv.wzIn = false;
     this.pvpWins = 0; // このセッションでの自分の累計勝利数（他の人には毎フレームの状態(wins)として配信される）
 
     // 壁・床の見た目は通常ダンジョンと同じ（redrawDungeonWalls が床を描き、壁は何も描かない）。柱もその壁扱い。
     const pc = this.pvpPrepCenter();
-    this.pvCircle = this.add.circle(pc.x, pc.y, P.circleR * TILE, 0xff3b3b, 0.22).setDepth(1);
-    this.pvCircle.setStrokeStyle(3, 0xff5b5b, 0.95);
-    this.add.text(pc.x, pc.y - P.circleR * TILE - 14, 'バトル開始', { fontSize: '14px', color: '#ff9a9a', fontFamily: 'sans-serif', fontStyle: 'bold' }).setOrigin(0.5).setDepth(2);
+    for (const c of this.pvpCircles()) {
+      const g = this.add.circle(c.x, c.y, P.circleR * TILE, c.color, 0.22).setDepth(1);
+      g.setStrokeStyle(3, c.stroke, 0.95);
+      this.add.text(c.x, c.y - P.circleR * TILE - 14, c.label, { fontSize: '14px', color: c.text, fontFamily: 'sans-serif', fontStyle: 'bold' }).setOrigin(0.5).setDepth(2);
+    }
 
     // 武器変更ゾーン（準備室の上側の四角）。固定でない：入った人が自分で変更／固定：全員が入って3秒でホストが選び直す
     const wz = P.weaponZone, wzW = wz.size * TILE;
@@ -2826,7 +2848,13 @@ class GameScene extends Phaser.Scene {
 
     this.player.x += (Math.random() - 0.5) * 120; // 全員が同じ場所に重ならないように
     this.net.listenPvp(m => this.onPvpMsg(m));
-    this.showBanner('全員が赤い円に入ると10秒後にバトルフィールドへワープします', 3500);
+    this.showBanner('全員が同じ円に入ると10秒後にバトルフィールドへワープします', 3500);
+  }
+
+  // 準備室の3つの円（ワールド座標）
+  pvpCircles() {
+    const pc = this.pvpPrepCenter();
+    return PVP.circles.map(c => Object.assign({}, c, { x: pc.x + c.dx * TILE, y: pc.y }));
   }
 
   pvpPrepCenter() {
@@ -3009,7 +3037,7 @@ class GameScene extends Phaser.Scene {
     const my = this.pvpMyWinLabel;
     my.setVisible(show && !!this.player);
     if (show && this.player) {
-      const t = '🏆 ' + (this.pvpWins || 0) + '勝';
+      const t = '🏆 ' + (this.pvpWins || 0);
       if (my.text !== t) my.setText(t);
       my.x = this.player.x; my.y = this.player.y - 36;
     }
@@ -3019,7 +3047,7 @@ class GameScene extends Phaser.Scene {
       if (!rp.winLabel) rp.winLabel = this.add.text(0, 0, '', style).setOrigin(0.5).setDepth(6);
       rp.winLabel.setVisible(show);
       if (!show) continue;
-      const t = '🏆 ' + ((players[uid] && players[uid].wins) || 0) + '勝';
+      const t = '🏆 ' + ((players[uid] && players[uid].wins) || 0);
       if (rp.winLabel.text !== t) rp.winLabel.setText(t);
       rp.winLabel.x = rp.gfx.x; rp.winLabel.y = rp.gfx.y - 36;
     }
@@ -3031,21 +3059,38 @@ class GameScene extends Phaser.Scene {
     this.pvpSyncProxies();
     this.pvpUpdateWinLabels();
     this.pvpUpdateWeaponZone(dt);
+    this.pvpUpdateTimer();
     if (pv.phase === 'prep') {
       if (!this.isHost) return;
-      const list = this.pvpPlayerPositions(), pc = this.pvpPrepCenter(), R = PVP.circleR * TILE;
-      const allIn = list.length >= PVP.minPlayers && list.every(q => Math.hypot(q.x - pc.x, q.y - pc.y) <= R);
-      if (allIn) {
+      const list = this.pvpPlayerPositions(), R = PVP.circleR * TILE;
+      // 全員が同じ1つの円に入っているときだけ、その円のモードでカウントダウン
+      const hit = list.length >= PVP.minPlayers ? this.pvpCircles().find(c => !c.disabled && list.every(q => Math.hypot(q.x - c.x, q.y - c.y) <= R)) : null;
+      if (hit) {
+        if (pv.cdMode !== hit.key) { pv.cdMode = hit.key; pv.cd = PVP.countdown; pv.cdShown = -1; } // 別の円に移ったらやり直し
         pv.cd -= dt;
         const n = Math.max(0, Math.ceil(pv.cd));
-        if (n !== pv.cdShown) { pv.cdShown = n; this.net.sendPvp({ a: 'cd', n }); }
-        if (pv.cd <= 0) { pv.phase = 'starting'; this.net.sendPvp({ a: 'start', ids: list.map(q => q.uid).sort(), round: (pv.round = (pv.round || 0) + 1) }); }
+        if (n !== pv.cdShown) { pv.cdShown = n; this.net.sendPvp({ a: 'cd', n, mode: hit.key }); }
+        if (pv.cd <= 0) { pv.phase = 'starting'; this.net.sendPvp({ a: 'start', ids: list.map(q => q.uid).sort(), round: (pv.round = (pv.round || 0) + 1), mode: hit.key }); }
       } else if (pv.cdShown !== -1) {
-        pv.cd = PVP.countdown; pv.cdShown = -1;
+        pv.cd = PVP.countdown; pv.cdShown = -1; pv.cdMode = null;
         this.net.sendPvp({ a: 'cd', n: -1 });
       }
     } else if (pv.phase === 'battle') {
       if (pv.grace > 0) pv.grace -= dt;
+      if (pv.mode === 'bodycount') {
+        // 死んでいる間はリスポーンまでのカウントダウン
+        if (pv.dead) {
+          pv.respLeft -= dt;
+          const n = Math.ceil(pv.respLeft);
+          if (n > 0 && n !== pv.respShown) { pv.respShown = n; this.showBanner('やられた…\nリスポーンまで ' + n, 1200); }
+          if (pv.respLeft <= 0) this.pvpRespawn();
+        }
+        // 一定時間ごとに回復アイテムを補充（位置は共通シードなので全員同じ）
+        const elapsed = PVP.bodycount.time - (pv.endAt - performance.now()) / 1000;
+        while (elapsed >= pv.nextPotion * PVP.bodycount.potionEvery && pv.nextPotion * PVP.bodycount.potionEvery < PVP.bodycount.time) {
+          this.pvpSpawnPotions((pv.round || 0) * 100 + pv.nextPotion++);
+        }
+      }
       pv.outTimer -= dt;
       if (pv.outTimer <= 0) {
         pv.outTimer = 0.1;
@@ -3068,6 +3113,17 @@ class GameScene extends Phaser.Scene {
   pvpCheckEnd() {
     const pv = this.pv, present = this.latestPlayers || {};
     if (pv.endSent) return;
+    if (pv.mode === 'bodycount') {
+      // 時間切れ、または参加者が1人以下になったら終了。キル数が最多の人（同数なら全員）が勝者、最多が0キルなら勝者なし
+      const here = pv.ids.filter(id => present[id]);
+      if (performance.now() >= pv.endAt || here.length <= 1) {
+        pv.endSent = true;
+        const top = Math.max(0, ...pv.ids.map(id => pv.kills[id] || 0));
+        const ws = top > 0 ? pv.ids.filter(id => (pv.kills[id] || 0) === top) : [];
+        this.net.sendPvp({ a: 'end', w: ws[0] || null, ws });
+      }
+      return;
+    }
     for (const id of Array.from(pv.alive)) if (!present[id]) pv.alive.delete(id);
     if (pv.alive.size <= 1) {
       pv.endSent = true;
@@ -3080,8 +3136,8 @@ class GameScene extends Phaser.Scene {
     if (!pv || !m) return;
     const my = this.net.uid;
     if (m.a === 'cd') {
-      if (m.n >= 0) { pv.counting = true; this.showBanner('バトルフィールドまで ' + m.n, 1200); }
-      else if (pv.counting) { pv.counting = false; this.showBanner('全員が赤い円に入ってください', 1500); }
+      if (m.n >= 0) { pv.counting = true; const c = PVP.circles.find(c => c.key === m.mode); this.showBanner((c ? c.label + '：' : '') + 'バトルフィールドまで ' + m.n, 1200); }
+      else if (pv.counting) { pv.counting = false; this.showBanner('全員が同じ円に入ってください', 1500); }
     } else if (m.a === 'wcd') {
       if (m.n >= 0) this.showBanner('武器変更まで ' + m.n, 1200);
     } else if (m.a === 'wsel') {
@@ -3095,12 +3151,14 @@ class GameScene extends Phaser.Scene {
       pv.wzOpen = false; pv.wpicking = false;
       { const ws = document.getElementById('weaponSelect'); if (ws) ws.style.display = 'none'; }
       pv.phase = 'battle'; pv.counting = false; pv.endSent = false;
+      pv.mode = m.mode || 'survival'; // 選ばれたモード（ボディカウント／レースは未実装：今はサバイバルと同じ進行）
       pv.ids = m.ids || []; pv.alive = new Set(pv.ids); pv.out = {}; pv.dead = false; pv.grace = PVP.spawnGrace;
-      pv.kills = {}; pv.dmg = {}; pv.info = {}; // リザルト用：撃破数・与ダメージ・名前と武器
+      pv.kills = {}; pv.deaths = {}; pv.dmg = {}; pv.info = {}; pv.winners = null; // リザルト用：撃破数・死亡数・与ダメージ・名前と武器
+      pv.endAt = performance.now() + PVP.bodycount.time * 1000; pv.nextPotion = 1; pv.respLeft = 0; pv.respShown = -1; // ボディカウントの終了時刻など
       for (const id of pv.ids) {
         const p = (this.latestPlayers || {})[id] || {};
         pv.info[id] = { name: p.name || '???', weapon: id === my ? this.weapon.name : (p.weaponName || '?') };
-        pv.kills[id] = 0; pv.dmg[id] = 0;
+        pv.kills[id] = 0; pv.deaths[id] = 0; pv.dmg[id] = 0;
       }
       pv.round = m.round || ((pv.round || 0) + 1);
       this.pvpSpawnPotions(pv.round); // 回復アイテムを配置（全員が同じ位置）
@@ -3110,7 +3168,9 @@ class GameScene extends Phaser.Scene {
         this.player.x = sp.x; this.player.y = sp.y;
         this.playerHp = this.playerMaxHp;
         this.updateHud();
-        this.showBanner('バトル開始！ 回復アイテムが' + PVP.potionCount + '個落ちています', 2400);
+        const mc = PVP.circles.find(c => c.key === pv.mode);
+        if (pv.mode === 'bodycount') this.showBanner('ボディカウント開始！ ' + Math.round(PVP.bodycount.time / 60) + '分間でキル数を競います\nやられても' + PVP.bodycount.respawnTime + '秒でリスポーンします', 3200);
+        else this.showBanner((pv.mode === 'survival' ? 'バトル開始！ ' : (mc ? mc.label : '') + '（未実装：サバイバルとして開始）') + ' 回復アイテムが' + PVP.potionCount + '個落ちています', 2800);
       } else {
         this.pvpSetSpectator(true);
         this.showBanner('観戦中（次のラウンドから参加）', 2500);
@@ -3121,6 +3181,7 @@ class GameScene extends Phaser.Scene {
     } else if (m.a === 'dead') {
       pv.alive.delete(m.uid);
       if (m.by && m.by in pv.kills) pv.kills[m.by]++;
+      if (m.uid in pv.deaths) pv.deaths[m.uid]++;
       {
         // 撃破表示：（殺したプレイヤー）→💥（殺されたプレイヤー）。殺した人が不明なら 💥（殺されたプレイヤー）だけ
         const nameOf = uid => {
@@ -3128,11 +3189,15 @@ class GameScene extends Phaser.Scene {
           return (pv.info && pv.info[uid] && pv.info[uid].name) || (p && p.name) || '誰か';
         };
         const line = (m.by ? nameOf(m.by) + ' → ' : '') + '💥 ' + nameOf(m.uid);
-        this.showBanner(m.uid === my ? line + '\n（観戦中）' : line, 2200);
+        if (m.uid === my && pv.mode === 'bodycount') { /* 自分：リスポーンまでのカウントを出す */ }
+        else this.showBanner(m.uid === my ? line + '\n（観戦中）' : line, 2200);
       }
       if (this.isHost && pv.phase === 'battle') this.pvpCheckEnd();
+    } else if (m.a === 'resp') {
+      if (pv.phase === 'battle' && pv.ids.indexOf(m.uid) >= 0) pv.alive.add(m.uid); // リスポーンした人はまた攻撃が当たる
     } else if (m.a === 'end') {
-      if (m.w && m.w === my) this.pvpWins = (this.pvpWins || 0) + 1; // 自分が勝者なら累計勝利数を増やす
+      pv.winners = m.ws || (m.w ? [m.w] : []); // ボディカウントは同数1位が複数いることがある
+      if (pv.winners.indexOf(my) >= 0) this.pvpWins = (this.pvpWins || 0) + 1; // 自分が勝者なら累計勝利数を増やす
       pv.phase = 'over'; pv.resetAt = performance.now() + (PVP.fadeTime + PVP.resultTime) * 1000; // リザルトの表示時間はフェードのあとから数える
       this.pvpClearPotions();
       this.pvpFadeToResult(m.w);
@@ -3166,15 +3231,65 @@ class GameScene extends Phaser.Scene {
     if (pv.dead) return;
     pv.dead = true;
     this.pvpSetSpectator(true);
-    this.showBanner('やられた…（観戦中）', 2500);
+    if (pv.mode === 'bodycount') { pv.respLeft = PVP.bodycount.respawnTime; pv.respShown = -1; } // 一定時間後に updatePvp がリスポーンさせる
+    else this.showBanner('やられた…（観戦中）', 2500);
     this.net.sendPvp({ a: 'dead', uid: this.net.uid, by: from || null });
+  }
+
+  // ボディカウント：リスポーン。他のプレイヤーからなるべく離れた場所（3x3が床のタイル）に出て、少しの間は無敵。
+  pvpRespawn() {
+    const pv = this.pv, d = this.dungeon, bt = PVP.battle, my = this.net.uid;
+    const others = this.pvpPlayerPositions().filter(q => q.uid !== my && pv.alive.has(q.uid));
+    const roomy = (tx, ty) => {
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!d.grid[ty + dy] || d.grid[ty + dy][tx + dx] !== 1) return false;
+      return true;
+    };
+    let best = null, bestD = -1;
+    for (let i = 0; i < 40; i++) {
+      const tx = bt.x + 2 + Math.floor(Math.random() * (bt.w - 4)), ty = bt.y + 2 + Math.floor(Math.random() * (bt.h - 4));
+      if (!roomy(tx, ty)) continue;
+      const x = (tx + 0.5) * TILE, y = (ty + 0.5) * TILE;
+      const dm = others.length ? Math.min(...others.map(q => Math.hypot(q.x - x, q.y - y))) : 1e9;
+      if (dm > bestD) { bestD = dm; best = { x, y }; }
+    }
+    if (!best) best = this.pvpSpawn(0, 1);
+    pv.dead = false; pv.grace = PVP.spawnGrace; pv.respLeft = 0;
+    pv.alive.add(my);
+    this.player.x = best.x; this.player.y = best.y;
+    this.playerHp = this.playerMaxHp;
+    this.pvpSetSpectator(false);
+    if (this.weapon) this.pvpEquipWeapon(this.weapon.key); // 弾も満タンに戻す
+    this.updateHud();
+    this.showBanner('リスポーン！', 1200);
+    this.net.sendPvp({ a: 'resp', uid: my });
+  }
+
+  // 画面上部に出す残り時間（ボディカウントのバトル中だけ表示）
+  pvpUpdateTimer() {
+    const pv = this.pv;
+    let el = document.getElementById('pvpTimer');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'pvpTimer';
+      el.style.cssText = 'position:fixed; top:1.2vh; left:50%; transform:translateX(-50%); z-index:21; font-size:6.5vh; font-weight:bold; line-height:1.1;'
+        + 'font-family:sans-serif; font-variant-numeric:tabular-nums; letter-spacing:0.05em; color:#fff; pointer-events:none; display:none;'
+        + 'text-shadow:0 0 1.4vh rgba(0,0,0,0.9), 0 0.3vh 0.3vh rgba(0,0,0,0.95);';
+      document.body.appendChild(el);
+    }
+    const show = pv.phase === 'battle' && pv.mode === 'bodycount';
+    el.style.display = show ? 'block' : 'none';
+    if (!show) return;
+    const left = Math.max(0, Math.ceil((pv.endAt - performance.now()) / 1000));
+    el.textContent = Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0');
+    el.style.color = left <= 30 ? '#ff6b6b' : '#ffffff';
   }
 
   // 勝者表示のあと、全員を準備室に戻して次のラウンドへ
   pvpReset() {
     const pv = this.pv;
-    pv.phase = 'prep'; pv.cd = PVP.countdown; pv.cdShown = -1; pv.counting = false;
-    pv.alive = new Set(); pv.ids = []; pv.out = {}; pv.dead = false; pv.grace = 0; pv.endSent = false;
+    pv.phase = 'prep'; pv.cd = PVP.countdown; pv.cdShown = -1; pv.cdMode = null; pv.counting = false;
+    pv.alive = new Set(); pv.ids = []; pv.out = {}; pv.dead = false; pv.grace = 0; pv.endSent = false; pv.respLeft = 0; pv.mode = null;
+    this.pvpUpdateTimer();
     this.playerHp = this.playerMaxHp;
     this.pvpSetSpectator(false);
     const s = this.dungeon.playerStart;
@@ -3185,7 +3300,7 @@ class GameScene extends Phaser.Scene {
     clearTimeout(this._pvpFadeTimer);
     const fdEl = document.getElementById('pvpFade'); if (fdEl) fdEl.style.display = 'none';
     const ov = document.getElementById('pvpResult'); if (ov) ov.style.display = 'none';
-    this.showBanner('準備室に戻りました。全員が赤い円に入ると次のバトルです', 3000);
+    this.showBanner('準備室に戻りました。全員が同じ円に入ると次のバトルです', 3000);
   }
 
   // 勝敗が決まったら、PVP.fadeTime秒かけて画面を暗くしてからリザルト画面を出す。
@@ -3222,29 +3337,38 @@ class GameScene extends Phaser.Scene {
       document.body.appendChild(ov);
     }
     const winsOf = id => (id === my ? (this.pvpWins || 0) : (((this.latestPlayers || {})[id] || {}).wins || 0));
-    const rows = pv.ids.map(id => ({ id, info: pv.info[id] || { name: '???', weapon: '?' }, kills: pv.kills[id] || 0, dmg: Math.round(pv.dmg[id] || 0), wins: winsOf(id) }));
-    rows.sort((a, b) => (b.id === winnerUid) - (a.id === winnerUid) || b.kills - a.kills || b.dmg - a.dmg);
-    const wInfo = winnerUid && pv.info[winnerUid];
+    const bc = pv.mode === 'bodycount';
+    const winners = pv.winners || (winnerUid ? [winnerUid] : []);
+    const rows = pv.ids.map(id => ({ id, info: pv.info[id] || { name: '???', weapon: '?' }, kills: pv.kills[id] || 0, deaths: pv.deaths[id] || 0, dmg: Math.round(pv.dmg[id] || 0), wins: winsOf(id) }));
+    if (bc) rows.sort((a, b) => b.kills - a.kills || a.deaths - b.deaths || b.dmg - a.dmg); // ボディカウント：キル数の多い順（同数なら死亡数の少ない順）
+    else rows.sort((a, b) => (b.id === winnerUid) - (a.id === winnerUid) || b.kills - a.kills || b.dmg - a.dmg);
+    // 順位：ボディカウントはキル数だけで決める（同数は同順位）。サバイバルは並び順どおり。
+    rows.forEach((r, i) => { r.rank = (bc && i > 0 && r.kills === rows[i - 1].kills) ? rows[i - 1].rank : i + 1; });
+    const wNames = winners.map(id => escapeHtml((pv.info[id] || {}).name || '???')).join('、');
     const inRound = pv.ids.indexOf(my) >= 0;
-    const title = !winnerUid ? 'DRAW' : (winnerUid === my ? 'VICTORY' : (inRound ? 'DEFEAT' : 'RESULT'));
+    const title = !winners.length ? 'DRAW' : (winners.indexOf(my) >= 0 ? 'VICTORY' : (inRound ? 'DEFEAT' : 'RESULT'));
     const cell = 'padding:1.1vh 2.2vh; text-align:center;';
     const body = rows.map(r => {
-      const win = r.id === winnerUid, me = r.id === my;
+      const win = winners.indexOf(r.id) >= 0, me = r.id === my;
       return '<tr style="' + (win ? 'background:rgba(255,210,80,0.16);' : (me ? 'background:rgba(120,160,255,0.14);' : '')) + '">'
+        + (bc ? '<td style="' + cell + '">' + r.rank + '位</td>' : '')
         + '<td style="' + cell + 'text-align:left;">' + (win ? '👑 ' : '') + escapeHtml(r.info.name) + (me ? '（あなた）' : '') + '</td>'
         + '<td style="' + cell + '">' + escapeHtml(r.info.weapon) + '</td>'
-        + '<td style="' + cell + '">' + r.kills + '人</td>'
+        + '<td style="' + cell + '">' + r.kills + '</td>'
+        + (bc ? '<td style="' + cell + '">' + r.deaths + '</td>' : '')
         + '<td style="' + cell + '">' + r.dmg + '</td>'
-        + '<td style="' + cell + '">' + r.wins + '勝</td></tr>';
+        + '<td style="' + cell + '">' + r.wins + '</td></tr>';
     }).join('');
     ov.innerHTML = '<div style="width:min(92vw,110vh); max-height:94vh; overflow-y:auto; text-align:center;">'
       + '<div style="font-size:7vh; letter-spacing:0.2em; line-height:1.1; font-family:serif;">' + title + '</div>'
-      + '<div style="font-size:3vh; margin:1vh 0 2.4vh; color:#ffd980;">' + (winnerUid ? ('勝者: ' + escapeHtml(wInfo ? wInfo.name : '???')) : '勝者なし') + '</div>'
+      + '<div style="font-size:3vh; margin:1vh 0 2.4vh; color:#ffd980;">' + (winners.length ? ('勝者: ' + wNames) : '勝者なし') + '</div>'
       + '<table style="margin:0 auto; border-collapse:collapse; font-size:2.4vh;">'
-      + '<thead><tr style="color:#9aa0b8; font-size:2vh;"><th style="' + cell + 'text-align:left;">プレイヤー</th><th style="' + cell + '">使った武器</th><th style="' + cell + '">倒した人数</th><th style="' + cell + '">与えたダメージ</th><th style="' + cell + '">累計勝利数</th></tr></thead>'
+      + '<thead><tr style="color:#9aa0b8; font-size:2vh;">' + (bc ? '<th style="' + cell + '">順位</th>' : '') + '<th style="' + cell + 'text-align:left;">プレイヤー</th><th style="' + cell + '">使った武器</th><th style="' + cell + '">' + (bc ? 'キル数' : '倒した人数') + '</th>' + (bc ? '<th style="' + cell + '">死亡数</th>' : '') + '<th style="' + cell + '">与えたダメージ</th><th style="' + cell + '">累計勝利数</th></tr></thead>'
       + '<tbody>' + body + '</tbody></table>'
-      + '<div id="pvpResultNext" style="margin-top:3vh; font-size:2.4vh; color:#b8bdd0;"></div>'
-      + '<div style="margin-top:2vh;"><button id="pvpResultLobby" style="font-size:2.6vh; padding:1.2vh 3.6vh; border:0; border-radius:1vh; cursor:pointer; background:#3a3d4d; color:#fff; font-weight:bold;">ロビーへ戻る</button></div>'
+      + '<div style="margin-top:3vh; display:flex; gap:2vh; justify-content:center; flex-wrap:wrap;">'
+      + '<button id="pvpResultNext" style="font-size:2.6vh; padding:1.2vh 3.6vh; border:0; border-radius:1vh; cursor:default; pointer-events:none; background:#4a6cf7; color:#fff; font-weight:bold;">次のラウンドまで</button>'
+      + '<button id="pvpResultLobby" style="font-size:2.6vh; padding:1.2vh 3.6vh; border:0; border-radius:1vh; cursor:pointer; background:#3a3d4d; color:#fff; font-weight:bold;">ロビーへ戻る</button>'
+      + '</div>'
       + '</div>';
     ov.style.display = 'flex';
     document.getElementById('pvpResultLobby').onclick = () => { location.reload(); };
@@ -4070,15 +4194,9 @@ class GameScene extends Phaser.Scene {
       ? this.weapon.name + (this.weapon.level > 1 ? ' Lv.' + this.weapon.level : '')
       : '-';
 
-    // リロード中かどうかは、プレイヤーの真上に出す白い文字（reloadLabel）だけで示すので、
-    // この左上パネルには弾数だけを表示する（リロード中はammoが0のままなのでそのまま出る）。
-    const ammoRow = document.getElementById('ammoRow');
-    if (this.weapon && this.weapon.maxAmmo) {
-      ammoRow.style.display = 'flex';
-      document.getElementById('ammoNum').textContent = `${this.ammo} / ${this.weapon.maxAmmo}`;
-    } else {
-      ammoRow.style.display = 'none';
-    }
+    // 弾数・リロード中の表示は、プレイヤーの真上に出す白い文字（reloadLabel）だけにしたので、
+    // 左上パネルの弾数（ammoRow）は常に非表示。
+    document.getElementById('ammoRow').style.display = 'none';
   }
 
   // 画面上部中央の通信経路表示。P2P（直接）なら緑の「P2P」、TURN（中継サーバー経由）なら黄色の「TURN」。接続が無ければ非表示。
