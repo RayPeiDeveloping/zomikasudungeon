@@ -8499,7 +8499,8 @@ class GameScene extends Phaser.Scene {
     // リザルト用：経過時間は、フロア移動の暗転中も含めて数える（リザルト表示中は止める）
     if (!this._resultOpen) this.runStats.time += delta / 1000;
     if (this.transitioning) return;
-    const dt = delta / 1000;
+    // panicMax:0 にした代わりに、極端に重いフレームでもdtが暴れないよう上限を付ける
+    const dt = Math.min(delta, 50) / 1000;
 
     this.attackCooldown = Math.max(0, this.attackCooldown - dt);
     this.playerInvuln = Math.max(0, this.playerInvuln - dt);
@@ -10767,6 +10768,9 @@ function launchGame() {
       height: window.innerHeight,
     },
     backgroundColor: '#0d0d12',
+    // 起動直後などの重いフレーム後に、Phaserが数秒間deltaを16.7msに頭打ちにして
+    // ゲームが半速になる(パニック後クールダウン)のを無効化する
+    fps: { panicMax: 0 },
     scene: [GameScene],
   });
 
