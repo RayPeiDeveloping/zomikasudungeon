@@ -3104,7 +3104,7 @@ class GameScene extends Phaser.Scene {
     } else if (pv.phase === 'over') {
       const left = Math.max(0, Math.ceil((pv.resetAt - performance.now()) / 1000));
       const el = document.getElementById('pvpResultNext');
-      if (el) el.textContent = '次のラウンドまで ' + left + '秒';
+      if (el) el.textContent = '次のゲーム：' + left + '秒';
       if (performance.now() >= pv.resetAt) this.pvpReset();
     }
   }
@@ -3366,7 +3366,7 @@ class GameScene extends Phaser.Scene {
       + '<thead><tr style="color:#9aa0b8; font-size:2vh;">' + (bc ? '<th style="' + cell + '">順位</th>' : '') + '<th style="' + cell + 'text-align:left;">プレイヤー</th><th style="' + cell + '">使った武器</th><th style="' + cell + '">' + (bc ? 'キル数' : '倒した人数') + '</th>' + (bc ? '<th style="' + cell + '">死亡数</th>' : '') + '<th style="' + cell + '">与えたダメージ</th><th style="' + cell + '">累計勝利数</th></tr></thead>'
       + '<tbody>' + body + '</tbody></table>'
       + '<div style="margin-top:3vh; display:flex; gap:2vh; justify-content:center; flex-wrap:wrap;">'
-      + '<button id="pvpResultNext" style="font-size:2.6vh; padding:1.2vh 3.6vh; border:0; border-radius:1vh; cursor:default; pointer-events:none; background:#4a6cf7; color:#fff; font-weight:bold;">次のラウンドまで</button>'
+      + '<button id="pvpResultNext" style="font-size:2.6vh; padding:1.2vh 3.6vh; border:0; border-radius:1vh; cursor:default; pointer-events:none; background:#4a6cf7; color:#fff; font-weight:bold;">次のゲーム：</button>'
       + '<button id="pvpResultLobby" style="font-size:2.6vh; padding:1.2vh 3.6vh; border:0; border-radius:1vh; cursor:pointer; background:#3a3d4d; color:#fff; font-weight:bold;">ロビーへ戻る</button>'
       + '</div>'
       + '</div>';
