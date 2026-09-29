@@ -1712,7 +1712,7 @@ class GameScene extends Phaser.Scene {
           if (mode !== 'TURN' && this._relayNoticeOn) this.hideRelayNotice();
         };
         this.net.onConnectFail = () => this.showBanner('📶 接続できませんでした。ホストがモバイル通信を使用してください', 8000); // TURN（中継）を使っても繋がらなかった時の案内
-        this.net.onRelayUsed = () => { this._relayNoticeOn = true; this.showCenterNotice('中継サーバーを使用しています。電波の状態をご確認ください（公共機関のwifiを使用しているなど）\nホストとなる人が公共交通機関のwifi以外で接続してください', 180000); } // TURN（中継サーバー）経由で接続が確立した場合の案内（画面中央に3分間表示、他の通知に上書きされない）
+        this.net.onRelayUsed = () => { this._relayNoticeOn = true; this.showCenterNotice('中継サーバーを使用しています。電波の状態をご確認ください（公共機関のwifiを使用しているなど）\nホストが制限のない通信に接続してください', 180000); } // TURN（中継サーバー）経由で接続が確立した場合の案内（画面中央に3分間表示、他の通知に上書きされない）
         if (this.frontline) {
           this.net.listenFrontline(obj => this.onFrontlineSync(obj)); // 発信機のHP・経過時間・ボスの予定（ホストが配信）
           this.net.listenDrops(v => this.onFrontlineDrop(v));         // 宝箱・包帯のドロップ（ホストが決めて全員に配信）
@@ -2784,7 +2784,7 @@ class GameScene extends Phaser.Scene {
     const pc = this.pvpPrepCenter();
     this.pvCircle = this.add.circle(pc.x, pc.y, P.circleR * TILE, 0xff3b3b, 0.22).setDepth(1);
     this.pvCircle.setStrokeStyle(3, 0xff5b5b, 0.95);
-    this.add.text(pc.x, pc.y - P.circleR * TILE - 14, '全員この円に入る', { fontSize: '14px', color: '#ff9a9a', fontFamily: 'sans-serif', fontStyle: 'bold' }).setOrigin(0.5).setDepth(2);
+    this.add.text(pc.x, pc.y - P.circleR * TILE - 14, 'バトル開始', { fontSize: '14px', color: '#ff9a9a', fontFamily: 'sans-serif', fontStyle: 'bold' }).setOrigin(0.5).setDepth(2);
 
     // 武器変更ゾーン（準備室の上側の四角）。固定でない：入った人が自分で変更／固定：全員が入って3秒でホストが選び直す
     const wz = P.weaponZone, wzW = wz.size * TILE;
