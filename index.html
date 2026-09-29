@@ -309,6 +309,7 @@
       <div id="fbWarning">協力プレイが使えません（FirebaseのAPIキー未設定、または通信環境の制限でFirebaseの読み込みがブロックされている可能性があります）。「ダンジョン」だけ利用できます。</div>
       <button id="createRoomBtn">ルームを作成</button>
       <button id="createPvpRoomBtn" style="background:#e0533d;">PvPのルームを作成</button>
+      <label style="display:flex; align-items:center; justify-content:center; gap:6px; margin:0 0 6px; cursor:pointer;"><input type="checkbox" id="pvpFixedWeaponChk"> 武器固定（全員が同じ武器）</label>
       <button id="createFrontlineRoomBtn" style="background:#4fd67a;">最北戦線のルームを作成</button>
       <div class="joinRow">
         <input type="text" id="roomCodeInput" placeholder="ルームコード" maxlength="5">
@@ -776,6 +777,7 @@ const PVP = {
   prep:   { x: 2,  y: 2, w: 16, h: 16 },   // 準備室
   battle: { x: 24, y: 2, w: 64, h: 64 },   // バトルフィールド
   circleR: 2.5,          // 準備室の赤い円の半径
+  weaponZone: { cx: 10, cy: 4.5, size: 4, holdTime: 3 }, // 武器変更ゾーン（準備室の上側の正方形。中心タイル座標・一辺のタイル数）。holdTime：武器固定の時、全員が入ってからホストが選び直すまでの秒数
   countdown: 10,         // 全員が円に入ってからワープまでの秒数
   minPlayers: 2,         // 開始に必要な最低人数
   ringR: 24,             // 初期配置の円の半径（中心＝バトルフィールド中央）。プレイヤーはこの円周上に等間隔で並ぶ
@@ -2774,6 +2776,8 @@ class GameScene extends Phaser.Scene {
   setupPvp() {
     const P = PVP, d = this.dungeon;
     this.pv = { phase: 'prep', cd: P.countdown, cdShown: -1, counting: false, ids: [], alive: new Set(), out: {}, outTimer: 0, dead: false, grace: 0, resetAt: 0, endSent: false, proxies: {}, kills: {}, dmg: {}, info: {} };
+    this.pv.fixed = !!((window.APP || {}).fixedWeapon); // 武器固定ルームかどうか
+    this.pv.wcd = P.weaponZone.holdTime; this.pv.wcdShown = -1; this.pv.wpicking = false; this.pv.wlock = false; this.pv.wzOpen = false; this.pv.wzIn = false;
     this.pvpWins = 0; // このセッションでの自分の累計勝利数（他の人には毎フレームの状態(wins)として配信される）
 
     // 壁・床の見た目は通常ダンジョンと同じ（redrawDungeonWalls が床を描き、壁は何も描かない）。柱もその壁扱い。
@@ -2781,6 +2785,14 @@ class GameScene extends Phaser.Scene {
     this.pvCircle = this.add.circle(pc.x, pc.y, P.circleR * TILE, 0xff3b3b, 0.22).setDepth(1);
     this.pvCircle.setStrokeStyle(3, 0xff5b5b, 0.95);
     this.add.text(pc.x, pc.y - P.circleR * TILE - 14, '全員この円に入る', { fontSize: '14px', color: '#ff9a9a', fontFamily: 'sans-serif', fontStyle: 'bold' }).setOrigin(0.5).setDepth(2);
+
+    // 武器変更ゾーン（準備室の上側の四角）。固定でない：入った人が自分で変更／固定：全員が入って3秒でホストが選び直す
+    const wz = P.weaponZone, wzW = wz.size * TILE;
+    this.pvWeaponZone = this.add.rectangle(wz.cx * TILE, wz.cy * TILE, wzW, wzW, 0x4aa8ff, 0.2).setDepth(1);
+    this.pvWeaponZone.setStrokeStyle(3, 0x6ec1ff, 0.95);
+    this.add.text(wz.cx * TILE, wz.cy * TILE, this.pv.fixed ? '武器変更ゾーン\n全員で入るとホストが\n武器を選び直す' : '武器変更ゾーン\n入ると武器を\n変えられる', {
+      fontSize: '12px', color: '#a8dcff', fontFamily: 'sans-serif', fontStyle: 'bold', align: 'center',
+    }).setOrigin(0.5).setDepth(2);
 
     this.player.x += (Math.random() - 0.5) * 120; // 全員が同じ場所に重ならないように
     this.net.listenPvp(m => this.onPvpMsg(m));
@@ -2900,6 +2912,63 @@ class GameScene extends Phaser.Scene {
     return false;
   }
 
+  // 武器を装備し直す（PvPの準備室用。Lv.5・弾は満タン）。
+  pvpEquipWeapon(key) {
+    const base = WEAPON_TYPES.find(w => w.key === key);
+    if (!base) return;
+    const lv = 5;
+    this.weaponLevels = {}; this.weaponLevels[key] = lv;
+    this.weapon = applyWeaponLevel(base, lv);
+    this.rushWeaponKey = key;
+    this.reloading = false; this.reloadTimer = 0;
+    this.resetAmmoForWeapon(this.weapon);
+    this.updateHud();
+  }
+
+  // 武器変更ゾーンの処理（準備室のときだけ）。
+  //  固定でない：ゾーンに入った人が、自分の画面で武器選択を開いて自分の武器だけ変える。
+  //  固定：全員がゾーンに入って holdTime 秒たつと、ホストが武器を選び直し、全員がその武器になる。
+  pvpUpdateWeaponZone(dt) {
+    const pv = this.pv, wz = PVP.weaponZone, half = wz.size * TILE / 2;
+    const inZone = (x, y) => Math.abs(x - wz.cx * TILE) <= half && Math.abs(y - wz.cy * TILE) <= half;
+    if (pv.phase !== 'prep') { pv.wzIn = false; return; }
+    if (this.pvWeaponZone) this.pvWeaponZone.setFillStyle(0x4aa8ff, (pv.fixed && pv.wcdShown >= 0) ? 0.4 : 0.2);
+    const me = inZone(this.player.x, this.player.y);
+    if (!pv.fixed) {
+      // 入った瞬間だけ開く。選んだ／戻るを押したあとは、一度出るまで開かない
+      if (me && !pv.wzIn && !pv.wzOpen) {
+        pv.wzOpen = true;
+        const done = () => { pv.wzOpen = false; };
+        askWeapon('武器を選ぶ（Lv.5）', w => { done(); this.pvpEquipWeapon(w.key); this.showBanner('武器を ' + w.name + ' に変更しました', 1500); }, done, PVP_ROOM_WEAPONS);
+      }
+      pv.wzIn = me;
+      return;
+    }
+    // 武器固定：ホストだけが判定する（全員の位置が見えている）
+    if (!this.isHost || pv.wpicking) return;
+    const list = this.pvpPlayerPositions();
+    const allIn = list.length >= 1 && list.every(q => inZone(q.x, q.y));
+    if (!allIn) {
+      pv.wlock = false; // 一度誰かが出たら、また入り直せる
+      if (pv.wcdShown !== -1) { pv.wcd = wz.holdTime; pv.wcdShown = -1; this.net.sendPvp({ a: 'wcd', n: -1 }); }
+      return;
+    }
+    if (pv.wlock) return; // 選び終わった／やめた直後は、一度出るまで再開しない
+    pv.wcd -= dt;
+    const n = Math.max(0, Math.ceil(pv.wcd));
+    if (n !== pv.wcdShown) { pv.wcdShown = n; this.net.sendPvp({ a: 'wcd', n }); }
+    if (pv.wcd <= 0) {
+      pv.wpicking = true; pv.wcd = wz.holdTime; pv.wcdShown = -1;
+      this.net.sendPvp({ a: 'wsel' });
+      const finish = () => { pv.wpicking = false; pv.wlock = true; };
+      askWeapon('全員の武器を選ぶ（Lv.5）', w => {
+        finish();
+        this.net.sendPvp({ a: 'weapon', key: w.key });
+        if (this.net.setRoomFixedWeapon) this.net.setRoomFixedWeapon(w.key); // あとから入る人にも新しい武器が適用されるように
+      }, finish, PVP_ROOM_WEAPONS);
+    }
+  }
+
   // 準備室で、全員（自分も含む）の頭の上に累計勝利数を出す。バトル中・リザルト中は隠す。
   pvpUpdateWinLabels() {
     const pv = this.pv, show = !!pv && pv.phase === 'prep';
@@ -2931,6 +3000,7 @@ class GameScene extends Phaser.Scene {
     if (!pv || !this.net) return;
     this.pvpSyncProxies();
     this.pvpUpdateWinLabels();
+    this.pvpUpdateWeaponZone(dt);
     if (pv.phase === 'prep') {
       if (!this.isHost) return;
       const list = this.pvpPlayerPositions(), pc = this.pvpPrepCenter(), R = PVP.circleR * TILE;
@@ -2982,7 +3052,18 @@ class GameScene extends Phaser.Scene {
     if (m.a === 'cd') {
       if (m.n >= 0) { pv.counting = true; this.showBanner('バトルフィールドまで ' + m.n, 1200); }
       else if (pv.counting) { pv.counting = false; this.showBanner('全員が赤い円に入ってください', 1500); }
+    } else if (m.a === 'wcd') {
+      if (m.n >= 0) this.showBanner('武器変更まで ' + m.n, 1200);
+    } else if (m.a === 'wsel') {
+      if (!this.isHost) this.showBanner('ホストが武器を選んでいます…', 2500);
+    } else if (m.a === 'weapon') {
+      this.pvpEquipWeapon(m.key);
+      const wn = (WEAPON_TYPES.find(w => w.key === m.key) || {}).name || '';
+      this.showBanner('全員の武器が ' + wn + ' になりました', 2200);
     } else if (m.a === 'start') {
+      // 武器選択画面を開いたままバトルが始まった場合は閉じる
+      pv.wzOpen = false; pv.wpicking = false;
+      { const ws = document.getElementById('weaponSelect'); if (ws) ws.style.display = 'none'; }
       pv.phase = 'battle'; pv.counting = false; pv.endSent = false;
       pv.ids = m.ids || []; pv.alive = new Set(pv.ids); pv.out = {}; pv.dead = false; pv.grace = PVP.spawnGrace;
       pv.kills = {}; pv.dmg = {}; pv.info = {}; // リザルト用：撃破数・与ダメージ・名前と武器
@@ -9602,16 +9683,18 @@ class Net {
   }
 
   // mode：ルームの遊び方。通常のダンジョンなら省略、最北戦線なら 'frontline'（参加した人が同じモードで始まる）
-  async createRoom(startFloor, mode) {
+  // extra：ルームに一緒に保存する追加項目（例：PvPの武器固定 { fixedWeapon: 'sword' }）。undefinedの項目は保存しない
+  async createRoom(startFloor, mode, extra) {
     await this.signIn();
     const roomId = this.genRoomCode();
     const baseSeed = (Math.random() * 1e9) | 0;
     const floor = Math.max(1, startFloor || 1);
     const data = { baseSeed, floor, createdAt: firebase.database.ServerValue.TIMESTAMP };
     if (mode) data.mode = mode; // Firebaseはundefinedを書けないので、あるときだけ入れる
+    if (extra) for (const k in extra) { if (extra[k] != null) data[k] = extra[k]; }
     await this.db.ref('rooms/' + roomId).set(data);
     this.roomId = roomId;
-    return { roomId, baseSeed, floor, mode: mode || null };
+    return { roomId, baseSeed, floor, mode: mode || null, fixedWeapon: (extra && extra.fixedWeapon) || null };
   }
 
   async joinRoom(roomId, allowAnyFloor) {
@@ -9628,7 +9711,14 @@ class Net {
     const mode = val.mode || null;
     const joinAsGhost = floor >= 2 && mode !== 'frontline' && !allowAnyFloor;
     this.roomId = roomId;
-    return { roomId, baseSeed: val.baseSeed, floor, mode, joinAsGhost };
+    return { roomId, baseSeed: val.baseSeed, floor, mode, joinAsGhost, fixedWeapon: val.fixedWeapon || null };
+  }
+
+  // PvPの武器固定ルームで、ホストが武器を選び直した時に、ルームに保存している固定武器も更新する
+  // （このあと参加する人が、最新の武器になるように）
+  setRoomFixedWeapon(key) {
+    if (!this.roomId || !key) return;
+    this.db.ref('rooms/' + this.roomId + '/fixedWeapon').set(key).catch(() => {});
   }
 
   // 死亡離脱時に明示的にルームから抜ける（onDisconnectを待たず即座に他プレイヤーへ反映するため）
@@ -10310,6 +10400,7 @@ function startGame(mode, extra) {
     pvp: !!(extra && extra.pvp), // PvPモード
     frontline: !!(extra && extra.frontline), // 最北戦線（ソロ／協力プレイ）
     rushWeaponKey: (extra && extra.weaponKey) || null,
+    fixedWeapon: (extra && extra.fixedWeapon) || null, // PvPの武器固定ルームなら、そのときの固定武器のkey
     joinAsGhost: !!(extra && extra.joinAsGhost), // 2階層以降のルームに途中参加：ゴーストとして入る
   };
   document.getElementById('lobby').style.display = 'none';
@@ -10413,11 +10504,13 @@ document.getElementById('createFrontlineRoomBtn').addEventListener('click', () =
 });
 
 document.getElementById('createPvpRoomBtn').addEventListener('click', () => {
-  askWeapon('PvPで使う武器（Lv.5）', async (w) => {
+  askWeapon(document.getElementById('pvpFixedWeaponChk').checked ? 'PvPで使う武器（全員この武器になります・Lv.5）' : 'PvPで使う武器（Lv.5）', async (w) => {
     setLobbyBusy(true);
     setLobbyStatus('ルーム作成中...');
     try {
-      const info = await netInstance.createRoom(1, 'pvp');
+      // 「武器固定」にチェックが入っていれば、作った人が選んだ武器をルームに保存する（あとから入る人はその武器になる）
+      const fixed = document.getElementById('pvpFixedWeaponChk').checked;
+      const info = await netInstance.createRoom(1, 'pvp', fixed ? { fixedWeapon: w.key } : null);
       startGame('mp', Object.assign({}, info, { pvp: true, weaponKey: w.key }));
       setLobbyBusy(false);
     } catch (e) {
@@ -10434,6 +10527,14 @@ document.getElementById('joinRoomBtn').addEventListener('click', async () => {
   try {
     const info = await netInstance.joinRoom(code, isDevName());
     if (info.mode === 'pvp') {
+      // 武器固定のルーム：選ばせずに、作った人と同じ武器で入る
+      const fw = info.fixedWeapon && PVP_ROOM_WEAPONS.find(x => x.key === info.fixedWeapon);
+      if (fw) {
+        setLobbyBusy(false);
+        setLobbyStatus('武器固定のルームです：' + fw.name);
+        startGame('mp', Object.assign({}, info, { pvp: true, weaponKey: fw.key }));
+        return;
+      }
       setLobbyBusy(false);
       setLobbyStatus('PvPのルームです。武器を選んでください');
       askWeapon('PvPで使う武器（Lv.5）',
