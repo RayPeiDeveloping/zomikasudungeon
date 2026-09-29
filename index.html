@@ -294,6 +294,8 @@
   #mpPanel b { color: #b388ff; }
   .plRow { display: flex; justify-content: space-between; gap: 1.5vh; }
   #mpPanel button { margin-top: 1.5vh; width: 100%; padding: 1.25vh; border-radius: 1.5vh; border: none; background: #333; color: #fff; font-size: 2.75vh; cursor: pointer; }
+  #mpPanel #leaveRoomBtn { background: #6a2b2b; }
+  #mpPanel #leaveRoomBtn:disabled { opacity: 0.6; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.70.0/phaser.min.js"></script>
 <!-- ===== Firebase (協力プレイ用) ===== -->
@@ -391,6 +393,7 @@
   <div>ルーム: <b id="mpRoomCode">-</b></div>
   <div id="mpPlayerList"></div>
   <button id="copyRoomBtn">コードをコピー</button>
+  <button id="leaveRoomBtn">退出する</button>
 </div>
 <div id="banner"></div>
 <div id="bossNameBanner"></div>
@@ -2032,6 +2035,33 @@ class GameScene extends Phaser.Scene {
       const code = this.net.roomId || '';
       if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => {});
       this.showBanner('ルームコードをコピーしました: ' + code, 1200);
+    };
+
+    // 退出ボタン：誤タップ防止のため2回押しで確定。Firebaseからの削除が終わるのを待ってから
+    // リロードする（待たずにリロードすると削除が送り切れず、ホスト交代がFirebaseの切断待ちになる）。
+    const leaveBtn = document.getElementById('leaveRoomBtn');
+    leaveBtn.disabled = false;
+    leaveBtn.textContent = '退出する';
+    let armTimer = null;
+    leaveBtn.onclick = async () => {
+      if (leaveBtn.disabled) return;
+      if (!armTimer) {
+        leaveBtn.textContent = 'もう一度押すと退出';
+        armTimer = setTimeout(() => { armTimer = null; leaveBtn.textContent = '退出する'; }, 3000);
+        return;
+      }
+      clearTimeout(armTimer); armTimer = null;
+      leaveBtn.disabled = true;
+      leaveBtn.textContent = '退出中…';
+      window.removeEventListener('pagehide', this._onPageHide); // 二重に退出処理が走らないように
+      const others = Object.keys(this.latestPlayers || {}).filter(uid => uid !== this.net.uid);
+      try {
+        await Promise.race([
+          others.length === 0 ? this.net.deleteRoom() : this.net.leaveRoom(),
+          new Promise(resolve => setTimeout(resolve, 3000)), // 通信が悪くても最大3秒で先へ進む
+        ]);
+      } catch (e) {}
+      location.reload();
     };
   }
 
@@ -9669,6 +9699,9 @@ class Net {
       // 自分がゲストだった頃に張っていた「古いホストへの接続」が残っていれば片付ける
       // （ホスト交代で、それまでゲストだった自分が新ホストになるケース）
       this._teardownPeer();
+      // ゲストだった頃に受け取った連番より小さい番号から配信を始めないように、続きの番号にしておく
+      this._playersSeq = Math.max(this._playersSeq || 0, this._lastPlayersSeq || 0);
+      for (const f in this._enemySeqByFloor) this._enemySeq[f] = Math.max(this._enemySeq[f] || 0, this._enemySeqByFloor[f] || 0);
       this._startHosting();
     } else if (uid && changed) {
       this._connectToHost(uid);
@@ -9723,9 +9756,10 @@ class Net {
 
   // 死亡離脱時に明示的にルームから抜ける（onDisconnectを待たず即座に他プレイヤーへ反映するため）
   leaveRoom() {
-    if (!this.roomId) return;
-    this.playerRef().remove().catch(() => {});
+    if (!this.roomId) return Promise.resolve();
+    const removed = this.playerRef().remove().catch(() => {});
     this._closeAllPeers();
+    return removed; // 呼び出し側が削除の完了を待てるようにする（退出ボタンで使用）
   }
 
   // 部屋を丸ごと削除する（プレイヤー一覧だけでなく、フロア進行・ドロップ等
@@ -9816,6 +9850,10 @@ class Net {
     if (!force && (this._connectingHostUid === hostUid || this._connectedHostUid === hostUid)) return;
     this._teardownPeer();
     this._connectingHostUid = hostUid;
+    // ホストが交代した場合、新しいホストの連番は0から数え直しになる。古いホストの連番を覚えたままだと、
+    // 「古い連番より小さい＝古いデータ」として新ホストの配信が全部捨てられ、他の人の状態が止まって見えてしまう。
+    this._lastPlayersSeq = 0;
+    this._enemySeqByFloor = {};
     const pc = new RTCPeerConnection(RTC_CONFIG);
     this._hostPc = pc;
     // 2本のDataChannelを使い分ける（同じPeerConnection内でも別ストリームなので、片方が詰まっても
