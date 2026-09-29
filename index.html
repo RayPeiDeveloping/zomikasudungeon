@@ -1714,6 +1714,22 @@ class GameScene extends Phaser.Scene {
       // 恐れがある。そのため自分の登録が終わってから監視を始める。
       this._sawNonEmptyPlayers = false;
       (async () => {
+        // 部屋に先にいる人と色が被らないように、参加時に自動で色を変える（被っていなければそのまま）
+        try {
+          const others = await this.net.getRoomPlayers();
+          const used = {};
+          for (const uid in others) {
+            if (uid === this.net.uid || !others[uid] || typeof others[uid].color !== 'number') continue;
+            used[others[uid].color] = (used[others[uid].color] || 0) + 1;
+          }
+          if (used[this.playerColor]) {
+            // 使われていない色のうち先頭のもの。全色が埋まっていたら、いちばん使われていない色
+            const free = COLORS.filter(c => !used[c]);
+            const pick = free.length ? free[0] : COLORS.slice().sort((a, b) => (used[a] || 0) - (used[b] || 0))[0];
+            this.playerColor = pick;
+            if (this.player && !this.isGhost) this.player.setFillStyle(pick);
+          }
+        } catch (e) { /* 取得に失敗したら選んだ色のまま */ }
         await this.net.registerPlayer(this.playerName, this.playerColor, {
           floor: this.floor, x: this.player.x, y: this.player.y, atExit: false, eliminated: !!this.joinAsGhost,
           lateJoin: !!this.joinAsGhost, // 途中参加のゴースト（リザルトの称号判定から除外するための印）
@@ -9905,6 +9921,12 @@ class Net {
 
   playerRef(uid) {
     return this.db.ref(`rooms/${this.roomId}/players/${uid || this.uid}`);
+  }
+
+  // 部屋にいる全員の情報を一度だけ取得（参加時の色かぶりチェック用）
+  async getRoomPlayers() {
+    const snap = await this.db.ref(`rooms/${this.roomId}/players`).once('value');
+    return snap.val() || {};
   }
 
   async registerPlayer(name, color, extra) {
