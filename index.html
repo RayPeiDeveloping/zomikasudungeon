@@ -1349,6 +1349,19 @@ const NET_STALE_WARNING_MS = 3000;
 // NET_STALE_WARNING_MS(赤文字警告)より少し長めに取り、警告が出てもすぐには動かさず
 // 様子を見てから手を打つ。
 const NET_FORCE_RECONNECT_MS = 5000;
+// ホスト→ゲスト方向（下り）が止まっているかの判定用。ゲストがホストから何も受信しないまま
+// この時間が過ぎたら「通信が弱い」警告を出し、さらに NET_RECV_RECONNECT_MS を超えたら繋ぎ直す。
+// （lastAckAt は自分→ホスト方向（上り）の送出しか見ないので、下りだけが止まる回線を拾えなかった）
+const NET_RECV_RECONNECT_MS = 8000;
+// ホスト側：ゲストごとの state 用 DataChannel の送信待ち(bufferedAmount)がこのバイト数を超えたら、
+// そのゲストへの state 配信は見送る。順序保証も再送も無い「最新状態」の配信なので、見送っても
+// 次の配信で追いつける。見送らずに積み続けると、細い回線のゲストには古いデータが延々と
+// 溜まって数十秒〜1分ぶんがまとめて届き（フリーズして見える）、同じ回線を使う events
+// （被弾など）も後ろに並んで遅れる。
+const NET_STATE_MAX_BUFFERED = 6000;
+// 通信診断（画面上部のP2P/TURN表示の右横に出す小さな数字）。原因の切り分け用。不要になったら false に。
+const NET_DIAG_SHOW = true;
+const NET_DIAG_WINDOW_MS = 10000; // 「直近○秒」の集計幅
 // [調査用] trueにすると、協力プレイ中に1秒おきの接続状況(isConnected/lastAckAtからの経過時間)を
 // 画面右下に小さく表示し続ける。20秒程度のフリーズが起きた瞬間の記録を残して原因切り分けするための
 // 一時的な仕込み。原因が特定できたら false に戻すかコードごと消してよい。
@@ -1548,6 +1561,9 @@ function escapeHtml(str) {
   }[ch]));
 }
 
+// [調査用] true の間、50msを超えた重いフレームを画面左下とコンソールに出す（原因特定用）
+const SLOW_FRAME_LOG = false;
+
 class GameScene extends Phaser.Scene {
   constructor() { super('game'); }
 
@@ -1741,6 +1757,7 @@ class GameScene extends Phaser.Scene {
         this.net.listenShots(payload => this.onIncomingShot(payload));
         this.net.listenEnemyShots(payload => this.onIncomingEnemyShot(payload));
         this.net.listenRevive(pos => this.onRevive(pos));
+        this.net.onDiag = d => this.setConnDiag(d); // P2P/TURN表示の右横に出す通信診断
         this.net.onConnStatus = mode => {
           this.setConnBadge(mode); // 画面左上のP2P/TURN表示
           // TURN以外（P2Pに戻った／切断された）になったら、画面中央の「中継サーバーを使用しています」を消す
@@ -3163,6 +3180,7 @@ class GameScene extends Phaser.Scene {
       const wn = (WEAPON_TYPES.find(w => w.key === m.key) || {}).name || '';
       this.showBanner('全員の武器が ' + wn + ' になりました', 2200);
     } else if (m.a === 'start') {
+      this.slowLogMark('PvP start'); // [調査用] 開始からの経過時間を基準にした重いフレーム表示
       // 武器選択画面を開いたままバトルが始まった場合は閉じる
       pv.wzOpen = false; pv.wpicking = false;
       { const ws = document.getElementById('weaponSelect'); if (ws) ws.style.display = 'none'; }
@@ -4213,6 +4231,27 @@ class GameScene extends Phaser.Scene {
     // 弾数・リロード中の表示は、プレイヤーの真上に出す白い文字（reloadLabel）だけにしたので、
     // 左上パネルの弾数（ammoRow）は常に非表示。
     document.getElementById('ammoRow').style.display = 'none';
+  }
+
+  // P2P/TURN表示の右横に出す通信診断（原因の切り分け用）。Net側が1秒ごとに集めた数字を並べるだけ。
+  setConnDiag(d) {
+    let el = document.getElementById('connDiag');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'connDiag';
+      el.style.cssText = 'position:fixed; top:max(0.3vh, env(safe-area-inset-top)); left:calc(50% + 8.5vh); z-index:22; font-size:1.3vh; line-height:1.2;'
+        + 'font-family:monospace; white-space:pre; text-shadow:0 0 0.5vh #000, 0 0 0.5vh #000; pointer-events:none; display:none;';
+      document.body.appendChild(el);
+    }
+    if (!d) { el.style.display = 'none'; return; }
+    let fps = 0;
+    try { fps = Math.round(this.game.loop.actualFps); } catch (e) {}
+    const lines = d.lines.map(l => l.replace('{fps}', 'FPS' + (fps || '-')));
+    let level = d.level || 0;
+    if (fps && fps < 25) { lines.push('目安: 端末の処理が重い(FPS低下)'); level = Math.max(level, 1); }
+    el.textContent = lines.join('\n');
+    el.style.color = level >= 2 ? '#ff7b7b' : (level === 1 ? '#ffd166' : '#c9f2d2');
+    el.style.display = 'block';
   }
 
   // 画面上部中央の通信経路表示。P2P（直接）なら緑の「P2P」、TURN（中継サーバー経由）なら黄色の「TURN」。接続が無ければ非表示。
@@ -8495,7 +8534,36 @@ class GameScene extends Phaser.Scene {
     if (e.label) { e.label.x = e.gfx.x; e.label.y = e.gfx.y - t.radius - 22; }
   }
 
+  // [調査用] 重いフレーム(50ms超)を左下に表示する。SLOW_FRAME_LOG を false にすれば無効。
+  // 「>50ms」は update() の dt 上限(50ms)を超えたフレーム＝その分ゲームが遅れて見えるフレーム。
+  slowLogMark(label) {
+    if (!SLOW_FRAME_LOG) return;
+    this._slowLogT0 = performance.now();
+    this._slowLogPush('--- ' + label + ' ---');
+  }
+  _slowLogPush(line) {
+    const L = this._slowLogLines || (this._slowLogLines = []);
+    L.push(line);
+    while (L.length > 10) L.shift();
+    let el = this._slowLogEl;
+    if (!el) {
+      el = this._slowLogEl = document.createElement('div');
+      el.style.cssText = 'position:fixed; left:1vh; bottom:1vh; z-index:200; max-width:50vw; background:rgba(0,0,0,0.65); color:#ffd36b; font-family:monospace; font-size:1.5vh; line-height:1.35; padding:0.8vh 1vh; border-radius:0.8vh; white-space:pre; pointer-events:none;';
+      document.body.appendChild(el);
+    }
+    el.textContent = 'SLOW FRAMES (>50ms)\n' + L.join('\n');
+  }
+  slowLogTick(delta) {
+    if (!SLOW_FRAME_LOG || !(delta > 50)) return;
+    const t0 = this._slowLogT0;
+    const rel = t0 ? '+' + ((performance.now() - t0) / 1000).toFixed(1) + 's ' : '';
+    const ph = this.pv ? ' ' + this.pv.phase : '';
+    this._slowLogPush(rel + Math.round(delta) + 'ms' + ph);
+    console.log('[slow frame]', rel, Math.round(delta) + 'ms', ph);
+  }
+
   update(time, delta) {
+    this.slowLogTick(delta);
     // リザルト用：経過時間は、フロア移動の暗転中も含めて数える（リザルト表示中は止める）
     if (!this._resultOpen) this.runStats.time += delta / 1000;
     if (this.transitioning) return;
@@ -9014,7 +9082,8 @@ class GameScene extends Phaser.Scene {
       //   lastAckAtベースの判定はまさにこの後者を拾うためのもの）を、発生時刻付きで
       //   ログに残して切り分ける必要がある。
       const gapMsNow = Date.now() - this.net.lastAckAt;
-      const netStale = !this.net.isConnected || (gapMsNow > NET_STALE_WARNING_MS);
+      const recvGapNow = this.net.recvGapMs(); // ホスト→自分（下り）が止まっている時間
+      const netStale = !this.net.isConnected || (gapMsNow > NET_STALE_WARNING_MS) || (recvGapNow > NET_STALE_WARNING_MS);
       if (netStale !== this._netWarnShown) {
         this._netWarnShown = netStale;
         document.getElementById('netWarning').style.display = netStale ? 'block' : 'none';
@@ -9023,7 +9092,7 @@ class GameScene extends Phaser.Scene {
       // [調査用] isConnectedはtrueのままgapだけが長く伸び続けている（＝ソケットは繋がった
       // ふりをしたまま書き込みが詰まっている）ケースを想定した、能動的な繋ぎ直し。
       // isConnectedが既にfalseの場合はFirebase自身が再接続処理中なのでここでは何もしない。
-      if (this.net.isConnected && gapMsNow > NET_FORCE_RECONNECT_MS) {
+      if (this.net.isConnected && (gapMsNow > NET_FORCE_RECONNECT_MS || recvGapNow > NET_RECV_RECONNECT_MS)) {
         const didReconnect = this.net.forceReconnect();
         if (didReconnect && NET_DEBUG_LOG) {
           const logEl2 = document.getElementById('netDebugLog');
@@ -9800,6 +9869,7 @@ class Net {
     this._stateSeq = 0; this._playersSeq = 0;
     this.onConnectFail = null;   // WebRTCが繋がらなかった時に呼ばれる（GameSceneが表示を設定する）
     this.onConnStatus = null;    // 通信経路が変わったときに呼ばれる（'P2P' / 'TURN' / null）
+    this.onDiag = null;          // 通信診断の数字を渡す先（GameSceneが表示を設定する）
     this.onRelayUsed = null;     // 接続がTURN（中継サーバー）経由になったときに呼ばれる（GameSceneが表示を設定する）
     this._lastConnFailAt = 0;
 
@@ -9972,6 +10042,114 @@ class Net {
     this.playerRef().onDisconnect().remove();
   }
 
+  // ===== 通信診断 =====
+  // 1秒ごとに、受信量・受信の空き時間・往復遅延(RTT)・経路の種類などを集めて onDiag に渡す（表示は GameScene 側）。
+  // ゲスト：自分⇔ホストの下り状況。ホスト：ゲストごとの送信待ち量(溜)と見送り回数。
+  _diagStart() {
+    if (!NET_DIAG_SHOW) return;
+    if (!this._diag) this._diag = { recvBytes: 0, recvMsgs: 0, lastMsgAt: 0, tickAt: Date.now(), samples: [], gaps: [], rtts: [], stallCount: 0, stallMax: 0, netChanges: 0 };
+    try {
+      const c = navigator.connection;
+      if (c && c.addEventListener && !this._diagConnBound) { this._diagConnBound = true; c.addEventListener('change', () => { this._diag.netChanges++; }); }
+    } catch (e) {}
+    if (!this._diagTimer) this._diagTimer = setInterval(() => this._diagTick(), 1000);
+  }
+
+  async _pcInfo(pc) {
+    const info = {};
+    try {
+      const stats = await pc.getStats();
+      let pair = null, sctp = null, tr = null;
+      stats.forEach(st => {
+        if (st.type === 'candidate-pair' && st.nominated && st.state === 'succeeded') pair = st;
+        else if (st.type === 'sctp-transport') sctp = st;
+        else if (st.type === 'transport') tr = st;
+      });
+      if (pair) {
+        if (pair.currentRoundTripTime != null) info.rtt = Math.round(pair.currentRoundTripTime * 1000);
+        const l = stats.get(pair.localCandidateId), r = stats.get(pair.remoteCandidateId);
+        info.lType = l && l.candidateType; info.rType = r && r.candidateType;
+        info.proto = l && l.protocol; info.netType = l && l.networkType; info.relayProto = l && l.relayProtocol;
+      }
+      if (sctp && sctp.smoothedRoundTripTime != null) info.sRtt = Math.round(sctp.smoothedRoundTripTime * 1000);
+      if (tr && tr.selectedCandidatePairChanges != null) info.pairChanges = tr.selectedCandidatePairChanges;
+    } catch (e) { /* getStatsが使えない環境は無視 */ }
+    return info;
+  }
+
+  async _diagTick() {
+    if (this._diagBusy) return;
+    this._diagBusy = true;
+    try {
+      const now = Date.now(), d = this._diag, W = NET_DIAG_WINDOW_MS;
+      if (!d) return;
+      const dtSec = Math.max(0.2, (now - d.tickAt) / 1000); d.tickAt = now;
+      d.samples.push({ t: now, kbps: d.recvBytes * 8 / 1000 / dtSec, msgs: d.recvMsgs / dtSec });
+      d.recvBytes = 0; d.recvMsgs = 0;
+      d.samples = d.samples.filter(x => now - x.t <= W);
+      d.gaps = d.gaps.filter(x => now - x.t <= W);
+      const hasHost = this.isHost && this._guestPeers && this._guestPeers.size > 0;
+      const hasGuest = !this.isHost && !!this._hostPc;
+      if (!this.roomId || (!hasHost && !hasGuest)) { if (this.onDiag) this.onDiag(null); return; }
+      const out = { lines: [], level: 0 };
+      const short = i => i ? [i.lType, i.rType].filter(Boolean).join('-') + (i.proto ? '/' + i.proto : '') + (i.relayProto ? '(' + i.relayProto + ')' : '') : '-';
+      if (hasGuest) {
+        const info = await this._pcInfo(this._hostPc);
+        if (info.rtt != null) d.rtts.push({ t: now, v: info.rtt });
+        d.rtts = d.rtts.filter(x => now - x.t <= W);
+        const n = d.samples.length || 1;
+        const avg = d.samples.reduce((a, x) => a + x.kbps, 0) / n;
+        const max = d.samples.reduce((a, x) => Math.max(a, x.kbps), 0);
+        const rate = d.samples.reduce((a, x) => a + x.msgs, 0) / n;
+        const rttMax = d.rtts.reduce((a, x) => Math.max(a, x.v), 0);
+        const curGap = d.lastMsgAt ? now - d.lastMsgAt : 0;
+        const maxGap = Math.max(curGap, d.gaps.reduce((a, x) => Math.max(a, x.gap), 0));
+        let conn = '';
+        try { const c = navigator.connection; if (c) conn = [c.type, c.effectiveType, c.saveData ? 'saveData' : ''].filter(Boolean).join(' '); } catch (e) {}
+        out.lines.push('RTT' + (info.rtt != null ? info.rtt : '-') + '(最大' + rttMax + ') ↓' + Math.round(avg) + 'kbps(最大' + Math.round(max) + ') ' + Math.round(rate) + '/秒');
+        out.lines.push('空き' + maxGap + 'ms 停止' + d.stallCount + '回(最長' + (d.stallMax / 1000).toFixed(1) + 's) {fps}');
+        out.lines.push(short(info) + ' ' + (info.netType || '') + ' ' + conn + ' 切替' + d.netChanges + '/経路' + (info.pairChanges != null ? info.pairChanges : '-'));
+        let hint = null;
+        if (!d.lastMsgAt) hint = '接続待ち（まだ何も受信していません）';
+        else if (curGap >= 2000) { hint = rttMax >= 800 ? '受信が途絶：回線が詰まり気味(RTT悪化)' : '受信が途絶：電波の切れ目/経路の切替?(RTTは正常)'; out.level = 2; }
+        else if (maxGap >= 2000) { hint = '直近に受信の途絶あり（今は回復）'; out.level = 1; }
+        else if (rate < 8) { hint = '受信が少ない：帯域不足かパケット喪失'; out.level = 1; }
+        if (hint) out.lines.push('目安: ' + hint);
+      } else {
+        out.lines.push('[ホスト] {fps}');
+        const items = [];
+        this._guestPeers.forEach((entry, uid) => items.push([uid, entry]));
+        const infos = await Promise.all(items.map(([uid, entry]) => this._pcInfo(entry.pc)));
+        items.forEach(([uid, entry], i) => {
+          const info = infos[i];
+          const ch = entry.channels && entry.channels.state;
+          entry.hist = (entry.hist || []);
+          entry.hist.push({ t: now, buf: Math.max(entry.bufPeak || 0, ch ? ch.bufferedAmount : 0), skip: entry.skipCnt || 0, rtt: info.rtt != null ? info.rtt : 0 });
+          entry.bufPeak = 0; entry.skipCnt = 0;
+          entry.hist = entry.hist.filter(x => now - x.t <= W);
+          const bufMax = entry.hist.reduce((a, x) => Math.max(a, x.buf), 0);
+          const skipSum = entry.hist.reduce((a, x) => a + x.skip, 0);
+          const rttMax = entry.hist.reduce((a, x) => Math.max(a, x.rtt), 0);
+          const nm = String((this._identityMap && this._identityMap[uid] && this._identityMap[uid].name) || uid).slice(0, 6);
+          let mark = '';
+          if (bufMax > NET_STATE_MAX_BUFFERED) { mark = rttMax >= 500 ? ' ←詰まり(回線が遅い)' : ' ←詰まり(RTT正常：途絶?)'; out.level = Math.max(out.level, 2); }
+          else if (skipSum > 0) { out.level = Math.max(out.level, 1); }
+          out.lines.push(nm + ' RTT' + (info.rtt != null ? info.rtt : '-') + '(最大' + rttMax + ') 溜' + bufMax + 'B 見送' + skipSum + ' ' + short(info) + (info.netType ? ' ' + info.netType : '') + mark);
+        });
+        if (out.lines.length > 6) out.lines.length = 6;
+      }
+      if (this.onDiag) this.onDiag(out);
+    } catch (e) {
+      /* 診断の失敗でゲームを止めない */
+    } finally { this._diagBusy = false; }
+  }
+
+  // ゲストがホストから最後に何か受信してからの経過ミリ秒（下りの停止検知用）。ホスト自身・部屋に居ない時は 0。
+  recvGapMs() {
+    if (!this.enabled || !this.roomId || this.isHost || !this._hostUid) return 0;
+    return Date.now() - (this._lastRecvAt || Date.now());
+  }
+
   // [調査用→本番用] gapが長く伸びている（＝WebRTC経路が実質詰まっている）場合の、能動的な繋ぎ直し。
   // ゲスト：ホストとの接続を張り直す。ホスト：既存の各ゲスト接続に対してICE再ネゴシエーションを試みる
   // （restartIce。接続を完全に破棄はせず、経路の再確立だけを試みる）。
@@ -10001,6 +10179,8 @@ class Net {
     // 「古い連番より小さい＝古いデータ」として新ホストの配信が全部捨てられ、他の人の状態が止まって見えてしまう。
     this._lastPlayersSeq = 0;
     this._enemySeqByFloor = {};
+    this._lastRecvAt = Date.now(); // 繋ぎ直し直後は、そこから数え直す
+    this._diagStart();
     const pc = new RTCPeerConnection(RTC_CONFIG);
     this._hostPc = pc;
     // 2本のDataChannelを使い分ける（同じPeerConnection内でも別ストリームなので、片方が詰まっても
@@ -10139,6 +10319,7 @@ class Net {
   _startHosting() {
     if (this._hostingStarted) return;
     this._hostingStarted = true;
+    this._diagStart();
     this._guestPeers = new Map();
     this._guestSeq = {};
     const offersRef = this.db.ref(`rooms/${this.roomId}/rtc/${this.uid}/offers`);
@@ -10232,12 +10413,30 @@ class Net {
     this._guestPeers.forEach((entry, uid) => {
       if (uid === excludeUid) return;
       const ch = entry.channels && entry.channels[channelName];
-      if (ch && ch.readyState === 'open') { try { ch.send(raw); } catch (e) {} }
+      if (ch && ch.readyState === 'open') {
+        // 「最新状態」を流す state チャンネルは、送信待ちが溜まっているゲストには送らずに見送る
+        if (channelName === 'state') {
+          const b = ch.bufferedAmount;
+          if (b > (entry.bufPeak || 0)) entry.bufPeak = b; // 診断用：直近の送信待ち量の最大値
+          if (b > NET_STATE_MAX_BUFFERED) { this._stateSkipped = (this._stateSkipped || 0) + 1; entry.skipCnt = (entry.skipCnt || 0) + 1; return; }
+        }
+        try { ch.send(raw); } catch (e) {}
+      }
     });
   }
 
   // ゲスト視点：ホストから届いたメッセージ（players/enemies/frontline の最新状態、またはevent）
   _onMessageFromHost(raw) {
+    const nowT = Date.now();
+    const dg = this._diag; // 診断用：受信量・受信の空き時間を記録
+    if (dg) {
+      if (dg.lastMsgAt) {
+        const g = nowT - dg.lastMsgAt;
+        if (g > 150) { dg.gaps.push({ t: nowT, gap: g }); if (g > 2000) { dg.stallCount++; dg.stallMax = Math.max(dg.stallMax, g); } }
+      }
+      dg.lastMsgAt = nowT; dg.recvBytes += (raw && raw.length) || 0; dg.recvMsgs++;
+    }
+    this._lastRecvAt = nowT; // ホストから何か届いた時刻（下りが止まっていないかの監視用）
     let msg; try { msg = JSON.parse(raw); } catch (e) { return; }
     if (msg.t === 'players') {
       if (!(msg.seq > (this._lastPlayersSeq || 0))) return;
