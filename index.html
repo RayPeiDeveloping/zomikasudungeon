@@ -4239,8 +4239,9 @@ class GameScene extends Phaser.Scene {
     if (!el) {
       el = document.createElement('div');
       el.id = 'connDiag';
-      el.style.cssText = 'position:fixed; top:max(0.3vh, env(safe-area-inset-top)); left:calc(50% + 8.5vh); z-index:22; font-size:1.3vh; line-height:1.2;'
-        + 'font-family:monospace; white-space:pre; text-shadow:0 0 0.5vh #000, 0 0 0.5vh #000; pointer-events:none; display:none;';
+      el.style.cssText = 'position:fixed; top:max(0.3vh, env(safe-area-inset-top)); left:calc(50% + 8.5vh); z-index:22; font-size:1.9vh; line-height:1.25; font-weight:bold;'
+        + 'font-family:monospace; white-space:pre; text-shadow:0 0 0.5vh #000, 0 0 0.5vh #000; pointer-events:none; display:none;'
+        + 'background:rgba(0,0,0,0.45); padding:0.4vh 0.9vh; border-radius:0.7vh;';
       document.body.appendChild(el);
     }
     if (!d) { el.style.display = 'none'; return; }
