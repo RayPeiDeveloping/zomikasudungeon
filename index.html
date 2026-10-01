@@ -1362,6 +1362,11 @@ const NET_STATE_MAX_BUFFERED = 6000;
 // 通信診断（画面上部のP2P/TURN表示の右横に出す小さな数字）。原因の切り分け用。不要になったら false に。
 const NET_DIAG_SHOW = true;
 const NET_DIAG_WINDOW_MS = 10000; // 「直近○秒」の集計幅
+// ホスト→ゲストの players 配信から「成績(stats)」を普段は外す。成績はリザルト用で滅多に変わらないのに、
+// 全員分を毎回(約16回/秒)送っていたため。変化があった直後の NET_STATS_BURST_MS だけと、取りこぼし対策として
+// NET_STATS_REFRESH_MS ごとには付けて送る（受け取り側は直前の成績を引き継ぐ）。
+const NET_STATS_REFRESH_MS = 2000;
+const NET_STATS_BURST_MS = 600;
 // [調査用] trueにすると、協力プレイ中に1秒おきの接続状況(isConnected/lastAckAtからの経過時間)を
 // 画面右下に小さく表示し続ける。20秒程度のフリーズが起きた瞬間の記録を残して原因切り分けするための
 // 一時的な仕込み。原因が特定できたら false に戻すかコードごと消してよい。
@@ -10048,12 +10053,23 @@ class Net {
   // ゲスト：自分⇔ホストの下り状況。ホスト：ゲストごとの送信待ち量(溜)と見送り回数。
   _diagStart() {
     if (!NET_DIAG_SHOW) return;
-    if (!this._diag) this._diag = { recvBytes: 0, recvMsgs: 0, lastMsgAt: 0, tickAt: Date.now(), samples: [], gaps: [], rtts: [], stallCount: 0, stallMax: 0, netChanges: 0 };
+    if (!this._diag) this._diag = { recvBytes: 0, recvMsgs: 0, lastMsgAt: 0, tickAt: Date.now(), samples: [], gaps: [], rtts: [], stallCount: 0, stallMax: 0, netChanges: 0, fbAlive: 0, fbDead: 0, stallClassified: false };
     try {
       const c = navigator.connection;
       if (c && c.addEventListener && !this._diagConnBound) { this._diagConnBound = true; c.addEventListener('change', () => { this._diag.netChanges++; }); }
     } catch (e) {}
     if (!this._diagTimer) this._diagTimer = setInterval(() => this._diagTick(), 1000);
+  }
+
+  // Firebase(WebSocket=TCP)にサーバーまで往復する読み取りを1回投げ、返ってくるまでの時間を測る。
+  // WebRTC(UDP)の受信が止まっている間も、こちらが返ってくるなら「UDPだけが止まっている」、
+  // こちらも返ってこないなら「回線自体が途切れている」と切り分けられる。
+  // 誰も購読していない場所を読むので、毎回サーバーまで往復する。権限エラーで拒否されても、サーバーからの返答には変わりない。
+  _fbProbe(now) {
+    if (!this.db || this._fbPending) return;
+    this._fbPending = now;
+    const fin = () => { const t1 = Date.now(); this._fbLast = { t: t1, rtt: t1 - now }; this._fbPending = 0; };
+    try { this.db.ref('_probe/' + (this.uid || 'x')).once('value').then(fin, fin); } catch (e) { this._fbPending = 0; }
   }
 
   async _pcInfo(pc) {
@@ -10105,14 +10121,30 @@ class Net {
         const rttMax = d.rtts.reduce((a, x) => Math.max(a, x.v), 0);
         const curGap = d.lastMsgAt ? now - d.lastMsgAt : 0;
         const maxGap = Math.max(curGap, d.gaps.reduce((a, x) => Math.max(a, x.gap), 0));
+        // Firebase往復の確認：止まっている間は毎秒、ふだんは5秒ごと
+        if (curGap >= 1000 || now - (this._fbStartedAt || 0) >= 5000) { this._fbStartedAt = now; this._fbProbe(now); }
+        const fb = this._fbLast, fbPend = this._fbPending ? now - this._fbPending : 0;
+        const fbOkNow = !!fb && now - fb.t < 2500 && fb.rtt < 2000 && fbPend < 2000;
+        const fbDeadNow = fbPend >= 2000;
+        // 止まりが4秒続いた時点で1回だけ「その間にFirebaseの往復が完了したか」を数える
+        if (d.lastMsgAt && curGap >= 4000 && !d.stallClassified) {
+          d.stallClassified = true;
+          if (fb && fb.t > d.lastMsgAt + 1500) d.fbAlive++; else d.fbDead++;
+        }
         let conn = '';
         try { const c = navigator.connection; if (c) conn = [c.type, c.effectiveType, c.saveData ? 'saveData' : ''].filter(Boolean).join(' '); } catch (e) {}
         out.lines.push('RTT' + (info.rtt != null ? info.rtt : '-') + '(最大' + rttMax + ') ↓' + Math.round(avg) + 'kbps(最大' + Math.round(max) + ') ' + Math.round(rate) + '/秒');
         out.lines.push('空き' + maxGap + 'ms 停止' + d.stallCount + '回(最長' + (d.stallMax / 1000).toFixed(1) + 's) {fps}');
         out.lines.push(short(info) + ' ' + (info.netType || '') + ' ' + conn + ' 切替' + d.netChanges + '/経路' + (info.pairChanges != null ? info.pairChanges : '-'));
+        out.lines.push('Firebase:' + (fbPend >= 1500 ? '応答待ち' + (fbPend / 1000).toFixed(1) + 's' : (fb ? fb.rtt + 'ms' : '-')) + ' 停止中の応答 あり' + d.fbAlive + '/なし' + d.fbDead);
         let hint = null;
         if (!d.lastMsgAt) hint = '接続待ち（まだ何も受信していません）';
-        else if (curGap >= 2000) { hint = rttMax >= 800 ? '受信が途絶：回線が詰まり気味(RTT悪化)' : '受信が途絶：電波の切れ目/経路の切替?(RTTは正常)'; out.level = 2; }
+        else if (curGap >= 2000) {
+          if (fbOkNow) hint = '受信が途絶：WebRTC(UDP)だけ止まっている（Firebaseは応答中）';
+          else if (fbDeadNow) hint = '受信が途絶：Firebaseも応答なし＝回線自体が途切れている可能性';
+          else hint = rttMax >= 800 ? '受信が途絶：回線が詰まり気味(RTT悪化)' : '受信が途絶：電波の切れ目/経路の切替?';
+          out.level = 2;
+        }
         else if (maxGap >= 2000) { hint = '直近に受信の途絶あり（今は回復）'; out.level = 1; }
         else if (rate < 8) { hint = '受信が少ない：帯域不足かパケット喪失'; out.level = 1; }
         if (hint) out.lines.push('目安: ' + hint);
@@ -10408,9 +10440,10 @@ class Net {
     try { ch.send(JSON.stringify(msgObj)); return true; } catch (e) { return false; }
   }
 
-  _broadcastToGuests(channelName, msgObj, excludeUid) {
+  // perUid を渡すと、ゲストごとに中身を変えたメッセージを作って送る（msgObj は使わない）。
+  _broadcastToGuests(channelName, msgObj, excludeUid, perUid) {
     if (!this._guestPeers) return;
-    const raw = JSON.stringify(msgObj);
+    const raw = perUid ? null : JSON.stringify(msgObj);
     this._guestPeers.forEach((entry, uid) => {
       if (uid === excludeUid) return;
       const ch = entry.channels && entry.channels[channelName];
@@ -10421,7 +10454,7 @@ class Net {
           if (b > (entry.bufPeak || 0)) entry.bufPeak = b; // 診断用：直近の送信待ち量の最大値
           if (b > NET_STATE_MAX_BUFFERED) { this._stateSkipped = (this._stateSkipped || 0) + 1; entry.skipCnt = (entry.skipCnt || 0) + 1; return; }
         }
-        try { ch.send(raw); } catch (e) {}
+        try { ch.send(perUid ? JSON.stringify(perUid(uid)) : raw); } catch (e) {}
       }
     });
   }
@@ -10435,14 +10468,20 @@ class Net {
         const g = nowT - dg.lastMsgAt;
         if (g > 150) { dg.gaps.push({ t: nowT, gap: g }); if (g > 2000) { dg.stallCount++; dg.stallMax = Math.max(dg.stallMax, g); } }
       }
-      dg.lastMsgAt = nowT; dg.recvBytes += (raw && raw.length) || 0; dg.recvMsgs++;
+      dg.lastMsgAt = nowT; dg.recvBytes += (raw && raw.length) || 0; dg.recvMsgs++; dg.stallClassified = false;
     }
     this._lastRecvAt = nowT; // ホストから何か届いた時刻（下りが止まっていないかの監視用）
     let msg; try { msg = JSON.parse(raw); } catch (e) { return; }
     if (msg.t === 'players') {
       if (!(msg.seq > (this._lastPlayersSeq || 0))) return;
       this._lastPlayersSeq = msg.seq;
-      this._hotMap = Object.assign({}, msg.p);
+      const prevMap = this._hotMap || {};
+      const nextMap = Object.assign({}, msg.p);
+      for (const k in nextMap) { // 成績(stats)は毎回は付いてこないので、直前の値を引き継ぐ
+        const e = nextMap[k];
+        if (e && e.stats === undefined) { const ps = prevMap[k] && prevMap[k].stats; if (ps) nextMap[k] = Object.assign({}, e, { stats: ps }); }
+      }
+      this._hotMap = nextMap;
       // 自分自身の最新状態は、ホストからの(1周遅れの)配信より、ローカルの値を優先する
       if (this._ownLatestState) this._hotMap[this.uid] = this._ownLatestState;
       this._recomputeMergedPlayers();
@@ -10487,6 +10526,7 @@ class Net {
       if (!(msg.seq > (this._guestSeq[guestUid] || 0))) return;
       this._guestSeq[guestUid] = msg.seq;
       this._hotMap[guestUid] = this._mergeInto(Object.assign({}, this._hotMap[guestUid] || {}), msg.p);
+      if (msg.p && msg.p.stats !== undefined) this._markStatsChanged();
       this._recomputeMergedPlayers();
       // ここでは配信し返さない。ホストの定期送信(updateOwnState内の_broadcastPlayers)にまとめて乗せる。
     } else if (msg.t === 'event') {
@@ -10579,13 +10619,35 @@ class Net {
     if (this.isHost) {
       this.lastAckAt = Date.now(); // 自分(ホスト)の分はネットワークを介さず即確定するので常に「詰まっていない」扱い
       this._playersSeq = (this._playersSeq || 0) + 1;
-      this._broadcastToGuests('state', { t: 'players', seq: this._playersSeq, p: this._hotMap });
+      if (data && data.stats !== undefined) this._markStatsChanged();
+      this._broadcastPlayers();
     } else {
       this._ownLatestState = this._mergeInto(Object.assign({}, this._ownLatestState || {}), data);
       this._stateSeq = (this._stateSeq || 0) + 1;
       const ok = this._sendToHost('state', { t: 'state', seq: this._stateSeq, p: data });
       if (ok) this.lastAckAt = Date.now(); // 実際にDataChannelへ送出できた時だけ更新
     }
+  }
+
+  _markStatsChanged() { this._statsBurstUntil = Date.now() + NET_STATS_BURST_MS; }
+
+  // 全ゲストへ「全員の最新状態」を送る。通信量を減らすため、
+  //  ・成績(stats)は、変化の直後と一定間隔のときだけ付ける
+  //  ・受け取るゲスト本人の分は送らない（ゲスト側は元々ローカルの値を優先して使っていた）
+  _broadcastPlayers() {
+    const now = Date.now();
+    let withStats = now < (this._statsBurstUntil || 0);
+    if (!withStats && now - (this._statsFullAt || 0) >= NET_STATS_REFRESH_MS) withStats = true;
+    if (withStats) this._statsFullAt = now;
+    const seq = this._playersSeq, hot = this._hotMap, base = {};
+    for (const k in hot) {
+      const e = hot[k];
+      if (!withStats && e && e.stats !== undefined) { const c = Object.assign({}, e); delete c.stats; base[k] = c; } else base[k] = e;
+    }
+    this._broadcastToGuests('state', null, undefined, uid => {
+      const p = Object.assign({}, base); delete p[uid];
+      return { t: 'players', seq, p };
+    });
   }
 
   // ===== ここから: 敵の同期 =====
