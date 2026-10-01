@@ -224,10 +224,28 @@
   .lobbyGrid > .lobbyBox.lobbySide.lobbyRight { justify-content: center; gap: 1.6vh; }
   .lobbyCenter h1 { font-size: 3.2vh; margin: 0 0 1.8vh; }
   .lobbyCenter label { width: 100%; }
-  .lobbyCenter #colorPicker { justify-content: center; }
+  .lobbyCenter #accPicker { justify-content: center; }
   /* 左右のボタン（.lobbyBox button）と同じ font-size / padding を使う。ここで vh 指定すると
      スマホの横向き（高さ約390px）で文字が約8pxまで縮んでしまうため、サイズは指定しない。 */
   #soloBtn { margin-top: 1.8vh; }
+  /* メニュー最上部の記録バー。ロビーの外周の余白（padding 20px）に重ねて置くだけで、既存のレイアウトには影響しない */
+  #lobbyStats {
+    position: absolute; top: calc(2px + env(safe-area-inset-top, 0px)); z-index: 1; pointer-events: none;
+    /* 左右はノッチ等の安全領域＋余白の内側に収める。はみ出す分は切り詰めて、画面外にも下の画面にも出さない */
+    left: calc(env(safe-area-inset-left, 0px) + 8px); right: calc(env(safe-area-inset-right, 0px) + 8px);
+    display: flex; gap: 20px; justify-content: center; overflow: hidden; white-space: nowrap;
+    font-size: 12px; line-height: 16px; color: #ffd980; text-align: center;
+  }
+  #lobbyStats > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #lobbyStats b { color: #fff; margin-left: 6px; }
+  /* 記録バーは下の画面を邪魔しないよう pointer-events: none だが、リセットボタンだけは押せるようにする */
+  #lobbyStats > button#resetSaveBtn {
+    pointer-events: auto; cursor: pointer; flex: none;
+    font-size: 10px; line-height: 14px; padding: 1px 8px; margin: 0;
+    color: #ffd980; background: rgba(255, 217, 128, 0.12);
+    border: 1px solid rgba(255, 217, 128, 0.55); border-radius: 8px; opacity: 1;
+  }
+  #lobbyStats > button#resetSaveBtn:active { background: rgba(255, 217, 128, 0.3); }
   .challengeBtn { font-size: 1.9vh; padding: 1.8vh 1vh; margin-top: 0; }
   .lobbyBox h1 { font-size: 20px; margin: 0 0 4px; }
   .lobbyBox h2 { font-size: 14px; color: #b388ff; margin: 18px 0 8px; }
@@ -272,9 +290,39 @@
   #chestChoiceOverlay h2 { margin: 6px 0 4px; font-size: 12px; }
   #chestChoiceList { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
   #chestChoiceList button { margin-top: 0; padding: 10px; font-size: 14px; }
-  #colorPicker { display: flex; gap: 8px; margin: 4px 0 14px; }
-  .swatch { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
-  .swatch.sel { border-color: #fff; }
+  /* 装飾品の選択欄（旧：色の選択）。先頭は一覧を開くアイコン。未入手は灰色 */
+  #accPicker { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; }
+  .accItem {
+    width: 28px; height: 28px; box-sizing: border-box; border-radius: 50%; cursor: pointer;
+    border: 2px solid transparent; background: rgba(255,255,255,0.10);
+    display: flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1;
+    -webkit-user-select: none; user-select: none;
+  }
+  .accItem.accList { background: rgba(179,136,255,0.28); }
+  .accItem.sel { border-color: #fff; }
+  .accItem.locked { filter: grayscale(1); opacity: 0.45; }
+  /* 装飾品の一覧ウィンドウ */
+  #accModal {
+    display: none; position: fixed; inset: 0; z-index: 130; background: rgba(0,0,0,0.72);
+    align-items: center; justify-content: center; padding: 12px; box-sizing: border-box; color: #e8e8f0;
+  }
+  #accModal .lobbyBox { max-width: min(96vw, 760px); width: 100%; max-height: 96vh; box-sizing: border-box; padding: 10px 16px; }
+  #accModal h1 { margin: 0 0 4px; font-size: 18px; }
+  #accModal .accName { display: none; } /* 新芽・盾などの名前は表示しない */
+  /* 一覧は2列に並べて、スクロールしなくても全部見えるようにする */
+  #accModalList { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; }
+  #accModal .accRow { padding: 4px 2px; }
+  #accModal #accModalClose { margin-top: 6px; }
+  .accRow { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid rgba(255,255,255,0.07); text-align: left; }
+  .accRow .accIcon { width: 30px; height: 30px; flex: none; font-size: 20px; display: flex; align-items: center; justify-content: center; }
+  .accRow.locked .accIcon { filter: grayscale(1); opacity: 0.45; }
+  .accRow .accInfo { flex: 1; min-width: 0; }
+  .accRow .accName { font-size: 14px; color: #fff; }
+  .accRow .accDesc { font-size: 12px; color: #a0a0b0; }
+  .accRow .accState { flex: none; font-size: 11px; color: #7effa0; text-align: right; }
+  .accRow .accEffect { color: #c9b6ff; }
+  .accRow.locked .accName { color: #8a8a99; }
+  .accRow.locked .accState { color: #8a8a99; }
   .joinRow { display: flex; gap: 8px; margin-top: 10px; }
   .joinRow input { flex: 1; text-transform: uppercase; }
   .joinRow button { width: auto; padding: 10px 16px; }
@@ -312,6 +360,7 @@
 </head>
 <body>
 <div id="lobby">
+  <div id="lobbyStats"></div>
   <div class="lobbyGrid">
     <div class="lobbyBox lobbySide">
       <h2>👥 協力プレイ</h2>
@@ -331,7 +380,7 @@
       <label>プレイヤー名
         <input type="text" id="nameInput" maxlength="10">
       </label>
-      <div id="colorPicker"></div>
+      <div id="accPicker"></div>
       <div id="devPanel" style="display:none; margin: 6px 0; padding: 8px; border: 1px dashed rgba(255,255,255,0.3); border-radius: 8px; font-size: 12px; width:100%; box-sizing:border-box; text-align:left;">
         🛠️ デベロッパーモード（テストプレイ用に開始条件を選べます）
         <div style="display:flex; gap:8px; margin-top:6px; align-items:center;">
@@ -352,6 +401,13 @@
       <button id="bossRushBtn" class="challengeBtn" style="background:#ff8a5b;">ボスラッシュ</button>
       <button id="frontlineBtn" class="challengeBtn" style="background:#4fd67a;">最北戦線</button>
     </div>
+  </div>
+</div>
+<div id="accModal">
+  <div class="lobbyBox">
+    <h1>装飾品</h1>
+    <div id="accModalList"></div>
+    <button id="accModalClose">閉じる</button>
   </div>
 </div>
 <div id="resultScreen">
@@ -704,6 +760,8 @@ class Leaf {
 // 常に「一番近い端」に一直線というと単調＆簡単すぎるので、
 // (1) 近い端ほど選ばれやすいが必ず最短になるとは限らない重み付き抽選、
 // (2) 一直線ではなく軽くジグザグする、の2つでランダム性・難易度を持たせている。
+// 通常ダンジョンで、出口がマップの端ではなく「どこかの部屋の中」に出る確率（0〜1）。0で従来どおり端のみ。
+const DUNGEON_EXIT_IN_ROOM_CHANCE = 0.5;
 function carveExit(grid, room, width, height, rand) {
   const cx = Math.floor(room.x + room.w / 2);
   const cy = Math.floor(room.y + room.h / 2);
@@ -750,12 +808,12 @@ function carveExit(grid, room, width, height, rand) {
   return { path, exitPos: path[path.length - 1] || { x: cx, y: cy } };
 }
 
-// ボスラッシュ用：ボスが1体いるだけの1部屋のアリーナ。外周は壁（爆弾で壊されても
+// ボスラッシュ用（ダンジョンのボス階でも使う）：ボスが1体いるだけの1部屋のアリーナ。外周は壁（爆弾で壊されても
 // 最外周は壊れない）。出口は最初は無く、ボスを倒すと開く（exitPos: null）。
 function generateBossArena() {
-  const width = 24, height = 18;
+  const width = 42, height = 30; // 部屋（36×24）を縦横2倍に。外周の壁3マスは従来どおり
   const grid = Array.from({ length: height }, () => Array(width).fill(0));
-  const room = { x: 3, y: 3, w: 18, h: 12 };
+  const room = { x: 3, y: 3, w: 36, h: 24 };
   for (let y = room.y; y < room.y + room.h; y++) {
     for (let x = room.x; x < room.x + room.w; x++) grid[y][x] = 1;
   }
@@ -922,16 +980,29 @@ function generateDungeon(seed, floor) {
   // スタートから遠い部屋 上位数件の中からランダムに選ぶ（常に一番遠い部屋固定＝簡単に覚えられてしまうのを防ぐ）
   const poolSize = Math.max(1, Math.min(3, byDist.length));
   const farRoom = (byDist[Math.floor(rand() * poolSize)] || byDist[0] || { room: start }).room;
-  const exit = carveExit(grid, farRoom, width, height, rand);
+  // 出口の位置：一定確率で「スタート以外のどこかの部屋の中」に出口を置く。
+  // それ以外は従来どおり、遠い部屋からマップの端まで通路を掘って端に出口を作る。
+  let exit, exitRoom = farRoom;
+  if (others.length > 0 && rand() < DUNGEON_EXIT_IN_ROOM_CHANCE) {
+    const er = others[Math.floor(rand() * others.length)];
+    exitRoom = er;
+    const ex = er.x + 1 + Math.floor(rand() * Math.max(1, er.w - 2));
+    const ey = er.y + 1 + Math.floor(rand() * Math.max(1, er.h - 2));
+    grid[ey][ex] = 3;
+    exit = { exitPos: { x: ex, y: ey } };
+  } else {
+    exit = carveExit(grid, farRoom, width, height, rand);
+  }
 
   return {
     grid, width, height, rooms, exitPos: exit.exitPos,
+    exitRoom, // 出口のある部屋（部屋の中に出口がある場合はその部屋、端の出口の場合は通路がつながっている部屋）。ボスはここに出す
     playerStart: { x: Math.floor(sx), y: Math.floor(sy) },
     // フロアが広くなるほど敵も比例して増やす（広いのに敵が少なくて簡単すぎる、を防ぐ）。
     // 密度が下がりすぎないよう、以前の上限(24体)よりだいぶ高めの上限にしてある。
     // 数が増えても重くならないよう、プレイヤーから遠い敵は動きの計算自体を間引く
     // （下のupdateループのAI_ACTIVE_RADIUSを参照）。
-    enemyBudget: Math.min(4 + floor * 3, 70),
+    enemyBudget: Math.min(Math.round(DUNGEON_DIFFICULTY.budgetBase + floor * DUNGEON_DIFFICULTY.budgetPerFloor), DUNGEON_DIFFICULTY.budgetMax),
   };
 }
 
@@ -955,6 +1026,86 @@ const TRAP_STUN_IMMUNE_SEC = 4;
 // behavior: 'wander'/'erratic'/'chase'/'charge' は近接系。
 // 'ranged' は飛び道具で攻撃してくる敵（5階以降）。'boss'/isBoss:true は10階以降、
 // かなり低確率で（出ない階も多い）フロアに1体だけ出現しうる超強敵（bossSpawn:trueの中から抽選）。
+// スネークの「とぐろ」攻撃の設定：先頭がプレイヤーの周りを高速で1周し、後ろの個体が軌跡をなぞって一瞬だけ輪になる。
+// 半径は「全員の長さ÷2π」で自動的に決まる（1周し終えた時に先頭と最後尾がちょうどつながる）。
+const SNAKE_COIL = {
+  coilFirst: 4,        // 出現してから最初のとぐろまでの時間（秒）
+  coilCooldown: 8,     // とぐろが終わってから次までの時間（秒）
+  coilTrigger: 400,    // プレイヤーがこの距離以内にいる時だけ始める
+  coilMinRadius: 50,   // 輪の半径の下限（個体が少なくなった時）
+  coilLaps: 1,         // 回る周数
+  coilMaxTime: 4,      // とぐろの最大時間（秒。輪に乗れずに周回が進まなかった時の保険）
+  coilSpeed: 345,      // とぐろ中の先頭の速さ（通常の速さ230の約1.5倍。もとは通常115の約3倍だった）
+  coilFollow: 70,      // 輪の中心がプレイヤーに追従する速さ（輪から逃げ切れないように）
+  reviveInterval: 1,   // 先頭が生きている間、倒された胴体が1体ずつ生き返る間隔（秒）
+  corpseLinger: 30,    // ボスを倒しきった後、灰色の死骸が残る時間（秒。最後の2秒で薄くなって消える）
+};
+// スネークの通常移動：頭がプレイヤーへまっすぐ突っ込むと、先頭の頭をすぐ殴れてしまうので、
+// 頭は一定の距離を保ってプレイヤーの周りを回り、後ろの胴体で取り囲みにいく。
+// 回る半径は near〜far の間をゆっくり伸び縮みする（締め付けるように近づいては緩む）。向きも時々逆になる。
+const SNAKE_ORBIT = {
+  near: 90,       // 一番絞った時の、プレイヤーと頭の距離（px）
+  far: 210,       // 一番緩めた時の距離
+  period: 6,      // near→far→near の1往復にかかる時間（秒）
+  wobble: 25,     // 蛇らしいうねりで半径に足す揺れの大きさ（px）
+  flipMin: 4,     // 回る向きを逆にするまでの時間（秒）の最小
+  flipMax: 7,     // 同じく最大
+};
+// スネークの「振り回し」攻撃の設定：体全体で渦巻き状にギュッと丸まり（予備動作）、次の瞬間に頭を軸にして
+// 胴体を一気に伸ばし、鞭のようにぐるぐる振り回す。振り回している間は、胴体のどこに触れても接触ダメージを受ける。
+// 丸まっている間は危険範囲（伸びきった時の長さ）が赤い輪で出るので、その外へ逃げれば当たらない。
+const SNAKE_WHIRL = {
+  whirlFirst: 7,        // 出現してから最初の振り回しまでの時間（秒）
+  whirlCooldown: 9,     // 振り回しが終わってから次までの時間（秒）
+  whirlTrigger: 360,    // プレイヤーがこの距離以内にいる時だけ始める
+  curlTime: 0.7,        // 丸まる予備動作の長さ（秒。もとは1.1）
+  curlWind: 1.6,        // 丸まっている間の渦の回転の速さ（rad/秒）
+  curlGap: 12,          // 丸まった時の個体同士の間隔（px。小さいほどギュッと固まる）
+  curlPitch: 17,        // 渦の巻きの間隔（px。胴体の太さ18pxに合わせて、ほぼ隙間なく巻く）
+  curlStartR: 20,       // 渦の一番内側（先頭の次の個体）の半径
+  burstTime: 0.3,       // 丸まりが解けて一気に伸びきるまでの時間（秒）
+  reach: 230,           // 伸びきった時の頭から先端までの長さ（px。全員が揃っていても、これ以上は伸びない）
+  whipCurve: 1.0,       // 先端ほど回転に遅れてしなる角度（rad）
+  spinTime: 3.0,        // 伸び始めてから減速に入るまでの時間（秒）
+  spinSpeed0: 2.0,      // 振り回し開始直後の回転速度（rad/秒）
+  spinSpeed: 4.6,       // 最高の回転速度（rad/秒。約0.7周/秒）
+  spinAccel: 0.6,       // 最高速度に達するまでの時間（秒）
+  spinMult: 1.3,        // 回転の速さにまとめて掛ける倍率（spinSpeed0・spinSpeed の両方。通常の振り回しも強攻撃も、これで一括で速くできる）
+  slowTime: 0.8,        // 回転が止まるまでの減速時間（秒。この間も当たり判定はある）
+  headSpeed: 55,        // 回している間、頭がプレイヤーへ寄っていく速さ（通常の移動は230）
+  hotColor: 0xe8742a,   // 丸まり〜振り回しの間の胴体の色
+};
+// スネークの「強攻撃（強振り回し）」：先頭（ウロボロス本体）のHPが hpRatio 以下になると、なった直後に1回目、
+// 以後は攻撃の開始から interval 秒ごとに出す。通常の振り回しの強化版で、とぐろ・通常の振り回しより優先する。
+// 届く範囲が広く、速く、長く回り、当たると痛い。丸まっている間は、危険範囲の赤い輪が通常より広く出る。
+// whirl の中身は SNAKE_WHIRL を上書きする値（書いていない項目は通常の振り回しと同じ）。
+const SNAKE_RAGE = {
+  hpRatio: 0.3,         // 先頭のHPがこの割合以下になったら強攻撃を使い始める
+  interval: 9,          // 強攻撃の間隔（秒。攻撃の開始から数える）
+  reviveInterval: 0.1,  // 強攻撃モード（先頭のHPが hpRatio 以下）の間、倒された胴体が1体ずつ生き返る間隔（秒）。通常は SNAKE_COIL.reviveInterval＝1秒
+  trigger: 420,         // プレイヤーがこの距離以内にいる時だけ始める
+  damageMult: 2,        // 伸びてから止まるまでの間、接触ダメージが何倍になるか
+  whirl: {
+    curlTime: 2.0,      // 予備動作（通常は0.7）。部屋の真ん中から隅まで走って逃げきれる長さ（プレイヤー速度168px/秒）
+    // 伸びきった時の長さ（通常は230）。ボスラッシュの部屋（18×12マス）の真ん中で出されても、
+    // 四隅にだけギリギリ逃げ場が残る長さ（隅までの距離332 − 当たり判定19 − 逃げ場16 ≒ 297）。
+    reach: 297,
+    whipCurve: 0.8,
+    spinTime: 3.6,      // 通常は3.0
+    spinSpeed0: 3.0,
+    spinSpeed: 5.4,     // 通常は4.6
+    spinAccel: 0.8,
+    slowTime: 1.0,
+    headSpeed: 75,      // 回している間、頭が寄っていく速さ（通常は55。ボスラッシュは頭がその場に固定される）
+    hotColor: 0xff2a2a, // 胴体の色（通常はオレンジ、強攻撃は赤）
+  },
+};
+// スネークの先頭（ウロボロス本体）が倒された後のカウントダウン：先頭に生き残っている胴体の頭の上に残り秒数が出て、
+// 0になると、胴体を含めて全員が死ぬ（ボス撃破）。その前に全員を倒しきっても撃破になる。胴体はもう生き返らない。
+// 先頭の胴体が倒されたら、次に生き残っている一番前の個体へカウントダウンが移る。
+const SNAKE_DOOM = {
+  seconds: 30,  // 先頭が倒されてから、全員が死ぬまでの時間（秒）
+};
 const ENEMY_TYPES = [
   { key: 'slime',   color: 0x7ee081, radius: 14, hp: 18, speed: 42,  damage: 6,  behavior: 'wander', minFloor: 1 },
   { key: 'bat',     color: 0xb98cff, radius: 10, hp: 10, speed: 120, damage: 5,  behavior: 'erratic', minFloor: 1 },
@@ -1141,6 +1292,17 @@ const ENEMY_TYPES = [
     projColor: 0xffa0d0, isBoss: true, randomStrafe: true,
     // 4体のうち最後の1体になると、はねるように（跳ぶ→着地して一瞬止まる）高速で動き回り、弾も速く・多く撃ってくる
     lastStand: { speedMult: 2.6, hopTime: 0.32, hopRest: 0.16, fireCooldownMult: 0.5, projSpeedMult: 1.8 } },
+  // スネーク：コウモリほどの小さい敵が数珠つなぎになって蛇のように動くボス。先頭（snake）だけが動きを決め、
+  // 後ろの個体（snake_body）は直前の個体が通った軌跡をそのままなぞる。先頭が倒れたら、残った中で一番前の個体が先頭になる。
+  // 先頭＋後続の全員を倒して初めてボス撃破（同じ bossGroupId で束ねる）。HP合計は先頭600＋後続30×28＝1440。
+  // 攻撃は2種類：「とぐろ」（プレイヤーの周りを1周して輪になる／SNAKE_COIL）と、
+  // 「振り回し」（渦巻き状に丸まってから、頭を軸に胴体を一気に伸ばしてぐるぐる振り回す／SNAKE_WHIRL）。
+  { key: 'snake', displayName: 'OUROBOROS', color: 0x8cf06a, radius: 11, hp: 600, speed: 230, damage: 14, behavior: 'boss_snake', minFloor: 10,
+    aggroRange: 700, snake: true, snakeLen: 28, snakeGap: 17, swayAmp: 0.7, swayFreq: 2.4,
+    isBoss: true, bossSpawn: true },
+  { key: 'snake_body', color: 0x4fb83c, radius: 9, hp: 30, speed: 230, damage: 8, behavior: 'boss_snake',
+    aggroRange: 700, snake: true, snakeBody: true, snakeGap: 17, swayAmp: 0.7, swayFreq: 2.4,
+    isBoss: true },
 ];
 
 // ============== 最北戦線（タワーディフェンス風モード）の調整用パラメータ ==============
@@ -1153,7 +1315,11 @@ const FRONTLINE = {
   playerAggro: 130,                               // プレイヤーがこの距離以内にいる敵は、発信機よりプレイヤーを狙う
   firstSpawnDelay: 3,                             // 開始から最初の敵が出るまでの猶予（秒）
   spawnInterval0: 2.2, spawnHalfLife: 150, spawnMin: 0.25, // 出現間隔：最初は2.2秒ごと、150秒ごとに半分、最短0.25秒
-  maxAlive: 70,                                   // 同時に存在できる敵の上限
+  maxAlive: 70,                                   // 同時に存在できる敵の上限（ソロ時）
+  // 協力プレイの人数補正：2人目以降1人増えるごとに、敵が強く・多くなる（ソロは全て1倍）
+  partyHpPerPlayer: 0.30,    // 敵・ボスのHP増加率（3人なら 1+0.3×2 = 1.6倍）
+  partyDmgPerPlayer: 0.15,   // 敵・ボスの攻撃力増加率
+  partySpawnPerPlayer: 0.35, // 敵の出現ペース増加率（出現間隔が短くなる）と、同時に存在できる敵の上限の増加率
   hpPerSec: 1 / 150, dmgPerSec: 1 / 400,          // 経過時間に応じた敵HP・攻撃力の上昇（1秒あたりの増分）
   // ドロップは確率制：敵を1体倒すごとに1回抽選（宝箱 → 包帯の順に判定）
   chestChance: 0.01 / 3,                          // 武器強化の宝箱が出る確率（約0.33%。平均300体に1回くらい）
@@ -1165,13 +1331,15 @@ const FRONTLINE = {
   dropLife: 45,                                   // 落ちた宝箱・包帯が消えるまでの時間（秒）
   bossTxDamageMult: 0.5,                          // ボスが発信機に与えるダメージは、通常の敵よりこの倍率だけ控えめにする
   bossChestChance: 0.05,                          // ボスを倒した時に宝箱が出る確率（5%）
-  bossKeys: ['overlord', 'quartet', 'detonator', 'zoetrope'], // 出てくるボス（シャッフルして順番に出す）
+  bossKeys: ['overlord', 'quartet', 'detonator', 'zoetrope', 'snake'], // 出てくるボス（シャッフルして順番に出す）
   // ボスも廊下を降りて発信機を目指す。ボスごとの調整：
   bossOver: {
     overlord:  { chaseRange: Infinity },
     quartet:   { aggroRange: Infinity },
     detonator: { aggroRange: Infinity, bombRange: 620 },        // 爆弾は近づいてからまく
     zoetrope:  { aggroRange: Infinity, frontlineAggro: Infinity }, // テレポートの都合上、常にプレイヤーを狙う
+    snake:     { aggroRange: Infinity },
+    snake_body: { aggroRange: Infinity }, // 先頭が倒れて先頭に昇格した時も、発信機へ向かうように
   },
   // 出現する敵の表：from＝何秒経ったら出始めるか、weight＝出やすさ、over＝この敵だけ変える性質
   // （廊下の奥から発信機まで一直線に向かってくるように、索敵範囲などを無限にしてある）
@@ -1187,9 +1355,38 @@ const FRONTLINE = {
 
 // ============== 通常ダンジョン：雑魚敵を倒した時の低確率ドロップ ==============
 // 最北戦線のドロップの仕組み（emitDrop→全員に配信→早い者勝ちで拾う）を流用する。
+// ダンジョンの難易度設定。ここを変えるだけで、敵の強さと数を一括で調整できる。
+// ソロ（1人）のときは従来どおりの値。協力プレイ（マルチ）では、2人目以降1人増えるごとに
+// party〜の値ぶんだけ敵が強く・多くなる（例: partyHpPerPlayer 0.3 なら、3人で敵HPが 1+0.3×2 = 1.6倍）。
+const DUNGEON_DIFFICULTY = {
+  hpPerFloor: 0.16,     // 1階層ごとの敵HP増加率
+  dmgPerFloor: 0.10,    // 1階層ごとの敵攻撃力増加率
+  budgetBase: 4,        // 敵の数：基本値
+  budgetPerFloor: 3,    // 敵の数：1階層ごとの増加数
+  budgetMax: 70,        // 敵の数：上限（ソロ時。マルチでは人数倍率がこの後に掛かる）
+  partyHpPerPlayer: 0.30,    // マルチ：2人目以降1人ごとの敵HP増加率
+  partyDmgPerPlayer: 0.15,   // マルチ：2人目以降1人ごとの敵攻撃力増加率
+  partyCountPerPlayer: 0.35, // マルチ：2人目以降1人ごとの敵の数の増加率
+  // ボスが複数体（2体・3体）になる確率。2体目の確率 = 階層ボーナス + 人数ボーナス（上限あり）。
+  // 3体目は「2体目が出た場合に限り」2体目の確率 × bossThirdFactor、4体目は「3体目が出た場合に限り」さらに × bossThirdFactor（＝2体目の確率の1/4）で抽選する。
+  bossMultiPerFloor: 0.04,   // 10階を超えた階層1つごとに +4%（20階で +40%）
+  bossMultiPerPlayer: 0.30,  // 2人目以降1人ごとに +30%（4人で +90%）
+  bossMultiMax: 0.85,        // 2体目の確率の上限
+  bossThirdFactor: 0.5,      // 3体目・4体目それぞれで、前の段階の確率に掛ける値
+};
+// 通常ダンジョンの宝箱に、たまに混ざる「エフェクト（装飾品）の宝箱」。壊すと青い箱に名前が出て、触れるとそのゲーム中だけ
+// そのエフェクトが付く（付けていた装飾品と入れ替わる。セーブには書かないので、ゲームが終われば元に戻る）。
+// 階層ごとに chance の確率で1個だけ、普通の宝箱とは別に追加で置かれる（0.05＝平均20階層に1回くらい）。
+// 中身（どの装飾品か）も置き場所も階層のシードで決まるので、協力プレイでも全員の画面で同じものが出る（取れるのは先に触れた1人）。
+const EFFECT_CHEST = {
+  chance: 0.05,
+  color: 0x4aa8ff,    // 壊れた後の箱の色（青）
+  colorCss: '#4aa8ff',
+  strokeColor: 0x1d4f8a,
+};
 const DUNGEON_KILL_DROP = {
-  chance: 0.025,      // 敵を1体倒すごとにドロップが発生する確率（約2.5%＝平均40体に1回くらい）
-  potionShare: 0.7,   // ↑が発生した時に包帯になる割合（残りは武器強化の宝箱）
+  chance: 0.025,      // 敵を1体倒すごとにドロップが発生する確率（2.5%＝平均40体に1回くらい）
+  potionShare: 0.8,   // ↑が発生した時に包帯になる割合（残りは武器強化の宝箱）
   pinkChance: 0.05,   // 宝箱が出た時、それが激レアなピンク（全員の今の武器がLv+1）になる割合（残りは緑＝自分だけLv+1）
   dropLife: 45,        // 落ちたアイテムが消えるまでの時間（秒）
 };
@@ -1349,24 +1546,6 @@ const NET_STALE_WARNING_MS = 3000;
 // NET_STALE_WARNING_MS(赤文字警告)より少し長めに取り、警告が出てもすぐには動かさず
 // 様子を見てから手を打つ。
 const NET_FORCE_RECONNECT_MS = 5000;
-// ホスト→ゲスト方向（下り）が止まっているかの判定用。ゲストがホストから何も受信しないまま
-// この時間が過ぎたら「通信が弱い」警告を出し、さらに NET_RECV_RECONNECT_MS を超えたら繋ぎ直す。
-// （lastAckAt は自分→ホスト方向（上り）の送出しか見ないので、下りだけが止まる回線を拾えなかった）
-const NET_RECV_RECONNECT_MS = 8000;
-// ホスト側：ゲストごとの state 用 DataChannel の送信待ち(bufferedAmount)がこのバイト数を超えたら、
-// そのゲストへの state 配信は見送る。順序保証も再送も無い「最新状態」の配信なので、見送っても
-// 次の配信で追いつける。見送らずに積み続けると、細い回線のゲストには古いデータが延々と
-// 溜まって数十秒〜1分ぶんがまとめて届き（フリーズして見える）、同じ回線を使う events
-// （被弾など）も後ろに並んで遅れる。
-const NET_STATE_MAX_BUFFERED = 6000;
-// 通信診断（画面上部のP2P/TURN表示の右横に出す小さな数字）。原因の切り分け用。不要になったら false に。
-const NET_DIAG_SHOW = true;
-const NET_DIAG_WINDOW_MS = 10000; // 「直近○秒」の集計幅
-// ホスト→ゲストの players 配信から「成績(stats)」を普段は外す。成績はリザルト用で滅多に変わらないのに、
-// 全員分を毎回(約16回/秒)送っていたため。変化があった直後の NET_STATS_BURST_MS だけと、取りこぼし対策として
-// NET_STATS_REFRESH_MS ごとには付けて送る（受け取り側は直前の成績を引き継ぐ）。
-const NET_STATS_REFRESH_MS = 2000;
-const NET_STATS_BURST_MS = 600;
 // [調査用] trueにすると、協力プレイ中に1秒おきの接続状況(isConnected/lastAckAtからの経過時間)を
 // 画面右下に小さく表示し続ける。20秒程度のフリーズが起きた瞬間の記録を残して原因切り分けするための
 // 一時的な仕込み。原因が特定できたら false に戻すかコードごと消してよい。
@@ -1493,7 +1672,7 @@ const ALLY_NAMES = {
 };
 
 // リザルト用：敵の種類 → 日本語名（味方の名前表に、ゾートロープを足したもの）
-const ENEMY_JP_NAMES = Object.assign({}, ALLY_NAMES, { zoetrope: 'ゾートロープ' });
+const ENEMY_JP_NAMES = Object.assign({}, ALLY_NAMES, { zoetrope: 'ゾートロープ', snake: 'ウロボロス', snake_body: 'ウロボロス' });
 
 // 武器レベルに応じてリーチ・攻撃範囲・攻撃力を強化した「実効ステータス」を返す。
 // 同じ武器を再度拾うと levels[weapon.key] が上がり、このボーナスが積み重なる。
@@ -1529,10 +1708,10 @@ function applyWeaponLevel(base, level) {
     w.projRadius = base.projRadius + 0.6 * bonus;
     if (base.isFreeze) {
       // 十字架：装填数は増やさず、魔法陣が大きく・長持ちするように強化する。
-      // 持続時間の伸びは控えめ（1レベルごとに +0.3秒）。リロード時間はレベルが上がっても変わらない（基本値のまま）。
+      // 持続時間の伸びは控えめ（1レベルごとに +0.3秒）。リロード時間は常に「魔法陣の展開時間 + 1秒」。
       w.circleLifetime = base.circleLifetime + 0.3 * bonus;
       w.circleRadius = base.circleRadius + 13 * bonus;
-      w.reloadTime = base.reloadTime;
+      w.reloadTime = w.circleLifetime + 1;
       w.maxAmmo = base.maxAmmo;
     } else if (base.chargeBomb) {
       // マジックボム：装填数は常に1発のまま。レベルで上がるのは「溜まり速度」だけ。
@@ -1566,8 +1745,263 @@ function escapeHtml(str) {
   }[ch]));
 }
 
-// [調査用] true の間、50msを超えた重いフレームを画面左下とコンソールに出す（原因特定用）
-const SLOW_FRAME_LOG = false;
+// ============== セーブデータ（localStorage） ==============
+// ブラウザに記録を残す。保存できない環境（プライベートモード等）でもゲームが止まらないよう、必ずtry/catchで包む。
+// 項目は「足すだけ」で拡張できるようにしてある（読み出し時にDEFAULT_SAVEで不足分を補う）。キー名は変えないこと。
+const SAVE_KEY = 'zomikasudungeon_save';
+const DEFAULT_SAVE = {
+  version: 1,
+  soloBestFloor: 0,      // ソロ（通常ダンジョン）の最高到達階層
+  soloTotalKills: 0,     // ソロの雑魚敵の累計撃破数
+  soloTotalBosses: 0,    // ソロのボスの累計撃破数
+  frontlineBestSec: 0,   // 最北戦線（ソロ）の最長生存時間（秒）
+  pvpWins: 0,            // PvPの累計勝利数
+  bossRushBestBosses: 0, // ボスラッシュ（ソロ）で1回の挑戦中に倒したボス数の最高記録
+  accUnlocked: {},       // 入手済みの装飾品 { key: true }
+  accEquipped: '',       // 付けている装飾品のkey（''なら何も付けない）
+};
+function loadSave() {
+  try {
+    return normalizeSave(Object.assign({}, DEFAULT_SAVE, JSON.parse(localStorage.getItem(SAVE_KEY) || '{}')));
+  } catch (e) { return normalizeSave(Object.assign({}, DEFAULT_SAVE)); }
+}
+// DEFAULT_SAVEのオブジェクトを共有して書き換えてしまわないよう、入れ子の値は必ず複製する
+function normalizeSave(s) {
+  s.accUnlocked = (s.accUnlocked && typeof s.accUnlocked === 'object') ? Object.assign({}, s.accUnlocked) : {};
+  if (typeof s.accEquipped !== 'string') s.accEquipped = '';
+  return s;
+}
+function writeSave(obj) {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(obj)); } catch (e) { /* 保存できなくてもゲームは続行 */ }
+}
+// ============== 装飾品 ==============
+// 入手条件は「save[stat] が goal 以上」。項目を足す時は、この表に1行足せばロビーの選択欄と一覧に出る（keyは変えないこと）。
+// 記録できる項目(stat)は DEFAULT_SAVE を参照。unit は一覧の進捗表示に付ける単位。
+// effect：装飾品が実際に与える効果（ダメージなど、ゲームに影響するものだけ）を書く欄。見た目だけのエフェクトは書かない。
+const ACCESSORIES = [
+  { key: 'sprout', icon: '🌱', name: '新芽',       stat: 'soloBestFloor',    goal: 10,  unit: '階',  desc: 'ダンジョン（ソロ）で10階層に到達', effect: '回復量+2' },
+  { key: 'shield', icon: '🛡️', name: '盾',         stat: 'soloBestFloor',    goal: 15,  unit: '階',  desc: 'ダンジョン（ソロ）で15階層に到達', effect: '受けるダメージ-5' },
+  { key: 'crown',  icon: '👑', name: '王冠',       stat: 'soloBestFloor',    goal: 20,  unit: '階',  desc: 'ダンジョン（ソロ）で20階層に到達', effect: '近くの敵の速度を半減' },
+  { key: 'skull',  icon: '💀', name: 'ドクロ',     stat: 'soloBestFloor',    goal: 25,  unit: '階',  desc: 'ダンジョン（ソロ）で25階層に到達', effect: '三度、HP1で生き返る' },
+  { key: 'flame',  icon: '🔥', name: '炎',         stat: 'bossRushBestBosses', goal: 15,  unit: '体',  desc: 'ボスラッシュで15体目のボスを倒す', effect: '攻撃した敵が燃える（合計21ダメージ）' },
+  { key: 'blackhole', icon: '🕳️', name: 'ブラックホール', stat: 'bossRushBestBosses', goal: 20, unit: '体', desc: 'ボスラッシュで20体目のボスを倒す', effect: '10秒に一度simaharのビームを撃つ' },
+  { key: 'swords', icon: '⚔️', name: '交差した剣', stat: 'soloTotalKills',   goal: 500, unit: '体',  desc: 'ダンジョン（ソロ）で雑魚敵を累計500体倒す', effect: 'ノックバックが2倍になる' },
+  { key: 'snow',   icon: '❄️', name: '雪の結晶',   stat: 'frontlineBestSec', goal: 300, unit: '秒',  desc: '最北戦線（ソロ）で5分間生き残る', effect: '移動速度+10%' },
+];
+function accessoryByKey(key) { return ACCESSORIES.find(a => a.key === key) || null; }
+// 受け取ったkeyが正しい装飾品なら絵文字を返す（他のプレイヤーから届いた値は、必ずこの表を通して描く）
+function accessoryIcon(key) { const a = accessoryByKey(key); return a ? a.icon : null; }
+// 頭上にアイコンを出す装飾品は新芽と王冠だけ（他はエフェクトのみ）。
+function accHeadIcon(key) { return (key === 'sprout' || key === 'crown') ? accessoryIcon(key) : null; }
+
+// ============== 装飾品の視覚効果 ==============
+// 付けている間、キャラクターの周りに出続ける演出。1人ぶんの効果は「Graphics 1枚を毎フレーム描き直す」だけで動く。
+// 自分のキャラは buildFloor 内で、他のプレイヤーは届いた acc の key から作られる（key は必ず ACCESSORIES の表で照合済み）。
+// 新しい装飾品の演出を足す時は、ACC_FX に同じ key で描画関数を1つ足す。
+// g＝身体の下（深度4.6）に描くエフェクト、gt＝身体より上（深度5.5）に描くエフェクト（ブラックホールの星・ドクロの鬼火）。
+function accFxCreate(scene) { return { g: scene.add.graphics().setDepth(4.6), gt: scene.add.graphics().setDepth(5.5), parts: [], t: 0, emitAcc: 0 }; }
+function accFxDestroy(fx) { if (fx && fx.g) { fx.g.destroy(); fx.g = null; } if (fx && fx.gt) { fx.gt.destroy(); fx.gt = null; } }
+const ACC_FX_MAX_PARTS = 48;
+// 粒を rate 個/秒 のペースで出す。make() が粒の初期値（x,y,vx,vy,life,size,color,kind）を返す。
+function accFxEmit(fx, dt, rate, make) {
+  fx.emitAcc += dt * rate;
+  while (fx.emitAcc >= 1) {
+    fx.emitAcc -= 1;
+    if (fx.parts.length < (fx.maxParts || ACC_FX_MAX_PARTS)) { const q = make(); q.max = q.life; fx.parts.push(q); }
+  }
+}
+const accR = (a, b) => a + Math.random() * (b - a);
+// 回る魔方陣（二重の輪・目盛り・六芒星）
+function accFxMagicCircle(g, x, y, r, t, color, a) {
+  g.lineStyle(1.6, color, 0.75 * a); g.strokeCircle(x, y, r);
+  g.lineStyle(1, color, 0.5 * a); g.strokeCircle(x, y, r * 0.78);
+  for (let i = 0; i < 12; i++) { // 外周の目盛り（ゆっくり逆回転）
+    const ang = -t * 0.5 + (i * Math.PI) / 6;
+    g.lineBetween(x + Math.cos(ang) * r * 0.9, y + Math.sin(ang) * r * 0.9, x + Math.cos(ang) * r, y + Math.sin(ang) * r);
+  }
+  g.lineStyle(1.4, color, 0.8 * a);
+  for (let k = 0; k < 2; k++) { // 六芒星＝三角形2つ
+    g.beginPath();
+    for (let i = 0; i <= 3; i++) {
+      const ang = t * 0.9 + k * Math.PI / 3 + (i * 2 * Math.PI) / 3;
+      const px = x + Math.cos(ang) * r * 0.78, py = y + Math.sin(ang) * r * 0.78;
+      if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+    }
+    g.strokePath();
+  }
+}
+// ブラックホールのビーム設定（シマハルの黒いビーム beamAttack と同じダメージ）
+const ACC_BLACKHOLE = {
+  cooldown: 10, range: 900, starDist: 28, starSize: 12,
+  warnDuration: 0.7, fireDuration: 1.1, shrinkDuration: 0.25,
+  widthMin: 15, widthMax: 19.5, vibrateSpeed: 45,
+  damage: 14, tickInterval: 0.3, // ダメージはシマハルのビーム(beamAttack.damage=14)と同じ
+};
+const ACC_CROWN_RADIUS = 40.5; // 王冠の魔法陣の半径（27の1.5倍）（見た目と、敵を遅くする判定で共通）
+// シマハルの黒い星（drawSimaharStar と同じ形：上下左右の4方向だけ尖った星。中は黒、縁は紫）を Graphics に直接描く
+function accFxStar(g, x, y, size, a) {
+  const inner = size * 0.28;
+  g.fillStyle(0x000000, a);
+  g.lineStyle(Math.max(1.2, size * 0.14), 0x9b6bff, 0.95 * a);
+  g.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const ang = (Math.PI / 4) * i - Math.PI / 2, r = (i % 2 === 0) ? size : inner;
+    const px = x + Math.cos(ang) * r, py = y + Math.sin(ang) * r;
+    if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+  }
+  g.closePath(); g.fillPath(); g.strokePath();
+}
+const ACC_FX = {
+  // 🌱 新芽：緑の光の粒がふわふわ立ちのぼる
+  sprout(g, fx, x, y, t, dt, a) {
+    g.lineStyle(1.5, 0x7ee081, (0.3 + 0.15 * Math.sin(t * 3)) * a); g.strokeCircle(x, y, 15 + Math.sin(t * 3) * 1.5);
+    accFxEmit(fx, dt, 6, () => ({ x: x + accR(-13, 13), y: y + accR(2, 12), vx: accR(-6, 6), vy: accR(-30, -16), life: accR(1.0, 1.7), size: accR(1.6, 2.6), color: Math.random() < 0.5 ? 0x7ee081 : 0xc8ffa0, kind: 'dot' }));
+  },
+  // 🛡️ 盾：青い光の弧（盾）が体のまわりを回る
+  shield(g, fx, x, y, t, dt, a) {
+    g.lineStyle(1, 0x8ad9ff, 0.25 * a); g.strokeCircle(x, y, 21);
+    for (let i = 0; i < 3; i++) {
+      const s0 = t * 1.7 + (i * 2 * Math.PI) / 3;
+      g.lineStyle(4, 0x8ad9ff, 0.85 * a); g.beginPath(); g.arc(x, y, 21, s0, s0 + 0.85); g.strokePath();
+      g.lineStyle(2, 0xffffff, 0.7 * a); g.beginPath(); g.arc(x, y, 21, s0 + 0.15, s0 + 0.7); g.strokePath();
+    }
+  },
+  // 👑 王冠：足元に金色の魔方陣が回り続ける
+  crown(g, fx, x, y, t, dt, a) {
+    accFxMagicCircle(g, x, y, ACC_CROWN_RADIUS, t, 0xffd54c, a);
+    accFxEmit(fx, dt, 3, () => ({ x: x + accR(-22, 22), y: y + accR(-6, 20), vx: 0, vy: accR(-22, -12), life: accR(0.7, 1.1), size: accR(2, 3), color: 0xfff0a0, kind: 'spark' }));
+  },
+  // 🔥 炎：足元から炎がゆらめく
+  flame(g, fx, x, y, t, dt, a) {
+    g.lineStyle(1.5, 0xff8a3c, (0.28 + 0.12 * Math.sin(t * 9)) * a); g.strokeCircle(x, y, 14);
+    const cols = [0xff5b2e, 0xff9a3c, 0xffd23b];
+    accFxEmit(fx, dt, 24, () => ({ x: x + accR(-8, 8), y: y + accR(2, 10), vx: accR(-9, 9), vy: accR(-62, -34), life: accR(0.5, 0.85), size: accR(2.4, 4), color: cols[(Math.random() * 3) | 0], kind: 'dot' }));
+  },
+  // 💀 ドクロ：紫の鬼火（＝残りの復活回数）がブラックホールの星と同じ動きで周りをうろつき、暗い煙が立ちのぼる
+  skull(g, fx, x, y, t, dt, a) {
+    const wisps = fx.wisps == null ? 3 : fx.wisps; // 残りの鬼火の数（自分のキャラは復活するたびに減る。他のプレイヤー分は数が届かないので常に3つ）
+    const rage = fx.rage || 0; // 復活直後の無敵時間中は 1（終わり際に 0 へ薄れる）：暗黒のオーラが増えて燃え盛る
+    fx.maxParts = rage > 0 ? 150 : ACC_FX_MAX_PARTS;
+    if (rage > 0) { // 暗黒のオーラ：脈打つ黒紫の球と、燃えるように揺らぐ外周
+      const pulse = Math.sin(t * 14);
+      g.fillStyle(0x12001f, 0.38 * rage * a); g.fillCircle(x, y, 34 + pulse * 3);
+      g.fillStyle(0x3a0a66, 0.3 * rage * a); g.fillCircle(x, y, 24 + pulse * 2);
+      g.lineStyle(2, 0xb26bff, (0.55 + 0.25 * pulse) * rage * a); g.strokeCircle(x, y, 30 + pulse * 3);
+    }
+    // 鬼火の動きはブラックホールの黒い星と同じ：周りをうろついて（進んだり戻ったり）、体からの距離もふらふら変わり、小刻みに伸び縮みして震える。
+    // 燃え盛っている間は動きが速くなる。時間を足し込んで進めるので、速さが変わっても位置が飛ばない。
+    fx.wt = (fx.wt || 0) + dt * (1 + 1.6 * rage);
+    const wt = fx.wt;
+    for (let i = 0; i < wisps; i++) {
+      const dir = i % 2 === 0 ? 1 : -1;
+      const ang = wt * (0.9 + i * 0.35) * dir + Math.sin(wt * 1.7 + i * 2.1) * 0.9;
+      const r = 22 + Math.sin(wt * 1.1 + i * 2.6) * 7 + 6 * rage;
+      const wx = x + Math.cos(ang) * r, wy = y + Math.sin(ang) * r * 0.85;
+      const k = (1 + 0.32 * Math.sin(wt * 42 + i * 1.9)) * (1 + 0.1 * Math.sin(wt * 2.3 + i)) * (1 + 0.5 * rage);
+      const gw = fx.gt || g; // 鬼火は身体より上の層に描く
+      gw.fillStyle(0xb26bff, (0.35 + 0.25 * rage) * a); gw.fillCircle(wx, wy, 6 * k);
+      gw.fillStyle(0xe6ccff, 0.9 * a); gw.fillCircle(wx, wy, 3 * k);
+    }
+    accFxEmit(fx, dt, 7, () => ({ x: x + accR(-12, 12), y: y + accR(0, 12), vx: accR(-5, 5), vy: accR(-22, -10), life: accR(1.0, 1.6), size: accR(3, 5), color: 0x6a3d9a, kind: 'dot' }));
+    if (rage > 0) {
+      // 暗い煙を大量に（黒紫）
+      accFxEmit(fx, dt, 40 * rage, () => ({ x: x + accR(-16, 16), y: y + accR(-4, 14), vx: accR(-14, 14), vy: accR(-70, -30), life: accR(0.7, 1.2), size: accR(4, 8), color: Math.random() < 0.5 ? 0x1a0a2a : 0x2e0f4d, kind: 'dot' }));
+      // 燃え盛る紫の炎（芯は明るく）
+      const fire = [0x7a2bd6, 0xb26bff, 0xd9a8ff, 0xff6bd0];
+      accFxEmit(fx, dt, 70 * rage, () => ({ x: x + accR(-14, 14), y: y + accR(0, 14), vx: accR(-16, 16), vy: accR(-120, -55), life: accR(0.4, 0.8), size: accR(3, 6), color: fire[(Math.random() * fire.length) | 0], kind: 'dot' }));
+      accFxEmit(fx, dt, 14 * rage, () => ({ x: x + accR(-18, 18), y: y + accR(-16, 10), vx: accR(-30, 30), vy: accR(-90, -40), life: accR(0.4, 0.7), size: accR(3, 5), color: 0xe6ccff, kind: 'spark' }));
+    }
+  },
+  // ⚔️ 交差した剣：2本の剣が外側を向いたまま周回する
+  swords(g, fx, x, y, t, dt, a) {
+    const R = 25;
+    g.lineStyle(1, 0xdfe8ff, 0.18 * a); g.strokeCircle(x, y, R);
+    for (let i = 0; i < 2; i++) {
+      const ang = t * 2.6 + i * Math.PI, dx = Math.cos(ang), dy = Math.sin(ang), nx = -Math.sin(ang), ny = Math.cos(ang); // 剣先(dx,dy)は外向き、刃の幅(nx,ny)は回転方向
+      const px = x + dx * R, py = y + dy * R; // 剣の位置は円周上（ang の方向）
+      g.lineStyle(3, 0xdfe8ff, 0.22 * a); g.beginPath(); g.arc(x, y, R, ang - 0.7, ang); g.strokePath(); // 剣の軌跡
+      g.fillStyle(0xf2f6ff, 0.95 * a);
+      g.fillTriangle(px + dx * 10, py + dy * 10, px - dx * 4 + nx * 2.5, py - dy * 4 + ny * 2.5, px - dx * 4 - nx * 2.5, py - dy * 4 - ny * 2.5);
+      g.fillStyle(0xffd54c, 0.95 * a); g.fillRect(px - dx * 4 - 2, py - dy * 4 - 2, 4, 4); // つば
+    }
+  },
+  // ❄️ 雪の結晶：雪が降り、足元に氷の紋章が回る
+  snow(g, fx, x, y, t, dt, a) {
+    g.lineStyle(1, 0xbfe9ff, 0.35 * a); g.strokeCircle(x, y, 17);
+    for (let i = 0; i < 6; i++) { // 六方向の氷の筋
+      const ang = t * 0.7 + (i * Math.PI) / 3;
+      g.lineBetween(x + Math.cos(ang) * 6, y + Math.sin(ang) * 6, x + Math.cos(ang) * 17, y + Math.sin(ang) * 17);
+    }
+    accFxEmit(fx, dt, 9, () => ({ x: x + accR(-20, 20), y: y - accR(26, 34), vx: accR(-8, 8), vy: accR(16, 28), life: accR(1.3, 1.9), size: accR(1.5, 2.5), color: Math.random() < 0.6 ? 0xffffff : 0xbfe9ff, kind: 'dot' }));
+  },
+  // 🕳️ ブラックホール：シマハルと同じ黒い星（先の尖った＋形）が周りをうろつき、細かく伸び縮みして震える
+  blackhole(g, fx, x, y, t, dt, a) {
+    for (let i = 0; i < 2; i++) {
+      const dir = i === 0 ? 1 : -1;
+      const ang = t * (0.9 + i * 0.35) * dir + Math.sin(t * 1.7 + i * 2.1) * 0.9;   // 進んだり戻ったりしてうろつく
+      const r = 22 + Math.sin(t * 1.1 + i * 2.6) * 7;                                  // 体からの距離もふらふら変わる
+      const sx = x + Math.cos(ang) * r, sy = y + Math.sin(ang) * r * 0.85;
+      const size = 7.5 * (1 + 0.32 * Math.sin(t * 42 + i * 1.9)) * (1 + 0.1 * Math.sin(t * 2.3 + i)); // 小刻みに拡大・縮小
+      accFxStar(fx.gt || g, sx, sy, size, a);
+    }
+  },
+};
+// 毎フレーム：効果を描き直す。alpha は本人の透け具合（ゴースト時など）に合わせる。0以下なら何も出さない。
+function accFxUpdate(fx, key, x, y, dt, alpha) {
+  if (!fx || !fx.g) return;
+  const g = fx.g;
+  g.clear();
+  if (fx.gt) fx.gt.clear();
+  const draw = ACC_FX[key];
+  if (!draw || !(alpha > 0)) { fx.parts.length = 0; return; }
+  fx.t += dt;
+  draw(g, fx, x, y, fx.t, dt, alpha);
+  // 粒の更新と描画
+  for (let i = fx.parts.length - 1; i >= 0; i--) {
+    const q = fx.parts[i];
+    q.life -= dt;
+    if (q.life <= 0) { fx.parts.splice(i, 1); continue; }
+    q.x += q.vx * dt; q.y += q.vy * dt;
+    const k = q.life / q.max; // 1→0
+    if (q.kind === 'spark') { // 4方向のきらめき
+      const sz = q.size * (0.4 + k), al = Math.min(1, k * 1.6) * alpha;
+      g.lineStyle(1.5, q.color, al);
+      g.lineBetween(q.x - sz, q.y, q.x + sz, q.y); g.lineBetween(q.x, q.y - sz, q.x, q.y + sz);
+    } else {
+      g.fillStyle(q.color, Math.min(1, k * 1.4) * 0.85 * alpha);
+      g.fillCircle(q.x, q.y, q.size * (0.35 + 0.65 * k));
+    }
+  }
+}
+// 【テスト用】true の間は、条件に関係なく全ての装飾品（エフェクト）を入手済みにして試せる。試し終わったら false に戻す。
+// 注意：起動時に入手済みとしてセーブへ書き込まれるので、false に戻しても解放済みのままになる（ロビーの「リセット」で消せる）。
+const TEST_UNLOCK_ALL_ACC = false;
+// 条件を満たした装飾品を入手済みにする。今回新しく入手したものの配列を返す（save自体は呼び出し側で保存する）。
+function unlockAccessories(save) {
+  const added = [];
+  ACCESSORIES.forEach(a => {
+    if (!save.accUnlocked[a.key] && (TEST_UNLOCK_ALL_ACC || (save[a.stat] || 0) >= a.goal)) { save.accUnlocked[a.key] = true; added.push(a); }
+  });
+  return added;
+}
+// ボスラッシュ（ソロ）で1回の挑戦中に倒したボス数の最高記録を更新する。今回新しく入手した装飾品の配列を返す。
+function recordBossRushBest(n) {
+  const save = loadSave();
+  if (!(n > save.bossRushBestBosses)) return [];
+  save.bossRushBestBosses = n;
+  const added = unlockAccessories(save);
+  writeSave(save);
+  return added;
+}
+// ソロ（通常ダンジョン）の最高到達階層を更新する。今回新しく入手した装飾品の配列を返す。
+function recordSoloBestFloor(floor) {
+  const save = loadSave();
+  if (!(floor > save.soloBestFloor)) return [];
+  save.soloBestFloor = floor;
+  const added = unlockAccessories(save);
+  writeSave(save);
+  return added;
+}
 
 class GameScene extends Phaser.Scene {
   constructor() { super('game'); }
@@ -1580,6 +2014,9 @@ class GameScene extends Phaser.Scene {
     this.net = app.net || null;
     this.playerName = app.name || '冒険者';
     this.playerColor = (typeof app.color === 'number') ? app.color : 0x5bd1ff;
+    this._bh = null; // ブラックホールのビームの状態（毎回作り直す）
+    this.accKey = accessoryByKey(app.acc) ? app.acc : ''; // 付けている装飾品のkey（無ければ''）
+    this.skullRevives = this.accKey === 'skull' ? 3 : 0; // ドクロ：残りの鬼火の数＝あと何回生き返れるか（1回の挑戦ごとに3つ）
 
     this.baseSeed = this.mp ? app.baseSeed : ((Math.random() * 1e9) | 0);
     // デベロッパーモード（名前を「developer」にすると使える）では、指定した階から
@@ -1752,6 +2189,7 @@ class GameScene extends Phaser.Scene {
           }
         } catch (e) { /* 取得に失敗したら選んだ色のまま */ }
         await this.net.registerPlayer(this.playerName, this.playerColor, {
+          acc: this.accKey || null, // 装飾品（他のプレイヤーの画面にも表示される）
           floor: this.floor, x: this.player.x, y: this.player.y, atExit: false, eliminated: !!this.joinAsGhost,
           lateJoin: !!this.joinAsGhost, // 途中参加のゴースト（リザルトの称号判定から除外するための印）
         });
@@ -1762,7 +2200,6 @@ class GameScene extends Phaser.Scene {
         this.net.listenShots(payload => this.onIncomingShot(payload));
         this.net.listenEnemyShots(payload => this.onIncomingEnemyShot(payload));
         this.net.listenRevive(pos => this.onRevive(pos));
-        this.net.onDiag = d => this.setConnDiag(d); // P2P/TURN表示の右横に出す通信診断
         this.net.onConnStatus = mode => {
           this.setConnBadge(mode); // 画面左上のP2P/TURN表示
           // TURN以外（P2Pに戻った／切断された）になったら、画面中央の「中継サーバーを使用しています」を消す
@@ -1787,9 +2224,9 @@ class GameScene extends Phaser.Scene {
         if (!this.net || !this.net.roomId) return;
         const others = Object.keys(this.latestPlayers || {}).filter(uid => uid !== this.net.uid);
         if (others.length === 0) {
-          this.net.deleteRoom();
+          this.net.deleteRoom(true);
         } else {
-          this.net.leaveRoom();
+          this.net.leaveRoom(true);
         }
       };
       window.addEventListener('pagehide', this._onPageHide);
@@ -1835,8 +2272,10 @@ class GameScene extends Phaser.Scene {
     // 何らかの理由で間に合わなかった場合の保険として、以後その部屋を誰かが見にきた
     // 時点で人数0を観測したら削除する。作りたての部屋を「まだ誰もいない」と誤検知して
     // 消さないよう、一度でも人がいる状態を実際に観測した後にしか削除しない。
+    // 自分は今この部屋にいるので、人数0に見えるのは「回線が切れて自分のノードが消えた」場合。部屋を消すと、
+    // 戻ってきた時に基本情報（モード等）のない部屋が復活してしまうので、消さずに自分と部屋の情報を書き戻す（3秒に1回まで）。
     if (this.mp && this.net && this.net.roomId && count === 0 && this._sawNonEmptyPlayers) {
-      this.net.deleteRoom();
+      if (!this._restoreAt || now - this._restoreAt > 3000) { this._restoreAt = now; this.net.restoreRoom(); }
     }
     this.checkMpGameOver(); // 全員が力尽きていたらリザルト画面へ
   }
@@ -1888,7 +2327,7 @@ class GameScene extends Phaser.Scene {
       this.time.delayedCall((t.multiplyDelay || 3) * 1000, () => this.spawnBrood(enemy));
     }
     // ゾートロープ：ゲストからの攻撃申告でも、ホストが代わりにテレポートさせる。
-    if (payload.damage > 0 && t.teleportOnHit && enemy.hp > 0) this.requestTeleport(enemy);
+    if (payload.damage > 0 && t.teleportOnHit && enemy.hp > 0 && !payload.burn) this.requestTeleport(enemy);
     // カルテット系ボス：ゲストからの攻撃申告でも同様に、初撃でその場で分裂させる。
     // ここが抜けているとホスト自身が殴った時しか分裂しなくなってしまう。
     if (payload.damage > 0 && t.splitOnHit && !enemy._hasSplit) {
@@ -1907,6 +2346,13 @@ class GameScene extends Phaser.Scene {
     // 他プレイヤーが撃った弾を「見た目だけ」再現する。ダメージ判定は撃った本人の
     // クライアントが damageEnemy() 経由で処理済みなので、ここでは当たり判定を取らない。
     if (!payload || payload.floor !== this.floor) return;
+    // burnFx:true は「炎の装飾品で敵が燃え始めた／燃え続けている」という通知（見た目だけ）。
+    // ダメージは火をつけた本人の画面が1秒ごとに与えて報告済みなので、ここでは炎の演出の残り時間を伸ばすだけ。
+    if (payload.burnFx) {
+      const be = this.enemyById && this.enemyById[payload.enemyId];
+      if (be && be.hp > 0) be._burnFxT = Math.max(be._burnFxT || 0, payload.t || 3);
+      return;
+    }
     // partyWeaponBoost:true は「誰かがピンクの宝箱を開けた」という通知。
     // ダメージ等と違って全員が対象なので、自分の今の武器も1段階強化する
     // （ゴースト観戦中は武器を使わないので対象外）。
@@ -2159,8 +2605,8 @@ class GameScene extends Phaser.Scene {
         gfx.setStrokeStyle(2, 0xffffff, 0.5);
         const facing = this.add.rectangle(p.x || 0, p.y || 0, 14, 3, 0xffffff).setDepth(5);
         const label = this.add.text(p.x || 0, (p.y || 0) - 28, p.name || '?', { fontSize: '11px', color: '#fff', fontFamily: 'sans-serif' }).setOrigin(0.5).setDepth(5);
-        const hpBarBg = this.add.rectangle(p.x || 0, (p.y || 0) - 20, 30, 4, 0x2a2a33).setDepth(5);
-        const hpBarFill = this.add.rectangle(p.x || 0, (p.y || 0) - 20, 30, 4, 0x5bd1ff).setDepth(5);
+        const hpBarBg = this.add.rectangle(p.x || 0, (p.y || 0) - 20, 30, 4, 0x2a2a33).setDepth(5.8);
+        const hpBarFill = this.add.rectangle(p.x || 0, (p.y || 0) - 20, 30, 4, 0x5bd1ff).setDepth(5.8);
         const downedLabel = this.add.text(p.x || 0, (p.y || 0) - 20, '', {
           fontSize: '12px', color: '#ff6b6b', fontFamily: 'sans-serif', fontStyle: 'bold',
         }).setOrigin(0.5).setDepth(6).setVisible(false);
@@ -2196,6 +2642,18 @@ class GameScene extends Phaser.Scene {
       const isGhost = !!p.eliminated;
       const isDowned = !isGhost && !!p.downed;
       rp.gfx.setAlpha(isGhost ? 0.3 : (isDowned ? 0.92 : 0.85));
+      // 装飾品：届いたkeyを表で照合して、正しいものだけ描く
+      rp._accKey = accessoryByKey(p.acc) ? p.acc : ''; rp._ghost = isGhost; // 効果の判定用（王冠・盾）
+      const accIcon = accessoryIcon(p.acc);
+      if (rp._acc !== accIcon) {
+        rp._acc = accIcon;
+        if (rp.accText) { rp.accText.destroy(); rp.accText = null; }
+        if (rp.accFx) { accFxDestroy(rp.accFx); rp.accFx = null; }
+        if (accIcon) rp.accFx = accFxCreate(this);
+        if (accHeadIcon(p.acc)) rp.accText = this.add.text(rp.gfx.x, rp.gfx.y - 13, accHeadIcon(p.acc), { fontSize: '13px', fontFamily: 'sans-serif' }).setOrigin(0.5).setResolution(2).setDepth(6);
+      }
+      if (rp.accText) { rp.accText.x = rp.gfx.x; rp.accText.y = rp.gfx.y - 13; rp.accText.setAlpha(rp.gfx.alpha); }
+      if (rp.accFx) accFxUpdate(rp.accFx, p.acc, rp.gfx.x, rp.gfx.y, dt, rp.gfx.alpha);
       const wantColor = (typeof p.color === 'number') ? p.color : 0xffffff;
       if (rp._fillColor !== wantColor) { rp._fillColor = wantColor; rp.gfx.setFillStyle(wantColor); }
       if (rp._downedStroke !== isDowned) {
@@ -2231,6 +2689,8 @@ class GameScene extends Phaser.Scene {
     if (!rp) return;
     rp.gfx.destroy(); rp.facing.destroy(); rp.label.destroy(); rp.hpBarBg.destroy(); rp.hpBarFill.destroy(); rp.downedLabel.destroy(); rp.reviveRing.destroy();
     if (rp.winLabel) rp.winLabel.destroy();
+    if (rp.accText) rp.accText.destroy();
+    if (rp.accFx) accFxDestroy(rp.accFx);
     delete this.remotePlayers[uid];
   }
 
@@ -2253,6 +2713,7 @@ class GameScene extends Phaser.Scene {
         entry.dmg = e.damage;
         if (e.bossGroupId != null) entry.bg = e.bossGroupId;
       }
+      if (e._doomSec != null && e.hp > 0) entry.dm = Math.ceil(e._doomSec); // スネーク：先頭が倒された後のカウントダウンの残り秒数（一番前の個体だけ）
       if (e.tpSeq) entry.tp = e.tpSeq; // テレポートした回数（ゲストが「飛んだ」瞬間を検知して、滑らせずに即座に移す）
       if (e.rushSpotsStr) { // 分身攻撃：予告中は ws、残像が現れてからは as に円の位置を載せる。rs は残像が現れた回数
         if (e.rushStruckAt == null) entry.ws = e.rushSpotsStr; else entry.as = e.rushSpotsStr;
@@ -2359,6 +2820,7 @@ class GameScene extends Phaser.Scene {
         this.cleanupSimaharGuestFx(e); // シマハルの黒い星・ビーム・クロスビームの見た目再現用オブジェクトも片付ける
         e.gfx.destroy(); e.hpBar.destroy();
         if (e.label) e.label.destroy();
+        if (e._doomText) { e._doomText.destroy(); e._doomText = null; }
         delete this.enemyById[e.id];
         return false;
       }
@@ -2392,7 +2854,7 @@ class GameScene extends Phaser.Scene {
         _multiplyScheduled: true, // ゲスト側では増殖の判断はしない（権威はホストのみ）
       };
       if (snap.bg != null) child.bossGroupId = snap.bg;
-      if (this.frontline && type.isBoss && snap.bg != null && type.key !== 'quartet_shooter') {
+      if (this.frontline && type.isBoss && snap.bg != null && type.key !== 'quartet_shooter' && !type.snakeBody) {
         gfx.setStrokeStyle(3, 0xffd54c, 0.9);
         child.label = this.add.text(snap.x, snap.y - type.radius - 22, 'ボス', {
           fontSize: '12px', color: '#ffd54c', fontStyle: 'bold', fontFamily: 'sans-serif',
@@ -2444,6 +2906,8 @@ class GameScene extends Phaser.Scene {
     if (this.attackFx) this.attackFx.destroy();
     if (this.player) this.player.destroy();
     if (this.facing) this.facing.destroy();
+    if (this.accText) { this.accText.destroy(); this.accText = null; }
+    if (this.accFx) { accFxDestroy(this.accFx); this.accFx = null; }
     if (this.reloadLabel) this.reloadLabel.destroy();
     if (this.downedTimerLabel) this.downedTimerLabel.destroy();
     if (this.reviveRadiusGfx) this.reviveRadiusGfx.destroy();
@@ -2459,8 +2923,11 @@ class GameScene extends Phaser.Scene {
       if (e.crossBeamPoints) this.destroySimaharCrossBeamPoints(e);
       if (e.chaseStar) this.destroySimaharChaseStar(e);
       this.cleanupSimaharGuestFx(e); // ゲスト側で見た目を再現していた場合の後片付け（ホスト側では常に空振りする）
-      e.gfx?.destroy(); e.hpBar?.destroy(); e.label?.destroy();
+      e.gfx?.destroy(); e.hpBar?.destroy(); e.label?.destroy(); e._doomText?.destroy();
     });
+    this._snakeDoom = {}; // スネークの先頭が倒された後のカウントダウンも、階層をまたいで持ち越さない
+    this.clearSnakeCorpses(null); // スネークの灰色の死骸も片付ける
+    if (this.whirlGfx && this.whirlGfx.scene) this.whirlGfx.clear(); // スネークの振り回しの危険範囲の輪も消す
     if (this.chests) this.chests.forEach(c => { c?.gfx?.destroy(); c?.label?.destroy(); });
     if (this.potions) this.potions.forEach(p => { p?.gfx?.destroy(); p?.label?.destroy(); });
     if (this.projectiles) this.projectiles.forEach(p => p?.gfx?.destroy());
@@ -2474,6 +2941,9 @@ class GameScene extends Phaser.Scene {
     this.tx = null; this.fl = null;
     this.projectiles = [];
     this.remoteProjectiles = [];
+    if (this._crownFx) { try { this._crownFx.g.destroy(); } catch (err) { /* 既に破棄済み */ } this._crownFx = null; }
+    if (this._flameFx) { try { this._flameFx.g.destroy(); } catch (err) { /* 既に破棄済み */ } this._flameFx = null; } // 炎の演出は階層ごとに作り直す
+    this._selfBurnFxT = 0;
     this.enemyProjectiles = [];
     this.bombs = [];
     this.traps = [];
@@ -2482,15 +2952,22 @@ class GameScene extends Phaser.Scene {
     if (this.mp && this.net) this.net.offFloor(this._prevFloorForListeners);
 
     const seed = this.baseSeed + this.floor * 7919;
-    const dungeon = this.bossRush ? generateBossArena() : (this.pvp ? generatePvpMap() : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor)));
+    this.bossFloor = !this.bossRush && !this.frontline && !this.pvp && this.isBossFloor(this.floor); // ダンジョンの5階ごと（10・15・20…）はボス階
+    const dungeon = (this.bossRush || this.bossFloor) ? generateBossArena() : (this.pvp ? generatePvpMap() : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor)));
     this.dungeon = dungeon;
     this._rushCleared = false;
-    if (this.bossRush || this.frontline || this.pvp) this.hideBossUi();
+    if (this.bossRush || this.frontline || this.pvp || this.bossFloor) this.hideBossUi();
     if (this.rushExitLabel) { this.rushExitLabel.destroy(); this.rushExitLabel = null; }
 
+    this.nextIsBoss = !this.bossRush && !this.frontline && !this.pvp && this.isBossFloor(this.floor + 1); // 次がボス階（9・14・19…）なら出口を赤くする
     this.graphics = this.add.graphics();
     this.redrawDungeonWalls();
     this.exitGlow = this.add.graphics();
+    if (this.nextIsBoss && dungeon.exitPos) {
+      this.rushExitLabel = this.add.text(dungeon.exitPos.x * TILE + TILE / 2, dungeon.exitPos.y * TILE - 8, 'BOSS FLOOR', {
+        fontSize: '12px', color: '#ff5b5b', fontStyle: 'bold', fontFamily: 'sans-serif',
+      }).setOrigin(0.5).setDepth(3);
+    }
     this.attackFx = this.add.graphics();
 
     const px = dungeon.playerStart.x * TILE + TILE / 2;
@@ -2499,6 +2976,8 @@ class GameScene extends Phaser.Scene {
     this.player.setStrokeStyle(2, 0xffffff, 0.6);
     this.player.setDepth(5);
     this.facing = this.add.rectangle(px, py, 14, 3, 0xffffff).setDepth(5);
+    this.accText = (this.accKey && accHeadIcon(this.accKey)) ? this.add.text(px, py - 13, accHeadIcon(this.accKey), { fontSize: '13px', fontFamily: 'sans-serif' }).setOrigin(0.5).setResolution(2).setDepth(6) : null; // 装飾品（頭の上）
+    this.accFx = this.accKey ? accFxCreate(this) : null; // 装飾品の視覚効果
     // ゴースト状態のまま階層移動（buildFloor再実行）した場合、新しく作り直される
     // player/facingが通常の色・不透明度に戻ってしまうため、ここでゴースト見た目を再適用する。
     if (this.isGhost) {
@@ -2540,8 +3019,8 @@ class GameScene extends Phaser.Scene {
       this.setupPvp();
     } else {
       this.spawnEnemies();
-      this.spawnChests();
-      this.spawnPotions();
+      if (this.bossFloor) { this.chests = []; this.potions = []; } // ボス階は宝箱・ポーションなし
+      else { this.spawnChests(); this.spawnPotions(); }
     }
 
     this.enemyById = {};
@@ -2568,6 +3047,15 @@ class GameScene extends Phaser.Scene {
     this.transitioning = false;
   }
 
+  // 協力プレイ（ダンジョン）の人数に応じた敵の強化倍率。ソロや他モード（最北戦線・ボスラッシュ・PvP）は全て1倍。
+  dungeonPartyMult() {
+    const D = DUNGEON_DIFFICULTY;
+    if (!this.mp || this.frontline || this.bossRush || this.pvp) return { hp: 1, dmg: 1, count: 1, n: 1 };
+    const n = Math.max(1, Object.keys(this.latestPlayers || {}).length);
+    const extra = n - 1;
+    return { hp: 1 + D.partyHpPerPlayer * extra, dmg: 1 + D.partyDmgPerPlayer * extra, count: 1 + D.partyCountPerPlayer * extra, n };
+  }
+
   spawnEnemies() {
     const rand = mulberry32(this.baseSeed + this.floor * 104729);
     const d = this.dungeon;
@@ -2576,11 +3064,11 @@ class GameScene extends Phaser.Scene {
     const eligible = ENEMY_TYPES.filter(t => t.minFloor <= this.floor && !t.isBoss);
     const startRoom = d.rooms[0];
     const candidateRooms = d.rooms.filter(r => r !== startRoom);
-    const hpMult = (1 + (this.floor - 1) * 0.16);
-    const dmgMult = (1 + (this.floor - 1) * 0.10);
+    const hpMult = (1 + (this.floor - 1) * DUNGEON_DIFFICULTY.hpPerFloor) * this.dungeonPartyMult().hp;
+    const dmgMult = (1 + (this.floor - 1) * DUNGEON_DIFFICULTY.dmgPerFloor) * this.dungeonPartyMult().dmg;
 
     this.enemies = [];
-    const count = Math.min(d.enemyBudget, candidateRooms.length * 3);
+    const count = Math.min(Math.round(d.enemyBudget * this.dungeonPartyMult().count), candidateRooms.length * 3);
     for (let i = 0; i < count; i++) {
       const room = candidateRooms[Math.floor(rand() * candidateRooms.length)] || startRoom;
       const type = pickWeightedEnemyType(eligible, rand);
@@ -2609,18 +3097,55 @@ class GameScene extends Phaser.Scene {
       });
     }
 
-    // 10階以降は、かなり低確率でフロアに1体だけ強力なボスを配置する（出ない階もある。
-    // 出現数の上限は特に設けない＝毎回この確率だけで独立抽選する）。
-    // ボスは複数種類の中からランダムに選ばれる（現状: オーバーロード、カルテット）。
+    // 10階以降の通常階：毎回、出口のある部屋にボスが出る（人数・階層が増えるほど複数体になりやすい）。
+    // ボス階（5階ごと：10・15・20…）は、アリーナにボスが1体だけ。種類はシードで決まる（協力プレイでも全員同じ）。
     if (this.floor >= 10) {
       const BOSS_SPAWN_CHANCE = 1.0; // 検証用に一旦100%出現。ボスの種類は、bossSpawn:trueの全種類（オーバーロード/カルテット/デトネーター/ゾートロープ）から均等に抽選する
       const bossPool = ENEMY_TYPES.filter(t => t.bossSpawn && t.minFloor <= this.floor);
       const brand = mulberry32(this.baseSeed + this.floor * 911382323);
-      if (bossPool.length && candidateRooms.length && brand() < BOSS_SPAWN_CHANCE) {
-        const bossType = bossPool[Math.floor(brand() * bossPool.length)];
-        const room = candidateRooms[Math.floor(brand() * candidateRooms.length)];
-        const bx = (room.x + 1 + brand() * Math.max(1, room.w - 2)) * TILE;
-        const by = (room.y + 1 + brand() * Math.max(1, room.h - 2)) * TILE;
+      if (bossPool.length && (this.bossFloor || candidateRooms.length) && brand() < BOSS_SPAWN_CHANCE) {
+        // ボスの数：階層が深いほど、そして協力プレイの人数が多いほど、2〜4体になる確率が上がる（ボス階は1体だけ）。
+        const D = DUNGEON_DIFFICULTY;
+        const party = this.dungeonPartyMult().n;
+        const p2 = Math.max(0, Math.min(D.bossMultiMax, D.bossMultiPerFloor * (this.floor - 10) + D.bossMultiPerPlayer * (party - 1)));
+        let bossCount = 1;
+        if (this.bossFloor) {
+          // ボス階：参加人数と同じ数のボスが出る。25階（最終）はシマハル確定で、ソロでも2体。
+          bossCount = this.floor >= 25 ? Math.max(2, party) : party;
+        } else if (brand() < p2) {
+          bossCount = 2;
+          if (brand() < p2 * D.bossThirdFactor) {
+            bossCount = 3;
+            if (brand() < p2 * D.bossThirdFactor * D.bossThirdFactor) bossCount = 4;
+          }
+        }
+        const remainingPool = bossPool.slice(); // 同じ階のボスは、なるべく種類が重ならないようにする
+        const bossUiTypes = []; let firstBossId = null;
+        for (let bi = 0; bi < bossCount; bi++) {
+        if (!remainingPool.length) remainingPool.push(...bossPool);
+        const picked = remainingPool.splice(Math.floor(brand() * remainingPool.length), 1)[0]; // 抽選は常に行う（乱数の順序を保つ）
+        const bossType = (this.bossFloor && this.floor >= 25) ? (ENEMY_TYPES.find(t => t.key === 'simahar') || picked) : picked; // 25階はシマハル確定
+        let bx, by;
+        if (this.bossFloor) {
+          const room = startRoom;
+          if (bossCount === 1) {
+            // 1体：アリーナの右寄りに出す（ボスラッシュと同じ位置）。
+            bx = (room.x + room.w - 6 + 0.5) * TILE;
+            by = (room.y + room.h / 2) * TILE;
+          } else {
+            // 複数体：アリーナの右寄りに楕円状に等間隔で並べて、お互いを離す（最初の1体は真上）。
+            const ang = -Math.PI / 2 + (Math.PI * 2 * bi) / bossCount;
+            bx = (room.x + room.w * 0.62 + Math.cos(ang) * room.w * 0.3 + 0.5) * TILE;
+            by = (room.y + room.h / 2 + Math.sin(ang) * room.h * 0.38) * TILE;
+          }
+        } else {
+          // ボスは必ず「出口のある部屋（出口と通路でつながっている部屋）」に出す。
+          // 出口の部屋が特定できない（スタート部屋しかない等）場合のみ、ランダムな部屋にする。
+          const randomRoom = candidateRooms[Math.floor(brand() * candidateRooms.length)];
+          const room = (d.exitRoom && d.exitRoom !== startRoom) ? d.exitRoom : randomRoom;
+          bx = (room.x + 1 + brand() * Math.max(1, room.w - 2)) * TILE;
+          by = (room.y + 1 + brand() * Math.max(1, room.h - 2)) * TILE;
+        }
         // 10階より深くなるほどさらに強化（_bossScaleが技のダメージにも反映される）
         const bossScale = (1 + Math.max(0, this.floor - 10) * 0.12);
 
@@ -2631,7 +3156,7 @@ class GameScene extends Phaser.Scene {
           fontSize: '12px', color: '#ffd54c', fontStyle: 'bold', fontFamily: 'sans-serif',
         }).setOrigin(0.5).setDepth(4);
 
-        const bossId = this.floor + '_boss';
+        const bossId = this.floor + '_boss' + (bi === 0 ? '' : (bi + 1)); // 1体目は従来どおり「N_boss」、2体目以降は「N_boss2」「N_boss3」
         // ボスグループ（分裂前提のボスは分裂後の全メンバーを束ねるID）の残り数を管理する。
         // 単体ボス（オーバーロード等）は最初から残り1体として扱う。
         this.bossGroupCounts = this.bossGroupCounts || {};
@@ -2656,6 +3181,9 @@ class GameScene extends Phaser.Scene {
           be.chargeLock = bossType.initialChargeDelay;
           be.chargeLockMax = bossType.initialChargeDelay;
         }
+        bossUiTypes.push(bossType); if (firstBossId == null) firstBossId = bossId;
+        } // for (bossCount)
+        if (this.bossFloor && bossUiTypes.length) this.showBossUiMulti(bossUiTypes, firstBossId); // ボス階だけ、画面上部にボス名とHPバー
       }
     }
   }
@@ -2666,7 +3194,7 @@ class GameScene extends Phaser.Scene {
     // 【テスト用】ここにボスのkeyを入れると、ボスラッシュで毎回そのボスだけが出る（出現率100%）。
     // 通常の抽選（全ボスをシャッフルして順番に）に戻すときは null にする。
     const TEST_FORCE_BOSS = null;
-    const BOSS_KEYS = TEST_FORCE_BOSS ? [TEST_FORCE_BOSS] : ['overlord', 'quartet', 'detonator', 'zoetrope', 'simahar'];
+    const BOSS_KEYS = TEST_FORCE_BOSS ? [TEST_FORCE_BOSS] : ['overlord', 'quartet', 'detonator', 'zoetrope', 'simahar', 'snake'];
     if (!this.bossBag.length) {
       const bag = BOSS_KEYS.slice();
       for (let i = bag.length - 1; i > 0; i--) {
@@ -2717,8 +3245,28 @@ class GameScene extends Phaser.Scene {
   }
 
   // ボスラッシュ：画面上部のボス名（白い明朝体・英語）と、横幅いっぱい近いHPバー。
+  // ボス階用：複数体のHPバーは全員の合計で出す。名前は同じ種類ならその名前、混在なら BOSSES。
+  showBossUiMulti(types, firstId) {
+    this.showBossUi(types[0], firstId);
+    if (types.length < 2) return;
+    this._bossUiAll = true;
+    this._bossUiPending = false;
+    this._bossUiSplit = false;
+    const same = types.every(t => t.key === types[0].key);
+    document.getElementById('bossNameBanner').textContent = same ? (types[0].displayName || types[0].key.toUpperCase()) : 'BOSSES';
+    document.getElementById('bossNameBanner').style.opacity = '1';
+    document.getElementById('bossHpBar').style.opacity = '1';
+  }
+
+  // ボス階で、まだ生きているボス（分裂・胴体を含む）がいるか
+  bossFloorAlive() {
+    const pre = this.floor + '_boss';
+    return this.enemies.some(e => e.hp > 0 && e.bossGroupId != null && String(e.bossGroupId).indexOf(pre) === 0);
+  }
+
   showBossUi(bossType, bossId) {
     this._bossUiGroup = bossId;
+    this._bossUiAll = false;
     this._bossBarMax = 0;
     document.getElementById('bossNameBanner').textContent = bossType.displayName || bossType.key.toUpperCase();
     document.getElementById('bossHpFill').style.width = '100%';
@@ -2752,7 +3300,7 @@ class GameScene extends Phaser.Scene {
     }
     let cur = 0, max = 0;
     for (const e of this.enemies) {
-      if (e.bossGroupId !== this._bossUiGroup || e.hp <= 0) continue;
+      if (e.hp <= 0 || (this._bossUiAll ? !(e.bossGroupId != null && String(e.bossGroupId).indexOf(this.floor + '_boss') === 0) : e.bossGroupId !== this._bossUiGroup)) continue;
       if (this._bossUiSplit && e.type.key !== 'quartet_shooter') continue; // 元の姿（本体）のHPは含めない
       cur += e.hp; max += e.maxHp;
     }
@@ -2763,7 +3311,10 @@ class GameScene extends Phaser.Scene {
 
   // ボスラッシュ：ボスを倒したら、報酬の宝箱を置き、次のボスの部屋への出口を開く。
   // 出口はプレイヤーから一番遠い位置に作る（倒した直後に間違って踏んで進んでしまわないように）。
-  openBossRushExit(pos) {
+  isBossFloor(f) { return f >= 10 && f % 5 === 0; } // ダンジョンのボス階（10・15・20…）
+
+  // floorExit=true：ダンジョンのボス階（宝箱もHP全回復もなし。出口が開くだけ）
+  openBossRushExit(pos, floorExit) {
     if (this._rushCleared) return;
     this._rushCleared = true;
     this.hideBossUi();
@@ -2780,16 +3331,17 @@ class GameScene extends Phaser.Scene {
       const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, c.x * TILE + TILE / 2, c.y * TILE + TILE / 2);
       if (d > bestD) { bestD = d; best = c; }
     }
+    if (this.mp) best = cands[Math.floor(mulberry32(this.baseSeed + this.floor * 6007)() * cands.length)]; // 協力プレイ：全員で同じ位置に出口を出す（シードで決める）
     this.dungeon.grid[best.y][best.x] = 3;
     this.dungeon.exitPos = { x: best.x, y: best.y };
     this.redrawDungeonWalls();
-    this.rushExitLabel = this.add.text(best.x * TILE + TILE / 2, best.y * TILE - 6, '次のボスへ ▶', {
+    this.rushExitLabel = this.add.text(best.x * TILE + TILE / 2, best.y * TILE - 6, (floorExit ? '次の階層へ ▶' : '次のボスへ ▶'), {
       fontSize: '11px', color: '#ffffff', fontStyle: 'bold', fontFamily: 'sans-serif',
     }).setOrigin(0.5).setDepth(3);
 
     // 報酬の宝箱（最初に選んだ武器の強化）。BOSS_RUSH_REWARD_CHEST=falseで無効化できる。
     const BOSS_RUSH_REWARD_CHEST = true;
-    if (BOSS_RUSH_REWARD_CHEST) {
+    if (BOSS_RUSH_REWARD_CHEST && !floorExit) {
       // 出るのは、最初に選んだ武器だけ（拾うたびにその武器が強化される）
       const weapon = WEAPON_TYPES.find(w => w.key === this.rushWeaponKey) || this.weapon;
       const cx = Phaser.Math.Clamp(pos.x, (room.x + 1) * TILE, (room.x + room.w - 1) * TILE);
@@ -2801,7 +3353,7 @@ class GameScene extends Phaser.Scene {
       }).setOrigin(0.5).setDepth(3);
       this.chests.push({ gfx: box, label, weapon, lootType: 'green', x: cx, y: cy, idx: 0, taken: false, broken: true });
     }
-    this.showBanner('👑 ボス撃破！ HPが全回復。出口が開いた', 2200);
+    this.showBanner(floorExit ? '👑 ボス撃破！ 出口が開いた' : '👑 ボス撃破！ HPが全回復。出口が開いた', 2200);
   }
 
   // ================= 最北戦線（タワーディフェンス風モード） =================
@@ -2952,7 +3504,11 @@ class GameScene extends Phaser.Scene {
     const dist = Math.hypot(enemy.gfx.x - this.player.x, enemy.gfx.y - this.player.y);
     if ((dist < TILE * 4 || (this.weapon && this.weapon.type === 'sniper')) && this.pvpLineBlocked(this.player.x, this.player.y, enemy.gfx.x, enemy.gfx.y)) return;
     this.spawnBurst(enemy.gfx.x, enemy.gfx.y, 0xff5b5b, 5);
+    // 相手が盾を付けていたら1発ごとに-1（PvP専用。1未満にはしない）。送るのは0.1秒分の合計なので、ここで1発ずつ引いておく
+    const rk = this.remotePlayers && this.remotePlayers[enemy.uid];
+    if (rk && rk._accKey === 'shield') damage = Math.max(Math.min(damage, 1), damage - 1); // PvPの盾は-1（通常の-5とは別）
     pv.out[enemy.uid] = (pv.out[enemy.uid] || 0) + damage;
+    return true;
   }
 
   // PvP用の壁破壊：通常と同じ処理だが、バトルフィールド内側の壁（＝柱）だけが対象。外周や準備室まわりは壊れない
@@ -3185,7 +3741,6 @@ class GameScene extends Phaser.Scene {
       const wn = (WEAPON_TYPES.find(w => w.key === m.key) || {}).name || '';
       this.showBanner('全員の武器が ' + wn + ' になりました', 2200);
     } else if (m.a === 'start') {
-      this.slowLogMark('PvP start'); // [調査用] 開始からの経過時間を基準にした重いフレーム表示
       // 武器選択画面を開いたままバトルが始まった場合は閉じる
       pv.wzOpen = false; pv.wpicking = false;
       { const ws = document.getElementById('weaponSelect'); if (ws) ws.style.display = 'none'; }
@@ -3217,6 +3772,11 @@ class GameScene extends Phaser.Scene {
     } else if (m.a === 'hit') {
       if (pv.phase === 'battle' && m.from in pv.dmg) pv.dmg[m.from] += m.d; // 全員が同じ集計をする（イベントは全員に届く）
       if (m.to === my) this.pvpTakeHit(m.d, m.from);
+    } else if (m.a === 'burn') {
+      // 炎の装飾品で誰かが燃えている：見た目だけ（ダメージは攻撃した側が送る 'hit' で届く）
+      if (pv.phase !== 'battle') return;
+      if (m.to === my) this._selfBurnFxT = m.t || 3;
+      else if (pv.proxies && pv.proxies[m.to]) pv.proxies[m.to]._burnFxT = m.t || 3;
     } else if (m.a === 'dead') {
       pv.alive.delete(m.uid);
       if (m.by && m.by in pv.kills) pv.kills[m.by]++;
@@ -3236,7 +3796,7 @@ class GameScene extends Phaser.Scene {
       if (pv.phase === 'battle' && pv.ids.indexOf(m.uid) >= 0) pv.alive.add(m.uid); // リスポーンした人はまた攻撃が当たる
     } else if (m.a === 'end') {
       pv.winners = m.ws || (m.w ? [m.w] : []); // ボディカウントは同数1位が複数いることがある
-      if (pv.winners.indexOf(my) >= 0) this.pvpWins = (this.pvpWins || 0) + 1; // 自分が勝者なら累計勝利数を増やす
+      if (pv.winners.indexOf(my) >= 0) { this.pvpWins = (this.pvpWins || 0) + 1; this.recordPvpWin(); } // 自分が勝者なら累計勝利数を増やす
       pv.phase = 'over'; pv.resetAt = performance.now() + (PVP.fadeTime + PVP.resultTime) * 1000; // リザルトの表示時間はフェードのあとから数える
       this.pvpClearPotions();
       this.pvpFadeToResult(m.w);
@@ -3246,10 +3806,10 @@ class GameScene extends Phaser.Scene {
   pvpTakeHit(d, from) {
     const pv = this.pv;
     if (pv.phase !== 'battle' || pv.dead || pv.grace > 0 || !(d > 0)) return;
-    this.playerHp = Math.max(0, this.playerHp - d);
+    this.playerHp = Math.max(0, this.playerHp - d); // 盾の軽減は攻撃した側が済ませて送ってくる（pvpOnHit）
     this.spawnBurst(this.player.x, this.player.y, 0xff3b3b, 6);
     this.updateHud();
-    if (this.playerHp <= 0) this.pvpDie(from);
+    if (this.playerHp <= 0 && !this.trySkullRevive()) this.pvpDie(from); // PvPでもドクロの鬼火が残っていれば復活
   }
 
   pvpSetSpectator(on) {
@@ -3421,6 +3981,14 @@ class GameScene extends Phaser.Scene {
     return this._txTarget;
   }
 
+  // 最北戦線の人数に応じた敵の強化倍率。ソロは全て1倍。
+  frontlinePartyMult() {
+    const F = FRONTLINE;
+    const n = this.mp ? Math.max(1, Object.keys(this.latestPlayers || {}).length) : 1;
+    const extra = n - 1;
+    return { n, hp: 1 + F.partyHpPerPlayer * extra, dmg: 1 + F.partyDmgPerPlayer * extra, spawn: 1 + F.partySpawnPerPlayer * extra };
+  }
+
   // 経過時間に応じた敵タイプを重み付き抽選（この敵だけ「まっすぐ発信機へ向かう」設定に差し替えた複製を使う）
   pickFrontlineType() {
     const T = this.fl.elapsed;
@@ -3455,7 +4023,8 @@ class GameScene extends Phaser.Scene {
     const wx = x0 + margin + Math.random() * Math.max(1, (x1 - x0) - margin * 2);
     const wy = (F.wallThickness + 1) * TILE;
     const T = this.fl.elapsed;
-    const hpMult = 1 + T * F.hpPerSec, dmgMult = 1 + T * F.dmgPerSec;
+    const party = this.frontlinePartyMult();
+    const hpMult = (1 + T * F.hpPerSec) * party.hp, dmgMult = (1 + T * F.dmgPerSec) * party.dmg;
 
     const gfx = this.add.circle(wx, wy, type.radius, type.color).setDepth(4);
     gfx.setStrokeStyle(2, 0x000000, 0.3);
@@ -3489,6 +4058,8 @@ class GameScene extends Phaser.Scene {
     fl.lastBossKey = key;
     const type = this.frontlineTypeByKey(key);
     const scale = 1 + fl.bossCount * F.bossScalePerBoss;
+    const party = this.frontlinePartyMult();
+    const hpScale = scale * party.hp, dmgScale = scale * party.dmg; // 人数が多いほどボスもHP・攻撃力が上がる
     fl.bossCount++;
 
     const wx = d.width * TILE / 2, wy = (F.wallThickness + 2) * TILE;
@@ -3501,14 +4072,14 @@ class GameScene extends Phaser.Scene {
     const bossId = 'fl_boss_' + this.flIdPrefix() + fl.bossCount;
     this.bossGroupCounts = this.bossGroupCounts || {};
     this.bossGroupCounts[bossId] = 1;
-    const hp = Math.round(type.hp * scale);
+    const hp = Math.round(type.hp * hpScale);
     const boss = {
       id: bossId, type, gfx, hpBar, label,
       hp, maxHp: hp,
-      damage: Math.round(type.damage * scale),
+      damage: Math.round(type.damage * dmgScale),
       state: 'idle', timer: 0,
       dirX: 0, dirY: 0, hitCooldown: 0,
-      bossGroupId: bossId, _bossScale: scale,
+      bossGroupId: bossId, _bossScale: dmgScale,
     };
     if (type.initialChargeDelay) { boss.chargeLock = type.initialChargeDelay; boss.chargeLockMax = type.initialChargeDelay; }
     this.enemies.push(boss);
@@ -3552,11 +4123,12 @@ class GameScene extends Phaser.Scene {
       // 敵の出現：時間とともに間隔が縮まる（ウェーブ無しで常に湧き続ける）
       fl.spawnTimer -= dt;
       if (fl.spawnTimer <= 0) {
-        if (this.enemies.length < F.maxAlive) {
+        const party = this.frontlinePartyMult();
+        if (this.enemies.length < Math.round(F.maxAlive * party.spawn)) {
           this.spawnFrontlineEnemy();
           this.updateHud();
         }
-        const interval = Math.max(F.spawnMin, F.spawnInterval0 * Math.pow(0.5, fl.elapsed / F.spawnHalfLife));
+        const interval = Math.max(F.spawnMin, F.spawnInterval0 * Math.pow(0.5, fl.elapsed / F.spawnHalfLife)) / party.spawn;
         fl.spawnTimer = interval * (0.6 + Math.random() * 0.8);
       }
 
@@ -3627,13 +4199,14 @@ class GameScene extends Phaser.Scene {
   // 協力プレイ（ゲスト）：ボスの名前・HPバーは、自分の画面にいるボスを見て出す/消す。
   syncBossUiGuest() {
     if (this._bossUiGroup) {
-      if (!this.enemies.some(e => e.bossGroupId === this._bossUiGroup && e.hp > 0)) this.hideBossUi();
+      const alive = this._bossUiAll ? this.bossFloorAlive() : this.enemies.some(e => e.bossGroupId === this._bossUiGroup && e.hp > 0);
+      if (!alive) this.hideBossUi();
       return;
     }
     const b = this.enemies.find(e => e.type.isBoss && e.bossGroupId != null && e.hp > 0);
     if (!b) return;
     // カルテットは分裂後の射手が見えていても、名前はカルテットとして出す
-    const t = b.type.key === 'quartet_shooter' ? ENEMY_TYPES.find(x => x.key === 'quartet') : b.type;
+    const t = b.type.key === 'quartet_shooter' ? ENEMY_TYPES.find(x => x.key === 'quartet') : (b.type.snakeBody ? ENEMY_TYPES.find(x => x.key === 'snake') : b.type);
     this.showBossUi(t, b.bossGroupId);
     this.showBanner('⚠️' + (t.displayName || t.key.toUpperCase()) + '出現⚠️', 2200);
   }
@@ -3864,6 +4437,22 @@ class GameScene extends Phaser.Scene {
         x: cx, y: cy, idx: i, taken: false, broken: false, hp: CHEST_HP, maxHp: CHEST_HP,
       });
     }
+
+    // エフェクト（装飾品）の宝箱：普通の宝箱の抽選とは別の乱数で決める（既存の宝箱の中身・位置は変わらない）。
+    // 階層とシードだけで決まるので、協力プレイでも全員の画面で同じ場所に同じ中身が出る。
+    const erand = mulberry32(this.baseSeed + this.floor * 7919 + 101);
+    if (ACCESSORIES.length && erand() < EFFECT_CHEST.chance) {
+      const acc = ACCESSORIES[Math.floor(erand() * ACCESSORIES.length)];
+      const er = candidateRooms[Math.floor(erand() * candidateRooms.length)];
+      const ex = (er.x + 1 + erand() * Math.max(1, er.w - 2)) * TILE;
+      const ey = (er.y + 1 + erand() * Math.max(1, er.h - 2)) * TILE;
+      const ebox = this.add.rectangle(ex, ey, 22, 18, 0xa87844).setDepth(3);
+      ebox.setStrokeStyle(2, 0x4a3620, 1);
+      this.chests.push({
+        gfx: ebox, label: null, lootType: 'effect', accKey: acc.key, weapon: null,
+        x: ex, y: ey, idx: this.chests.length, taken: false, broken: false, hp: CHEST_HP, maxHp: CHEST_HP,
+      });
+    }
   }
 
   // 攻撃が宝箱に当たった時に呼ぶ（近接の扇形判定・弾の直撃・爆風のどれからも呼ばれる）。
@@ -3882,11 +4471,13 @@ class GameScene extends Phaser.Scene {
     if (!chest || chest.broken) return;
     chest.broken = true;
     chest.gfx.destroy();
-    const color = chest.lootType === 'yellow' ? 0xf6c945 : chest.lootType === 'pink' ? 0xff5bc8 : 0x6bd97a;
-    const colorCss = chest.lootType === 'yellow' ? '#f6c945' : chest.lootType === 'pink' ? '#ff5bc8' : '#6bd97a';
-    const labelText = chest.lootType === 'yellow' ? (chest.weapon ? chest.weapon.name : '？') : chest.lootType === 'pink' ? '★' : '強化';
+    const isEffect = chest.lootType === 'effect';
+    const effAcc = isEffect ? accessoryByKey(chest.accKey) : null;
+    const color = isEffect ? EFFECT_CHEST.color : chest.lootType === 'yellow' ? 0xf6c945 : chest.lootType === 'pink' ? 0xff5bc8 : 0x6bd97a;
+    const colorCss = isEffect ? EFFECT_CHEST.colorCss : chest.lootType === 'yellow' ? '#f6c945' : chest.lootType === 'pink' ? '#ff5bc8' : '#6bd97a';
+    const labelText = isEffect ? (effAcc ? effAcc.icon + effAcc.name : '？') : chest.lootType === 'yellow' ? (chest.weapon ? chest.weapon.name : '？') : chest.lootType === 'pink' ? '★' : '強化';
     const box = this.add.rectangle(chest.x, chest.y, 20, 16, color).setDepth(3);
-    box.setStrokeStyle(2, 0x2c2c33, 1);
+    box.setStrokeStyle(2, isEffect ? EFFECT_CHEST.strokeColor : 0x2c2c33, 1);
     const label = this.add.text(chest.x, chest.y - 16, labelText, {
       fontSize: '11px', color: colorCss, fontStyle: 'bold', fontFamily: 'sans-serif',
     }).setOrigin(0.5).setDepth(3);
@@ -3898,10 +4489,43 @@ class GameScene extends Phaser.Scene {
     }
   }
 
+  // このゲーム中だけ、付けている装飾品（エフェクト）を key に入れ替える。セーブには一切書かない（ゲームが終われば元に戻る）。
+  // 頭の上のアイコン・周りの演出・ドクロの鬼火・ブラックホールのビームも作り直し、協力プレイなら他の人の画面にも反映する。
+  equipRunAccessory(key) {
+    if (!accessoryByKey(key) || this.accKey === key) return;
+    this.accKey = key;
+    this.skullRevives = key === 'skull' ? 3 : 0; // ドクロ：鬼火3つ（1回のゲームごと）
+    this.skullAuraT = 0;
+    this.clearBlackholeBeam(); // ブラックホール：ビームの状態を初期化（付けた直後は、クールダウンから数え直す）
+    if (this._bh) this._bh.cd = ACC_BLACKHOLE.cooldown;
+    if (this.accText) { this.accText.destroy(); this.accText = null; }
+    if (this.accFx) { accFxDestroy(this.accFx); this.accFx = null; }
+    if (this.player) {
+      const px = this.player.x, py = this.player.y;
+      if (accHeadIcon(key)) this.accText = this.add.text(px, py - 13, accHeadIcon(key), { fontSize: '13px', fontFamily: 'sans-serif' }).setOrigin(0.5).setResolution(2).setDepth(6);
+      this.accFx = accFxCreate(this);
+    }
+    if (this.mp && this.net) this.net.setAccessory(key);
+  }
+
   pickupWeapon(chest) {
     chest.gfx.destroy();
     if (chest.label) chest.label.destroy();
-    if (chest.lootType === 'green') {
+    if (chest.lootType === 'effect') {
+      // 青：エフェクト（装飾品）をこのゲーム中だけ付ける。付けていた装飾品とは入れ替わり、セーブ（入手済み・ロビーの装備）は変えない。
+      // 協力プレイでも、取ったのは自分だけ（他の人の画面には、自分に付いたエフェクトが映る）。
+      this.spawnBurst(chest.x, chest.y, EFFECT_CHEST.color, 16);
+      const acc = accessoryByKey(chest.accKey);
+      if (acc) {
+        if (this.accKey === acc.key) {
+          this.showBanner(acc.icon + acc.name + ' はすでに付けています', 1600);
+        } else {
+          this.equipRunAccessory(acc.key);
+          this.bumpStat('upgrades');
+          this.showBanner('🎁 エフェクト獲得！ ' + acc.icon + acc.name + '（このゲーム中のみ）', 3000);
+        }
+      }
+    } else if (chest.lootType === 'green') {
       // 緑：今持っている武器がそのままLv+1される（ボスラッシュの報酬宝箱は指定武器をLv+1）
       this.spawnBurst(chest.x, chest.y, 0x6bd97a, 12);
       const base = chest.weapon || WEAPON_TYPES.find(w => w.key === this.weapon.key) || this.weapon;
@@ -4082,12 +4706,224 @@ class GameScene extends Phaser.Scene {
     this.updateBandageIndicator();
   }
 
+  // ===== 装飾品の特殊効果 =====
+  // 盾：受けるダメージ-1（1以下のダメージはそのまま。0にはしない）
+  accDmgTaken(d) { return this.accKey === 'shield' ? Math.max(Math.min(d, 1), d - 5) : d; }
+
+  // 王冠：この敵が、王冠を付けた誰か（自分・協力プレイの仲間）の魔法陣に触れているか。
+  // 敵を動かすのはホスト（ソロは自分）だけなので、ホストが仲間の王冠も見て判定する。PvPの相手プレイヤーは対象外（別処理）。
+  crownTouches(e) {
+    if (e._pvp) return false;
+    const R = ACC_CROWN_RADIUS + e.type.radius;
+    if (this.accKey === 'crown' && !this.isGhost && Phaser.Math.Distance.Between(e.gfx.x, e.gfx.y, this.player.x, this.player.y) <= R) return true;
+    if (this.mp && !this.pv && this.remotePlayers) {
+      for (const uid in this.remotePlayers) {
+        const rp = this.remotePlayers[uid];
+        if (rp._accKey === 'crown' && !rp._ghost && rp.gfx && Phaser.Math.Distance.Between(e.gfx.x, e.gfx.y, rp.gfx.x, rp.gfx.y) <= R) return true;
+      }
+    }
+    return false;
+  }
+  // 王冠（PvP）：王冠を付けた相手の魔法陣に触れている間（準備室・戦闘中とも）、自分の移動速度が半分になる
+  pvpCrownSlowed() {
+    const pv = this.pv;
+    if (!pv || (pv.phase !== 'battle' && pv.phase !== 'prep') || pv.dead || !this.remotePlayers) return false; // 準備室でも有効
+    for (const uid in this.remotePlayers) {
+      const rp = this.remotePlayers[uid];
+      if (rp._accKey !== 'crown' || rp._ghost || (pv.phase === 'battle' && !pv.alive.has(uid)) || !rp.gfx) continue; // 準備室では生存判定なし
+      if (Phaser.Math.Distance.Between(this.player.x, this.player.y, rp.gfx.x, rp.gfx.y) <= ACC_CROWN_RADIUS + this.player.radius) return true;
+    }
+    return false;
+  }
+
+  // 炎：攻撃した敵に火をつける。3秒間、1秒ごとに7ダメージ（合計21）。燃えている敵に当てても重複せず、燃える時間だけが3秒に戻る。
+  igniteEnemy(e) {
+    if (!(e._burnT > 0)) e._burnTick = 1;
+    e._burnT = 3;
+    // 燃えている演出を他のプレイヤーにも伝える（見た目だけ。ダメージは今まで通り、攻撃した本人の画面が与えて報告する）。
+    // 演出は3秒で消えるので、燃えている間は1秒に1回まで送って延長し続ける。
+    if (this.mp && this.net) {
+      const now = performance.now();
+      if (!e._burnSentAt || now - e._burnSentAt > 1000) {
+        e._burnSentAt = now;
+        try {
+          if (e._pvp) this.net.sendPvp({ a: 'burn', to: e.uid, t: 3 });
+          else this.net.sendShot({ burnFx: true, enemyId: e.id, t: 3, floor: this.floor });
+        } catch (err) { /* 通信の失敗で戦闘を止めない */ }
+      }
+    }
+  }
+  updateBurning(dt) {
+    if (!this.enemies) return;
+    const flames = []; // 今フレームで炎を描く対象 { x, y, r, a }
+    const pvBattle = !!(this.pv && this.pv.phase === 'battle');
+    let burnKilled = false;
+    for (const e of this.enemies.slice()) {
+      const fxOn = e._burnFxT > 0; // 他プレイヤーが火をつけた（見た目だけ。ダメージは火をつけた本人の画面が与える）
+      if (!(e._burnT > 0) && !fxOn) continue;
+      if (!e.gfx || !e.gfx.scene || e.hp <= 0) { e._burnT = 0; e._burnFxT = 0; continue; }
+      if (e._pvp && !(pvBattle && this.pv.alive.has(e.uid))) { e._burnT = 0; e._burnFxT = 0; continue; } // PvP：戦闘中に生きている相手だけ
+      if (fxOn) e._burnFxT -= dt;
+      if (e._burnT > 0) {
+        e._burnT -= dt; e._burnTick -= dt;
+        if (e._burnTick <= 0) {
+          e._burnTick += 1;
+          this.spawnBurst(e.gfx.x, e.gfx.y, 0xff7a2e, 4);
+          this.damageEnemy(e, e._pvp ? 1 : 7, 0, 0, true); // 炎：通常は7/秒（3秒で合計21）、PvPは1/秒
+          if (e.hp <= 0) burnKilled = true;
+        }
+      }
+      if (e.hp > 0 && e.gfx.scene && e.gfx.visible !== false && (e._burnT > 0 || e._burnFxT > 0)) {
+        flames.push({ x: e.gfx.x, y: e.gfx.y, r: (e.type && e.type.radius) || 12, a: e.gfx.alpha != null ? e.gfx.alpha : 1 });
+      }
+    }
+    // 燃焼で倒れた敵の後片付け。damageEnemy はHPを減らすだけで、消す処理（cleanupDeadEnemies）は
+    // 攻撃した側が呼ぶ決まりなので、ここで呼ばないとHP0のまま生き続けてしまう。
+    if (burnKilled) this.cleanupDeadEnemies();
+    // PvP：自分が相手の炎で燃やされている間の演出（ダメージは相手からの 'hit' で届く）
+    if (this._selfBurnFxT > 0) {
+      if (this.isGhost || !this.player || !pvBattle || this.pv.dead) this._selfBurnFxT = 0;
+      else {
+        this._selfBurnFxT -= dt;
+        flames.push({ x: this.player.x, y: this.player.y, r: this.player.radius || 12, a: this.player.alpha != null ? this.player.alpha : 1 });
+      }
+    }
+    this.updateFlameFx(dt, flames);
+  }
+
+  // 燃えている対象の炎の演出。Graphics 1枚を毎フレーム描き直す（対象ごとにオブジェクトは作らない）。
+  // 脈打つオレンジの光と輪＋立ちのぼる火の粉で、遠目にも「燃えている」と分かるようにする。
+  updateFlameFx(dt, targets) {
+    let fx = this._flameFx;
+    if (!targets.length && (!fx || !fx.parts.length)) { if (fx && fx.g && fx.g.scene) fx.g.clear(); return; }
+    if (!fx || !fx.g || !fx.g.scene) fx = this._flameFx = { g: this.add.graphics().setDepth(7), parts: [], t: 0 };
+    fx.t += dt;
+    const g = fx.g, t = fx.t;
+    g.clear();
+    for (const T of targets) {
+      const ph = T.x * 0.13, s = Math.max(0.7, Math.min(1.6, T.r / 14));
+      const pulse = 0.5 + 0.5 * Math.sin(t * 10 + ph);
+      // 光と輪
+      g.fillStyle(0xff6a1f, (0.16 + 0.10 * pulse) * T.a); g.fillCircle(T.x, T.y, T.r * 1.35);
+      g.lineStyle(2, 0xffa53a, (0.5 + 0.3 * pulse) * T.a); g.strokeCircle(T.x, T.y, T.r * 1.15);
+      // 火の粉を出す
+      const n = 30 * dt;
+      let cnt = Math.floor(n) + (Math.random() < n % 1 ? 1 : 0);
+      while (cnt-- > 0 && fx.parts.length < 240) {
+        const life = accR(0.4, 0.75);
+        fx.parts.push({ x: T.x + accR(-T.r * 0.7, T.r * 0.7), y: T.y + accR(-T.r * 0.1, T.r * 0.7), vx: accR(-10, 10), vy: -accR(40, 85), life, max: life, size: accR(2.5, 5) * s });
+      }
+    }
+    // 火の粉を動かして描く（黄→橙→赤へ色が変わりながら小さく消える）
+    for (let i = fx.parts.length - 1; i >= 0; i--) {
+      const q = fx.parts[i];
+      q.life -= dt;
+      if (q.life <= 0) { fx.parts.splice(i, 1); continue; }
+      q.x += q.vx * dt; q.y += q.vy * dt;
+      const f = 1 - q.life / q.max;
+      g.fillStyle(f < 0.35 ? 0xffd54a : (f < 0.7 ? 0xff7a2e : 0xc8321a), (1 - f) * 0.9);
+      g.fillCircle(q.x, q.y, q.size * (1 - 0.6 * f));
+    }
+  }
+
+  // ブラックホール：10秒に一度、いちばん近い敵の方へシマハルと同じ黒いビームを撃つ（ダメージも同じ）
+  // 流れは シマハルと同じ「警告線 → 発射 → 細くなって消える」。敵がいない間は撃たずに待ち、現れたらすぐ撃つ。
+  updateBlackholeBeam(dt) {
+    const B = ACC_BLACKHOLE;
+    let bh = this._bh;
+    if (!bh) bh = this._bh = { cd: B.cooldown, phase: 'idle', t: 0, ang: 0, tick: 0, g: null, sg: null };
+    if (this.accKey !== 'blackhole') { this.clearBlackholeBeam(); return; }
+    if (bh.phase === 'idle') {
+      bh.cd -= dt;
+      if (bh.cd > 0 || this.isGhost || this.isDowned || !this.player || (this.pv && this.pv.dead)) return;
+      let best = null, bd = Infinity;
+      for (const e of this.enemies || []) {
+        if (!e.gfx || !e.gfx.scene || e.hp <= 0 || e._introAnim || (e.type && e.type.invulnerable)) continue;
+        if (e._pvp && !(this.pv && this.pv.phase === 'battle' && this.pv.alive.has(e.uid))) continue; // PvP：戦闘中に生きている相手だけ
+        const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, e.gfx.x, e.gfx.y);
+        if (d < bd) { bd = d; best = e; }
+      }
+      if (!best || bd > B.range) return; // 撃てる敵がいないので、そのまま待つ
+      bh.ang = Phaser.Math.Angle.Between(this.player.x, this.player.y, best.gfx.x, best.gfx.y);
+      bh.phase = 'warn'; bh.t = 0; bh.tick = 0; bh.vib = 0; bh.startW = 0;
+      // 星とビームの位置は、警告線を出し始めた瞬間の場所に空間ごと固定する（以後プレイヤーが動いても追従しない）
+      bh.lx = this.player.x + Math.cos(bh.ang) * B.starDist; bh.ly = this.player.y + Math.sin(bh.ang) * B.starDist;
+      bh.lex = bh.lx + Math.cos(bh.ang) * B.range; bh.ley = bh.ly + Math.sin(bh.ang) * B.range;
+      if (!bh.g || !bh.g.scene) bh.g = this.add.graphics().setDepth(5);
+      if (!bh.sg || !bh.sg.scene) bh.sg = this.add.graphics().setDepth(6);
+      return;
+    }
+    bh.t += dt;
+    const sx = bh.lx, sy = bh.ly, ex = bh.lex, ey = bh.ley; // 警告線の開始時に固定した位置
+    const alpha = this.player.visible ? this.player.alpha : 0;
+    bh.sg.clear();
+    if (bh.phase === 'warn') {
+      const f = Math.min(1, bh.t / B.warnDuration);
+      accFxStar(bh.sg, sx, sy, B.starSize * (0.4 + 0.6 * f), alpha);
+      bh.g.clear(); bh.g.lineStyle(2, 0x9b6bff, 0.35 * alpha); bh.g.beginPath(); bh.g.moveTo(sx, sy); bh.g.lineTo(ex, ey); bh.g.strokePath();
+      if (bh.t >= B.warnDuration) { bh.phase = 'fire'; bh.t = 0; }
+    } else if (bh.phase === 'fire') {
+      bh.vib += dt * B.vibrateSpeed;
+      const w = this.simaharBeamWidth(B, bh.vib);
+      bh.startW = w;
+      accFxStar(bh.sg, sx, sy, B.starSize, alpha);
+      this.drawSimaharBeamStroke(bh.g, sx, sy, ex, ey, w, 0x9b6bff);
+      bh.tick -= dt;
+      if (bh.tick <= 0) { // tickInterval秒に一度、ビームに触れている敵へダメージ
+        bh.tick = B.tickInterval;
+        let bhKilled = false;
+        for (const e of (this.enemies || []).slice()) {
+          if (!e.gfx || !e.gfx.scene || e.hp <= 0 || e._introAnim || (e.type && e.type.invulnerable)) continue;
+          const d = this.pointSegmentDistance(e.gfx.x, e.gfx.y, sx, sy, ex, ey);
+          if (d < w / 2 + e.type.radius) { this.damageEnemy(e, B.damage, bh.ang, 0); if (e.hp <= 0) bhKilled = true; }
+        }
+        if (bhKilled) this.cleanupDeadEnemies(); // 倒れた敵を消す（これが無いとHP0のまま生き続ける）
+      }
+      if (bh.t >= B.fireDuration) { bh.phase = 'shrink'; bh.t = 0; }
+    } else if (bh.phase === 'shrink') {
+      const w = this.simaharBeamShrinkWidth(B, bh.startW, bh.t);
+      accFxStar(bh.sg, sx, sy, B.starSize * Math.max(0, 1 - bh.t / 0.25), alpha);
+      if (w <= 0.5) { this.clearBlackholeBeam(); bh.cd = B.cooldown; bh.phase = 'idle'; }
+      else this.drawSimaharBeamStroke(bh.g, sx, sy, ex, ey, w, 0x9b6bff);
+    }
+  }
+  clearBlackholeBeam() {
+    const bh = this._bh; if (!bh) return;
+    if (bh.g && bh.g.scene) bh.g.clear();
+    if (bh.sg && bh.sg.scene) bh.sg.clear();
+    if (bh.phase !== 'idle') { bh.phase = 'idle'; bh.cd = ACC_BLACKHOLE.cooldown; }
+  }
+  // 王冠：魔法陣に触れて速度が半分になっている敵を、金色の丸で覆う（Graphics 1枚を毎フレーム描き直す）
+  updateCrownSlowFx(dt) {
+    let fx = this._crownFx;
+    const list = [];
+    if (this.enemies) {
+      for (const e of this.enemies) {
+        if (!e.gfx || !e.gfx.scene || e.hp <= 0 || e.gfx.visible === false || e._pvp) continue;
+        if (this.crownTouches(e)) list.push(e);
+      }
+    }
+    if (!list.length) { if (fx && fx.g && fx.g.scene) fx.g.clear(); return; }
+    if (!fx || !fx.g || !fx.g.scene) fx = this._crownFx = { g: this.add.graphics().setDepth(7), t: 0 };
+    fx.t += dt;
+    const g = fx.g;
+    g.clear();
+    for (const e of list) {
+      const a = e.gfx.alpha != null ? e.gfx.alpha : 1;
+      const r = ((e.type && e.type.radius) || 12) * 1.25;
+      const pulse = 0.5 + 0.5 * Math.sin(fx.t * 6 + e.gfx.x * 0.1);
+      g.fillStyle(0xffd54c, (0.38 + 0.12 * pulse) * a); g.fillCircle(e.gfx.x, e.gfx.y, r);
+      g.lineStyle(2, 0xffe680, (0.75 + 0.2 * pulse) * a); g.strokeCircle(e.gfx.x, e.gfx.y, r);
+    }
+  }
+  updateAccEffects(dt) { this.updateBurning(dt); this.updateBlackholeBeam(dt); this.updateCrownSlowFx(dt); }
+
   // 包帯の持続回復を毎フレーム進める。1秒経過するごとに10回復し、4回（=合計40）で自然に終わる。
   updateBandage(dt) {
     if (!this.bandage) return;
     this.bandage.timer -= dt;
     if (this.bandage.timer <= 0) {
-      const heal = Math.min(10, this.playerMaxHp - this.playerHp);
+      const heal = Math.min(this.accKey === 'sprout' ? 12 : 10, this.playerMaxHp - this.playerHp); // 若葉：12/秒
       if (heal > 0) {
         this.playerHp += heal;
         this.showFloatText('+' + heal, '#7effa0');
@@ -4143,14 +4979,30 @@ class GameScene extends Phaser.Scene {
   redrawDungeonWalls() {
     const g = this.graphics;
     const dungeon = this.dungeon;
+    const ep = dungeon.exitPos;
+    const EXIT_TILE_FADE_RADIUS = 4; // この距離（タイル数）で白色が完全に消える
+    const lerpColor = (c1, c2, k) => {
+      const r = Math.round(((c1 >> 16) & 255) * (1 - k) + ((c2 >> 16) & 255) * k);
+      const gr = Math.round(((c1 >> 8) & 255) * (1 - k) + ((c2 >> 8) & 255) * k);
+      const b = Math.round((c1 & 255) * (1 - k) + (c2 & 255) * k);
+      return (r << 16) | (gr << 8) | b;
+    };
     g.clear();
     for (let y = 0; y < dungeon.height; y++) {
       for (let x = 0; x < dungeon.width; x++) {
         const t = dungeon.grid[y][x];
         if (t === 1 || t === 3) {
-          g.fillStyle(t === 3 ? 0x3a3a44 : 0x33333f, 1);
+          // 出口に近いほど白っぽく、遠ざかるにつれて通常の床色へ徐々に戻る
+          let k = 0;
+          if (ep) {
+            const d = Math.hypot(x - ep.x, y - ep.y);
+            k = Math.max(0, 1 - d / EXIT_TILE_FADE_RADIUS);
+          }
+          if (t === 3) k = 1;
+          const red = this.nextIsBoss; // ボス階への出口は白ではなく赤く染める
+          g.fillStyle(lerpColor(0x33333f, red ? 0xb02a2a : 0x9a9aaa, k), 1);
           g.fillRect(x * TILE, y * TILE, TILE, TILE);
-          g.lineStyle(1, 0x26262e, 1);
+          g.lineStyle(t === 3 ? 2 : 1, lerpColor(0x26262e, red ? 0xff6b6b : 0xdcdce8, k), 1);
           g.strokeRect(x * TILE, y * TILE, TILE, TILE);
         }
       }
@@ -4236,28 +5088,6 @@ class GameScene extends Phaser.Scene {
     // 弾数・リロード中の表示は、プレイヤーの真上に出す白い文字（reloadLabel）だけにしたので、
     // 左上パネルの弾数（ammoRow）は常に非表示。
     document.getElementById('ammoRow').style.display = 'none';
-  }
-
-  // P2P/TURN表示の右横に出す通信診断（原因の切り分け用）。Net側が1秒ごとに集めた数字を並べるだけ。
-  setConnDiag(d) {
-    let el = document.getElementById('connDiag');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'connDiag';
-      el.style.cssText = 'position:fixed; top:max(0.3vh, env(safe-area-inset-top)); left:calc(50% + 8.5vh); z-index:22; font-size:1.9vh; line-height:1.25; font-weight:bold;'
-        + 'font-family:monospace; white-space:pre; text-shadow:0 0 0.5vh #000, 0 0 0.5vh #000; pointer-events:none; display:none;'
-        + 'background:rgba(0,0,0,0.45); padding:0.4vh 0.9vh; border-radius:0.7vh;';
-      document.body.appendChild(el);
-    }
-    if (!d) { el.style.display = 'none'; return; }
-    let fps = 0;
-    try { fps = Math.round(this.game.loop.actualFps); } catch (e) {}
-    const lines = d.lines.map(l => l.replace('{fps}', 'FPS' + (fps || '-')));
-    let level = d.level || 0;
-    if (fps && fps < 25) { lines.push('目安: 端末の処理が重い(FPS低下)'); level = Math.max(level, 1); }
-    el.textContent = lines.join('\n');
-    el.style.color = level >= 2 ? '#ff7b7b' : (level === 1 ? '#ffd166' : '#c9f2d2');
-    el.style.display = 'block';
   }
 
   // 画面上部中央の通信経路表示。P2P（直接）なら緑の「P2P」、TURN（中継サーバー経由）なら黄色の「TURN」。接続が無ければ非表示。
@@ -4812,8 +5642,8 @@ class GameScene extends Phaser.Scene {
     sx = Phaser.Math.Clamp(sx, TILE, maxX - TILE);
     sy = Phaser.Math.Clamp(sy, TILE, maxY - TILE);
 
-    const hpMult = (1 + (this.floor - 1) * 0.16);
-    const dmgMult = (1 + (this.floor - 1) * 0.10);
+    const hpMult = (1 + (this.floor - 1) * DUNGEON_DIFFICULTY.hpPerFloor) * this.dungeonPartyMult().hp;
+    const dmgMult = (1 + (this.floor - 1) * DUNGEON_DIFFICULTY.dmgPerFloor) * this.dungeonPartyMult().dmg;
     const gfx = this.add.circle(sx, sy, t.radius, CHARGE_GHOST_FILL_COLOR).setDepth(4);
     gfx.setStrokeStyle(2, CHARGE_GHOST_STROKE_COLOR, 0.8);
     gfx.setAlpha(CHARGE_GHOST_ALPHA);
@@ -5087,8 +5917,13 @@ class GameScene extends Phaser.Scene {
     enemy._predicting = true;
   }
 
-  damageEnemy(enemy, damage, angle, knockback) {
-    if (enemy._pvp) { this.pvpOnHit(enemy, damage); return; } // PvP：相手プレイヤーへの攻撃
+  damageEnemy(enemy, damage, angle, knockback, isBurn) {
+    // 装飾品：双剣＝ノックバック2倍（ドクロの効果は復活なので onPlayerDeath / trySkullRevive 側）
+    if (this.accKey === 'swords' && knockback > 0) knockback *= 2;
+    if (enemy._pvp) { // PvP：相手プレイヤーへの攻撃（当たった時だけ、炎なら相手を燃やす）
+      if (this.pvpOnHit(enemy, damage) && this.accKey === 'flame' && damage > 0 && !isBurn) this.igniteEnemy(enemy);
+      return;
+    }
     this.spawnBurst(enemy.gfx.x, enemy.gfx.y, enemy.type.color, 7);
 
     // 溜め中に呼び寄せたゴーストだけは特別に脆い：普通のゴーストは完全無敵だが、こちらは
@@ -5108,10 +5943,11 @@ class GameScene extends Phaser.Scene {
 
     // 無敵の敵（ゴースト等）はHPが一切減らない（ノックバックも出さない＝実質何も起きない）。
     if (enemy.type.invulnerable) return;
+    if (this.accKey === 'flame' && damage > 0 && !isBurn) this.igniteEnemy(enemy); // 炎：攻撃した敵を燃やす
     const wasAlive = enemy.hp > 0; // 協力プレイのリザルト用：とどめを刺したのが自分かどうかの判定に使う
     // 最北戦線：敵の種類ごとに与えたダメージを集計（リザルトの「最多ダメージの敵」用。残りHPを超えた分は数えない）
     if (this.frontline && this.fl && damage > 0) {
-      const k = enemy.type.key === 'quartet_shooter' ? 'quartet' : enemy.type.key;
+      const k = enemy.type.key === 'quartet_shooter' ? 'quartet' : (enemy.type.snakeBody ? 'snake' : enemy.type.key);
       this.fl.dmgByType[k] = (this.fl.dmgByType[k] || 0) + Math.min(damage, Math.max(0, enemy.hp));
       // 協力プレイの成績（リザルト用）は、変化した時だけ送る仕組み。毎回だと通信が増えるので1秒に1回まで
       if (this.mp && (!this._dmgStatAt || performance.now() - this._dmgStatAt > 1000)) { this._dmgStatAt = performance.now(); this._statsDirty = true; }
@@ -5134,7 +5970,7 @@ class GameScene extends Phaser.Scene {
       if (killed && wasAlive && !(enemy.type.splitOnHit && !enemy._hasSplit)) this.creditKill(enemy);
       this.net.sendAttack({
         enemyId: enemy.id, damage, floor: this.floor,
-        newHp: enemy.hp, killed, angle, knockback,
+        newHp: enemy.hp, killed, angle, knockback, burn: !!isBurn,
       });
       if (!enemy.type.teleportOnHit) this.predictKnockback(enemy, angle, knockback); // テレポートする敵は吹き飛ばない
       if (killed) {
@@ -5172,7 +6008,7 @@ class GameScene extends Phaser.Scene {
       this.spawnQuartetSplit(enemy);
     }
     // ゾートロープ：攻撃を受けるたびにプレイヤーの近くへ飛ぶ（実際の移動は updateEnemy 側）
-    if (damage > 0 && t.teleportOnHit && enemy.hp > 0) this.requestTeleport(enemy);
+    if (damage > 0 && t.teleportOnHit && enemy.hp > 0 && !isBurn) this.requestTeleport(enemy); // 燃焼ダメージではテレポートさせない
     if (wasAlive && enemy.hp <= 0 && !enemy._skipBossReward) this.creditKill(enemy);
   }
 
@@ -5262,8 +6098,8 @@ class GameScene extends Phaser.Scene {
     if (this.mp && !this.isHost) return; // 増殖の権威もホストのみが持つ
     const t = enemy.type;
     const count = t.multiplyCount || 10;
-    const hpMult = (1 + (this.floor - 1) * 0.16);
-    const dmgMult = (1 + (this.floor - 1) * 0.10);
+    const hpMult = (1 + (this.floor - 1) * DUNGEON_DIFFICULTY.hpPerFloor) * this.dungeonPartyMult().hp;
+    const dmgMult = (1 + (this.floor - 1) * DUNGEON_DIFFICULTY.dmgPerFloor) * this.dungeonPartyMult().dmg;
     const ox = enemy.gfx.x, oy = enemy.gfx.y;
 
     for (let i = 0; i < count; i++) {
@@ -5319,10 +6155,360 @@ class GameScene extends Phaser.Scene {
     this.spawnBurst(ox, oy, t.color, 20);
   }
 
+  // ===== スネーク =====
+  // 後続を出す（権威はホスト／ソロのみ）。全員が先頭と同じ場所から出て、先頭が進むにつれて一列にほどけていく。
+  spawnSnakeBody(head) {
+    if (this.mp && !this.isHost) return;
+    head._snakeSpawned = true;
+    head.snakeIdx = 0;
+    head.gfx.setDepth(5);
+    const t = head.type, bt = ENEMY_TYPES.find(x => x.key === 'snake_body');
+    const groupId = head.bossGroupId || head.id;
+    (this._snakeRage = this._snakeRage || {})[groupId] = false; // 強攻撃モードはこの戦いの頭から数え直す
+    const hpScale = head.maxHp / t.hp, dmgScale = head._bossScale || 1; // 階層・人数ぶんの強化を後続にも引き継ぐ
+    this.bossGroupCounts = this.bossGroupCounts || {};
+    this.bossGroupCounts[groupId] = 1 + t.snakeLen; // 先頭＋後続の全員を倒したらボス撃破
+    for (let i = 1; i <= t.snakeLen; i++) this.makeSnakeSegment(head, i, head.gfx.x, head.gfx.y);
+  }
+
+  // 胴体を1体作る（最初の出現と、生き返りの両方で使う）。HP・攻撃力は先頭と同じ強化率。
+  makeSnakeSegment(head, idx, x, y) {
+    const bt = ENEMY_TYPES.find(o => o.key === 'snake_body');
+    const hpScale = head.maxHp / head.type.hp, dmgScale = head._bossScale || 1;
+    const gfx = this.add.circle(x, y, bt.radius, bt.color).setDepth(4);
+    gfx.setStrokeStyle(2, 0xffd54c, 0.6);
+    const hpBar = this.add.rectangle(x, y - bt.radius - 8, bt.radius * 2, 4, 0xff5b5b).setDepth(4);
+    const hp = Math.round(bt.hp * hpScale);
+    const seg = {
+      id: head.id + '_s' + idx, type: bt, gfx, hpBar, hp, maxHp: hp,
+      damage: Math.round(bt.damage * dmgScale), state: 'idle', timer: 0,
+      dirX: 0, dirY: 0, hitCooldown: 0, bossGroupId: head.bossGroupId || head.id, snakeIdx: idx, _bossScale: dmgScale,
+    };
+    this.enemies.push(seg);
+    this.enemyById[seg.id] = seg;
+    return seg;
+  }
+
+  // 先頭が生きている間、灰色になった胴体を reviveInterval 秒ごとに1体、先頭に近い順に元の位置で生き返らせる
+  reviveSnakeBody(head, dt) {
+    if (this.mp && !this.isHost) return;
+    const gid = head.bossGroupId || head.id;
+    const cs = (this.snakeCorpses || []).filter(c => c.bossGroupId === gid);
+    if (!cs.length) { head.reviveT = 0; return; }
+    head.reviveT = (head.reviveT || 0) + dt;
+    // 先頭のHPが3割以下（強攻撃モード）になったら、胴体の復活が0.1秒ごとになる
+    const interval = this.isSnakeRage(head) ? SNAKE_RAGE.reviveInterval : SNAKE_COIL.reviveInterval;
+    if (head.reviveT < interval) return;
+    head.reviveT = 0;
+    let c = cs[0];
+    for (const o of cs) if (o.snakeIdx < c.snakeIdx) c = o; // 先頭に一番近い死骸から
+    this.snakeCorpses = this.snakeCorpses.filter(o => o !== c);
+    const x = c.gfx.x, y = c.gfx.y;
+    c.gfx.destroy();
+    this.bossGroupCounts = this.bossGroupCounts || {};
+    this.bossGroupCounts[gid] = (this.bossGroupCounts[gid] || 0) + 1; // 撃破判定の残り数にも加える
+    const seg = this.makeSnakeSegment(head, c.snakeIdx, x, y);
+    seg.trail = c.trail; // 後ろの個体がなぞっている軌跡を引き継ぐ
+    this.spawnBurst(x, y, 0x8cf06a, 6);
+  }
+
+  // 倒された胴体を消さずに灰色の死骸として残す（敵リストの外に置くので、当たり判定・攻撃・ダメージは一切なし）。
+  // 列の一員としては残り、先頭の動きに合わせて他の個体と同じように軌跡をなぞって動く。
+  // ===== 先頭が倒された後のカウントダウン（SNAKE_DOOM）。権威はホスト／ソロのみ。 =====
+  // 生き残っている胴体がいれば、その中で一番前の個体の頭の上に残り秒数を出し、0になったら全員を倒す。
+  startSnakeDoom(gid) {
+    this._snakeDoom = this._snakeDoom || {};
+    if (this._snakeDoom[gid]) return;
+    if (!this.enemies.some(o => o.hp > 0 && o.type.snake && String(o.bossGroupId) === String(gid))) return; // 残りがいなければ、そのまま撃破
+    this._snakeDoom[gid] = { t: SNAKE_DOOM.seconds };
+    if (this.bossRush) this.showBanner('☠ ' + SNAKE_DOOM.seconds + '秒後に、残りの胴体も力尽きる…', 2200); // 最初のバナーはボスラッシュだけ（カウントダウン自体は全モードで動く）
+  }
+
+  // 毎フレーム：時間を進め、一番前の生き残りに残り秒数を持たせる。0になったら、残り全員のHPを0にする
+  // （実際の撃破処理は、いつもの cleanupDeadEnemies に任せる）。
+  updateSnakeDoom(dt) {
+    if (this.mp && !this.isHost) return;
+    this._snakeDoom = this._snakeDoom || {};
+    // ホストが交代した直後：前のホストが配信していた残り秒数（ゲストとして受け取って持っていた値）を引き継ぐ
+    for (const o of this.enemies) {
+      if (o.hp > 0 && o.type.snake && o._doomSec != null && o.bossGroupId != null && !this._snakeDoom[o.bossGroupId]) {
+        this._snakeDoom[o.bossGroupId] = { t: o._doomSec };
+      }
+    }
+    let killed = false;
+    for (const gid of Object.keys(this._snakeDoom)) {
+      const d = this._snakeDoom[gid];
+      const alive = this.enemies.filter(o => o.hp > 0 && o.type.snake && String(o.bossGroupId) === gid);
+      if (!alive.length) { delete this._snakeDoom[gid]; continue; } // 全員倒された（カウントダウンの前に撃破）
+      d.t -= dt;
+      let lead = alive[0];
+      for (const o of alive) if ((o.snakeIdx != null ? o.snakeIdx : 1e9) < (lead.snakeIdx != null ? lead.snakeIdx : 1e9)) lead = o;
+      for (const o of alive) o._doomSec = (o === lead) ? Math.max(0, d.t) : null;
+      if (d.t <= 0) {
+        for (const o of alive) { this.spawnBurst(o.gfx.x, o.gfx.y, 0x8cf06a, 6); o.hp = 0; }
+        delete this._snakeDoom[gid];
+        killed = true;
+      }
+    }
+    // HPを0にしただけでは消えない（cleanupDeadEnemies は、攻撃などでダメージが入った時にしか呼ばれない）ので、ここで呼んで、
+    // 死骸の処理・ボス撃破（報酬・出口）・文字の片付けまで、普通に倒した時と同じ流れで済ませる。
+    if (killed) this.cleanupDeadEnemies();
+  }
+
+  // 全員共通（ホスト・ゲスト）：カウントダウンを持っている個体の頭の上に、残り秒数の文字を出す。
+  // ゲストは、ホストが配信してくる dm（残り秒数）を見て出す。
+  updateSnakeDoomText(e) {
+    let sec = e._doomSec;
+    if (this.mp && !this.isHost && this._enemySnapshotSeen) {
+      const sn = this._enemySnapshot && this._enemySnapshot[e.id];
+      sec = (sn && typeof sn.dm === 'number') ? sn.dm : null;
+      e._doomSec = sec;
+    }
+    if (sec == null || e.hp <= 0) {
+      if (e._doomText) { e._doomText.destroy(); e._doomText = null; }
+      return;
+    }
+    const n = Math.ceil(sec);
+    if (!e._doomText) {
+      e._doomText = this.add.text(e.gfx.x, e.gfx.y - e.type.radius - 32, '', {
+        fontSize: '18px', color: '#ff5b5b', fontStyle: 'bold', fontFamily: 'sans-serif', stroke: '#000000', strokeThickness: 3,
+      }).setOrigin(0.5).setDepth(7);
+    }
+    e._doomText.setText('💀 ' + n);
+    e._doomText.setColor(n <= 10 ? '#ff2a2a' : '#ffd54c'); // 残り10秒からは赤
+    e._doomText.x = e.gfx.x; e._doomText.y = e.gfx.y - e.type.radius - 32;
+  }
+
+  makeSnakeCorpse(e) {
+    const gfx = e.gfx;
+    gfx.setFillStyle(0x6b6b6b); gfx.setStrokeStyle(2, 0x3a3a3a, 0.7); gfx.setDepth(3);
+    this.snakeCorpses = this.snakeCorpses || [];
+    this.snakeCorpses.push({ gfx, trail: e.trail || [], snakeIdx: e.snakeIdx, bossGroupId: e.bossGroupId, type: e.type, _corpse: true, diedAt: this.time.now });
+  }
+
+  clearSnakeCorpses(gid) {
+    if (!this.snakeCorpses) return;
+    this.snakeCorpses = this.snakeCorpses.filter(c => {
+      if (gid != null && c.bossGroupId !== gid) return true;
+      if (c.gfx) { this.tweens.killTweensOf(c.gfx); c.gfx.destroy(); }
+      return false;
+    });
+  }
+
+  // ボスを倒しきった時：死骸を corpseLinger 秒だけその場に残し、最後の2秒で薄くして消す。
+  // 時間が来た時点で、まだ残っている「この時の死骸」だけを消す（途中でフロアが変わって片付いていても、別のボスの死骸は巻き込まない）。
+  lingerSnakeCorpses(gid) {
+    const mine = (this.snakeCorpses || []).filter(c => c.bossGroupId === gid);
+    if (!mine.length) return;
+    const total = SNAKE_COIL.corpseLinger * 1000, fade = Math.min(2000, total);
+    const alive = c => c.gfx && c.gfx.scene && (this.snakeCorpses || []).includes(c);
+    this.time.delayedCall(total - fade, () => {
+      for (const c of mine) if (alive(c)) this.tweens.add({ targets: c.gfx, alpha: 0, duration: fade });
+    });
+    this.time.delayedCall(total, () => {
+      const dead = mine.filter(alive);
+      this.snakeCorpses = (this.snakeCorpses || []).filter(c => !dead.includes(c));
+      for (const c of dead) { this.tweens.killTweensOf(c.gfx); c.gfx.destroy(); }
+    });
+  }
+
+  // 先頭の後ろに続く全員（生きている胴体＋灰色の死骸）を、並び順に1体ずつ、直前の個体の軌跡へ移す。
+  // 順番が前後すると1フレームずつ遅れてズレるので、先頭が自分の移動を終えた直後にまとめてここで行う。
+  snakeUpdateChain(head) {
+    let lead = head;
+    for (const m of this.snakeMembers(head)) { this.snakeFollow(m, lead); lead = m; }
+  }
+
+  // 先頭の後ろに続く全員（生きている胴体＋灰色の死骸）を、先頭に近い順に並べて返す
+  snakeMembers(head) {
+    const gid = head.bossGroupId;
+    const members = [];
+    for (const o of this.enemies) {
+      if (o !== head && o.hp > 0 && o.type.snakeBody && o.bossGroupId === gid && o.snakeIdx > head.snakeIdx) members.push(o);
+    }
+    for (const c of (this.snakeCorpses || [])) if (c.bossGroupId === gid && c.snakeIdx > head.snakeIdx) members.push(c);
+    members.sort((a, b) => a.snakeIdx - b.snakeIdx);
+    return members;
+  }
+
+  // ===== スネークの「振り回し」 =====
+  // 流れ：curl（渦巻き状に丸まる・予備動作）→ spin（一気に伸びて、頭を軸に加速しながら回す）→ slow（減速して止まる）。
+  // 胴体は「先頭からj番目」ごとに、頭を中心とした極座標（半径・角度）で位置を直接決める。
+  // 渦巻きの姿と鞭の姿の2つを用意し、伸び具合(ext)で混ぜるので、渦がほどけながら鞭になる。
+
+  // 渦巻き（丸まった姿）と鞭（伸びきった姿）の、先頭からj番目の個体の位置を作る。
+  // 角度は「回転方向に対してどれだけ後ろに遅れているか(lag、0以上)」で持つ。
+  makeWhirlShapes(n, gap, W = SNAKE_WHIRL) {
+    const curl = [], whip = [];
+    // 渦巻き：r = r0 + a·φ の曲線を、個体同士の間隔（弧長）がcurlGapになるように少しずつ進めて点を取る
+    const a = W.curlPitch / (Math.PI * 2);
+    let phi = 0;
+    for (let j = 1; j <= n; j++) {
+      let acc = 0;
+      while (acc < W.curlGap) {
+        const r = W.curlStartR + a * phi;
+        acc += Math.hypot(a, r) * 0.05; // 弧長の近似（φを0.05ずつ進める）
+        phi += 0.05;
+      }
+      curl.push({ r: W.curlStartR + a * phi, lag: phi });
+    }
+    // 鞭：ほぼまっすぐで、先端ほど回転に遅れてしなる。長さの上限はreach（人数が多いと間隔を詰めて収める）
+    const wgap = Math.min(gap, W.reach / n);
+    for (let j = 1; j <= n; j++) {
+      const r = j * wgap;
+      whip.push({ r, lag: W.whipCurve * Math.pow(r / (n * wgap), 1.5) });
+    }
+    return { curl, whip, reach: n * wgap };
+  }
+
+  // 強攻撃モードに入っているか。先頭（ウロボロス本体）のHPが hpRatio 以下になったら、その戦いの間はずっと入ったまま
+  // （先頭が倒されて後続が昇格しても続く。胴体が生き返ってHPバーが戻っても解けない）。
+  isSnakeRage(e) {
+    this._snakeRage = this._snakeRage || {};
+    const gid = e.bossGroupId != null ? e.bossGroupId : e.id;
+    if (!this._snakeRage[gid] && e.type.key === 'snake' && e.hp / e.maxHp <= SNAKE_RAGE.hpRatio) {
+      this._snakeRage[gid] = true;
+      e.rageCd = 0; // なった直後に1回目を出す
+      this.spawnBurst(e.gfx.x, e.gfx.y, 0xff2a2a, 18);
+    }
+    return !!this._snakeRage[gid];
+  }
+
+  // rage: true なら強攻撃（SNAKE_RAGE.whirl で SNAKE_WHIRL を上書きした強化版の振り回し）
+  startSnakeWhirl(e, rage = false) {
+    const W = rage ? Object.assign({}, SNAKE_WHIRL, SNAKE_RAGE.whirl) : SNAKE_WHIRL;
+    const members = this.snakeMembers(e);
+    if (!members.length) { e.whirlCd = SNAKE_WHIRL.whirlCooldown; return; }
+    const n = members[members.length - 1].snakeIdx - e.snakeIdx; // 先頭から一番後ろまでの並びの数
+    const from = {}; // 丸まり始める前の位置（ここから渦巻きへ寄せていく）
+    for (const m of members) from[m.snakeIdx] = { x: m.gfx.x, y: m.gfx.y };
+    e.whirl = {
+      phase: 'curl', t: 0, from,
+      dir: Math.random() < 0.5 ? 1 : -1,        // 回す向き
+      theta: Math.random() * Math.PI * 2,       // 腕の向き
+      omega: 0,
+      shapes: this.makeWhirlShapes(n, e.type.snakeGap || 17, W),
+      cfg: W, rage,
+    };
+    e.state = 'whirl';
+    this.spawnBurst(e.gfx.x, e.gfx.y, 0xff8a3a, 10);
+  }
+
+  // 先頭が移動し終わった後に毎フレーム呼ぶ。時間を進め、全員の位置を決める。
+  snakeWhirlUpdate(head, dt) {
+    const w = head.whirl, W = w.cfg || SNAKE_WHIRL;
+    const hx = head.gfx.x, hy = head.gfx.y;
+    const members = this.snakeMembers(head);
+
+    // --- 時間を進める ---
+    w.t += dt;
+    if (w.phase === 'curl') {
+      w.theta += w.dir * W.curlWind * dt; // 巻き込むようにゆっくり回る
+      if (w.t >= W.curlTime) { w.phase = 'spin'; w.t = 0; this.spawnBurst(hx, hy, 0xffd54c, 16); }
+    } else if (w.phase === 'spin') {
+      w.omega = (W.spinSpeed0 + (W.spinSpeed - W.spinSpeed0) * Math.min(1, w.t / W.spinAccel)) * (W.spinMult || 1);
+      w.theta += w.dir * w.omega * dt;
+      if (w.t >= W.spinTime) { w.phase = 'slow'; w.t = 0; }
+    } else {
+      w.omega = W.spinSpeed * (W.spinMult || 1) * Math.max(0, 1 - w.t / W.slowTime);
+      w.theta += w.dir * w.omega * dt;
+      if (w.t >= W.slowTime) { this.finishSnakeWhirl(head, members, false); return; }
+    }
+
+    // --- 姿を決める：ext 0=渦巻き、1=伸びきった鞭。gather は元の位置から渦巻きへ寄せる割合（丸まる予備動作の間だけ） ---
+    const ext = w.phase === 'curl' ? 0 : (w.phase === 'spin' ? 1 - Math.pow(1 - Math.min(1, w.t / W.burstTime), 3) : 1);
+    let gather = 1;
+    if (w.phase === 'curl') { const u = Math.min(1, w.t / (W.curlTime * 0.8)); gather = u * u * (3 - 2 * u); }
+    const S = w.shapes;
+    // 強攻撃は、伸びてから止まるまでの間だけ接触ダメージが増える（丸まっている間は通常どおり）
+    const dm = (w.rage && w.phase !== 'curl') ? SNAKE_RAGE.damageMult : 1;
+    head._dmgMult = dm;
+    for (const m of members) {
+      m._dmgMult = dm;
+      if (!m._corpse && !m._hot) { m.gfx.setFillStyle(W.hotColor); m._hot = true; } // 生きている胴体は赤熱（途中で生き返った個体も）
+      const j = Math.min(Math.max(1, m.snakeIdx - head.snakeIdx), S.curl.length) - 1;
+      const c = S.curl[j], wh = S.whip[j];
+      const r = c.r + (wh.r - c.r) * ext;
+      const lag = c.lag + (wh.lag - c.lag) * ext;
+      const ang = w.theta - w.dir * lag;
+      let tx = hx + Math.cos(ang) * r, ty = hy + Math.sin(ang) * r;
+      if (gather < 1) {
+        const f = w.from[m.snakeIdx] || (w.from[m.snakeIdx] = { x: m.gfx.x, y: m.gfx.y });
+        tx = f.x + (tx - f.x) * gather; ty = f.y + (ty - f.y) * gather;
+      }
+      m.gfx.x = tx; m.gfx.y = ty;
+      this.snakeRecordTrail(m); // 途中で先頭が倒されても、そこから軌跡をなぞれるように記録しておく
+    }
+    this.snakeRecordTrail(head);
+
+    // --- 危険範囲の輪（伸びきった時の届く範囲）。丸まっている間は点滅して目立たせる ---
+    if (!this.whirlGfx || !this.whirlGfx.scene) this.whirlGfx = this.add.graphics().setDepth(3);
+    const g = this.whirlGfx, R = S.reach + 12;
+    const pulse = 0.5 + 0.5 * Math.sin(this.time.now / 1000 * 18);
+    g.clear();
+    g.fillStyle(w.rage ? 0xff1a1a : 0xff5b3a, w.phase === 'curl' ? 0.06 + 0.05 * pulse : 0.05).fillCircle(hx, hy, R);
+    g.lineStyle(w.rage ? 3 : 2, w.rage ? 0xff3030 : 0xff8a3a, w.phase === 'curl' ? 0.35 + 0.4 * pulse : 0.3).strokeCircle(hx, hy, R);
+  }
+
+  // 振り回しを終える（aborted: 先頭が倒されて途中で終わった場合）。色と輪を戻し、
+  // 今の並びがそのまま「通ってきた道」になるように軌跡を作り直して、通常の追従へスムーズに戻す。
+  finishSnakeWhirl(head, members, aborted) {
+    const W = SNAKE_WHIRL;
+    head._dmgMult = 1;
+    for (const m of members) { m._dmgMult = 1; if (m._hot) { m._hot = false; if (!m._corpse) m.gfx.setFillStyle(m.type.color); } }
+    const line = aborted ? members : [head, ...members];
+    for (let i = 0; i < line.length; i++) line[i].trail = line.slice(i, i + 4).map(o => ({ x: o.gfx.x, y: o.gfx.y }));
+    head.whirl = null;
+    if (!aborted) {
+      head.state = 'idle';
+      head.whirlCd = W.whirlCooldown;
+      head.coilCd = Math.max(head.coilCd || 0, 3); // 振り回しの直後にとぐろが続かないように
+    }
+    if (this.whirlGfx && this.whirlGfx.scene) this.whirlGfx.clear();
+  }
+
+  // 自分より前にいる生きている個体のうち、一番近いもの（いなければ自分が先頭）
+  snakeLeader(e) {
+    let best = null;
+    for (const o of this.enemies) {
+      if (o === e || o.hp <= 0 || !o.type.snake || o.bossGroupId !== e.bossGroupId || o.snakeIdx == null) continue;
+      if (o.snakeIdx < e.snakeIdx && (!best || o.snakeIdx > best.snakeIdx)) best = o;
+    }
+    return best;
+  }
+
+  // 通った場所を3px以上動くたびに記録する（新しい順）
+  snakeRecordTrail(e) {
+    const tr = e.trail || (e.trail = []);
+    const last = tr[0];
+    if (!last || Math.hypot(e.gfx.x - last.x, e.gfx.y - last.y) >= 3) {
+      tr.unshift({ x: e.gfx.x, y: e.gfx.y });
+      if (tr.length > 40) tr.pop();
+    }
+  }
+
+  // 直前の個体の「現在地から軌跡をgap分さかのぼった地点」へ移る（軌跡が足りない間はその場で待つ）
+  snakeFollow(e, lead) {
+    let px = lead.gfx.x, py = lead.gfx.y, need = e.type.snakeGap || 17;
+    for (const pt of (lead.trail || [])) {
+      const d = Math.hypot(pt.x - px, pt.y - py);
+      if (d >= need) {
+        const k = need / d;
+        e.gfx.x = px + (pt.x - px) * k; e.gfx.y = py + (pt.y - py) * k;
+        break;
+      }
+      need -= d; px = pt.x; py = pt.y;
+    }
+    this.snakeRecordTrail(e);
+  }
+
   cleanupDeadEnemies() {
-    let bossPos = null;
+    let bossPos = null, defeatedGid = null, headDiedGid = null;
     this.enemies = this.enemies.filter(e => {
       if (e.hp <= 0) {
+        if (e._doomText) { e._doomText.destroy(); e._doomText = null; } // カウントダウンの文字
+        if (e.type && e.type.snakeLen && e.bossGroupId != null) headDiedGid = e.bossGroupId; // スネークの先頭が倒された
+        const keepGfx = !!(e.type && e.type.snakeBody) && (!this.mp || this.isHost); // スネークの胴体：見た目だけ残す（灰色）
         // 分裂ボス（カルテット等）は本体が分裂した時点では「ボス撃破」扱いにしない
         // （_skipBossReward）。bossGroupId を持つボスは、そのグループ全員を倒し
         // きって残り0になった瞬間だけ「ボス撃破」とする。単体ボスは元々1体扱いなので
@@ -5332,15 +6518,17 @@ class GameScene extends Phaser.Scene {
             this.bossGroupCounts = this.bossGroupCounts || {};
             const remain = (this.bossGroupCounts[e.bossGroupId] != null ? this.bossGroupCounts[e.bossGroupId] : 1) - 1;
             this.bossGroupCounts[e.bossGroupId] = remain;
-            if (remain <= 0) bossPos = { x: e.gfx.x, y: e.gfx.y };
+            if (remain <= 0) { bossPos = { x: e.gfx.x, y: e.gfx.y }; defeatedGid = e.bossGroupId; }
           } else {
             bossPos = { x: e.gfx.x, y: e.gfx.y };
           }
         }
         if (!this.mp && !(e.type && e.type.isBoss) && !e._banished) this.runStats.kills++; // リザルト用：倒した雑魚敵（魔法陣で消えた幽霊は数えない）
-        if (this.frontline && this.fl && !e._banished) this.onFrontlineKill(e); // 最北戦線：宝箱・包帯のドロップ
-        else if (!this.frontline && !this.bossRush && !e._banished) this.onDungeonKillDrop(e); // 通常ダンジョン：低確率のキルドロップ
+        const noDrop = e._banished || (e.type && e.type.snakeBody); // スネークの胴体は復活するのでドロップなし
+        if (this.frontline && this.fl && !noDrop) this.onFrontlineKill(e); // 最北戦線：宝箱・包帯のドロップ
+        else if (!this.frontline && !this.bossRush && !noDrop) this.onDungeonKillDrop(e); // 通常ダンジョン：低確率のキルドロップ
         e._removed = true;
+        if (e.whirl) this.finishSnakeWhirl(e, this.snakeMembers(e), true); // スネークが振り回しの最中に倒された：輪と胴体の色を戻す
         this.tweens.killTweensOf(e.gfx); // 増殖演出tweenが動いている最中に倒された場合の保険
         // シマハルが攻撃の途中（星の点滅やビームの警告線・発射中）で倒された場合、
         // 出しっぱなしの星やビームの見た目が残らないよう片付ける
@@ -5349,13 +6537,16 @@ class GameScene extends Phaser.Scene {
         if (e.crossBeamPoints) this.destroySimaharCrossBeamPoints(e);
         if (e.chaseStar) this.destroySimaharChaseStar(e);
         this.cleanupSimaharGuestFx(e); // ゲスト側で見た目を再現していた場合の後片付け（ホスト側では常に空振りする）
-        e.gfx.destroy(); e.hpBar.destroy();
+        if (keepGfx) this.makeSnakeCorpse(e); else e.gfx.destroy();
+        e.hpBar.destroy();
         if (e.label) e.label.destroy();
         delete this.enemyById[e.id];
         return false;
       }
       return true;
     });
+    if (defeatedGid != null) this.lingerSnakeCorpses(defeatedGid); // ボスを倒しきったら、残った灰色の死骸は少しの間だけ残してから消す
+    if (headDiedGid != null && (!this.mp || this.isHost)) this.startSnakeDoom(headDiedGid); // 先頭が倒された：残りの胴体にカウントダウン
     this.updateHud();
     // 敵の死亡判定の権威はホスト（ソロ時は自分自身）にあるため、ここでの検知のみを採用する。
     // ゲスト側の楽観的な即時削除で誤検知しても、復活シグナルは送らない。
@@ -5808,8 +6999,8 @@ class GameScene extends Phaser.Scene {
       if (Phaser.Math.Distance.Between(this.player.x, this.player.y, sp.x, sp.y) < r) { hit = true; break; }
     }
     if (!hit) return;
-    this.recordDamageTaken(e.damage);
-    this.playerHp -= e.damage;
+    const dmgTaken = this.accDmgTaken(e.damage); this.recordDamageTaken(dmgTaken); // 装飾品（盾）の軽減後のダメージ
+    this.playerHp -= dmgTaken;
     this.playerInvuln = 0.6;
     this.interruptBandage();
     this.interruptChargeBomb(true); // 被弾：呼び寄せゴーストも一旦全部消す
@@ -6043,8 +7234,8 @@ class GameScene extends Phaser.Scene {
     if (!this.isGhost) {
       const d = Phaser.Math.Distance.Between(cx, cy, this.player.x, this.player.y);
       if (d < r + this.player.radius && this.playerInvuln <= 0) {
-        this.recordDamageTaken(damage);
-        this.playerHp -= damage;
+        const dmgTaken = this.accDmgTaken(damage); this.recordDamageTaken(dmgTaken); // 装飾品（盾）の軽減後のダメージ
+        this.playerHp -= dmgTaken;
         this.playerInvuln = 0.5;
         this.interruptBandage(); // 被弾した時点で包帯の持続回復を打ち切る
         this.interruptChargeBomb(true); // 被弾：呼び寄せゴーストも一旦全部消す
@@ -6589,8 +7780,8 @@ class GameScene extends Phaser.Scene {
     if (this.isGhost || this.playerInvuln > 0) return false;
     const d = this.pointSegmentDistance(this.player.x, this.player.y, x1, y1, x2, y2);
     if (d >= halfWidth + this.player.radius) return false;
-    this.recordDamageTaken(damage);
-    this.playerHp -= damage;
+    const dmgTaken = this.accDmgTaken(damage); this.recordDamageTaken(dmgTaken); // 装飾品（盾）の軽減後のダメージ
+    this.playerHp -= dmgTaken;
     this.playerInvuln = invulnDuration != null ? invulnDuration : 0.3;
     this.interruptBandage();
     this.interruptChargeBomb(true);
@@ -7815,8 +9006,8 @@ class GameScene extends Phaser.Scene {
         // ダメージを与えて…を繰り返す「原因不明の連続ダメージ／HPが激しく上下する」
         // バグの元になっていた。
         if (this.playerInvuln <= 0) {
-          this.recordDamageTaken(p.damage);
-          this.playerHp -= p.damage;
+          const dmgTaken = this.accDmgTaken(p.damage); this.recordDamageTaken(dmgTaken); // 装飾品（盾）の軽減後のダメージ
+          this.playerHp -= dmgTaken;
           this.playerInvuln = 0.5;
           this.interruptBandage(); // 被弾した時点で包帯の持続回復を打ち切る
           this.interruptChargeBomb(true); // 被弾：呼び寄せゴーストも一旦全部消す
@@ -7994,6 +9185,18 @@ class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (t.snakeLen && !e._snakeSpawned) this.spawnSnakeBody(e); // スネーク先頭：最初の1回だけ後続を出す
+    else if (t.snakeLen && e.hp > 0) this.reviveSnakeBody(e, dt); // 先頭が生きている限り、胴体が一定間隔で生き返る
+    if (t.snake) {
+      const lead = this.snakeLeader(e);
+      if (lead) { // 後続：位置は先頭がまとめて動かす（snakeUpdateChain）。ここでは表示まわりだけ更新する
+        e.kbX = 0; e.kbY = 0; e.tpPending = false;
+        e.hpBar.x = e.gfx.x; e.hpBar.y = e.gfx.y - t.radius - 8;
+        e.hpBar.width = (e.hp / e.maxHp) * t.radius * 2;
+        if (e.label) { e.label.x = e.gfx.x; e.label.y = e.gfx.y - t.radius - 22; }
+        return;
+      }
+    }
     e.timer -= dt;
     if (e.chargeLock > 0) e.chargeLock -= dt; // 次の連続突進を始められるまでの残り時間
     this.updateChargeEnrage(e);
@@ -8130,6 +9333,93 @@ class GameScene extends Phaser.Scene {
           this.hasLineOfSight(e.gfx.x, e.gfx.y, target.x, target.y)) {
         e.fireTimer = t.fireCooldown * ((e._lastOne && t.lastStand) ? t.lastStand.fireCooldownMult : 1);
         this.enemyShoot(e, playerAngle);
+      }
+    } else if (t.behavior === 'boss_snake') {
+      // 先頭（前に誰もいない個体）：プレイヤーへ向かいつつ左右にうねる。近づいたらうねりを弱めて体当たりする。
+      // 一定間隔で「とぐろ」：プレイヤーの周りを高速で1周する（1周したら終わり）。
+      const C = SNAKE_COIL;
+      const endCoil = () => { e.coil = null; e.state = 'idle'; e.coilCd = C.coilCooldown; e.whirlCd = Math.max(e.whirlCd || 0, 2); };
+      const Wh = SNAKE_WHIRL;
+      if (e.coilCd == null) e.coilCd = C.coilFirst;
+      if (e.whirlCd == null) e.whirlCd = Wh.whirlFirst;
+      // 強攻撃：先頭のHPが3割以下になったら、なった直後に1回目、以後は攻撃の開始から interval 秒ごと。
+      // とぐろ・通常の振り回しより先に判定する（どちらかの最中なら、終わるのを待つ）。
+      const RG = SNAKE_RAGE;
+      if (e.rageCd == null) e.rageCd = 3; // 後続が先頭に昇格した直後は、すぐには出さない
+      if (e.rageCd > 0) e.rageCd -= dt;
+      if (!e.coil && !e.whirl && target && this.isSnakeRage(e) && !(e.rageCd > 0) && playerDist < RG.trigger) {
+        this.startSnakeWhirl(e, true);
+        e.rageCd = RG.interval;
+      }
+      if (!e.coil && !e.whirl) {
+        e.coilCd -= dt;
+        if (e.coilCd <= 0 && target && playerDist < C.coilTrigger) {
+          const n = this.enemies.filter(o => o.hp > 0 && o.type.snake && o.bossGroupId === e.bossGroupId).length
+            + (this.snakeCorpses || []).filter(c => c.bossGroupId === e.bossGroupId).length; // 灰色の死骸も列の一部
+          e.coil = {
+            cx: target.x, cy: target.y, t: 0, thSum: 0,
+            R: Math.max(C.coilMinRadius, n * t.snakeGap / (Math.PI * 2)), // 全員の長さがちょうど円周になる半径
+            th: Math.atan2(e.gfx.y - target.y, e.gfx.x - target.x),
+          };
+          e.state = 'coil';
+          this.spawnBurst(e.gfx.x, e.gfx.y, 0xff8a3a, 10);
+        }
+      }
+      // 振り回し：とぐろ・振り回しのどちらも動いていない時だけ数え、距離が合えば始める
+      if (!e.coil && !e.whirl) {
+        e.whirlCd -= dt;
+        if (e.whirlCd <= 0 && target && playerDist < Wh.whirlTrigger) this.startSnakeWhirl(e);
+      }
+      if (e.coil && !target) endCoil();
+      if (e.coil) {
+        const c = e.coil;
+        c.t += dt;
+        const cdx = target.x - c.cx, cdy = target.y - c.cy, cd = Math.hypot(cdx, cdy);
+        if (cd > 1) { const m = Math.min(cd, C.coilFollow * dt); c.cx += cdx / cd * m; c.cy += cdy / cd * m; }
+        const aimA = c.th + 0.3;
+        const ax = c.cx + Math.cos(aimA) * c.R, ay = c.cy + Math.sin(aimA) * c.R;
+        if (Math.hypot(ax - e.gfx.x, ay - e.gfx.y) < 60) { // 円の上に乗ったら周回を進める
+          const dth = (C.coilSpeed / c.R) * dt;
+          c.th += dth; c.thSum += dth;
+        }
+        moveX = ax - e.gfx.x; moveY = ay - e.gfx.y; spd = C.coilSpeed;
+        if (c.thSum >= Math.PI * 2 * C.coilLaps || c.t >= C.coilMaxTime) endCoil(); // 1周したら終わり
+      } else if (e.whirl) {
+        // 振り回し中：丸まっている間と減速中は動かず、回している間だけプレイヤーへゆっくり寄っていく
+        // （胴体の位置は、移動が終わった後の snakeWhirlUpdate がまとめて決める）
+        // ボスラッシュだけは頭を軸としてその場に固定する（寄っていかず、殴られても押されない）
+        if (this.bossRush) { e.kbX = 0; e.kbY = 0; }
+        else if (e.whirl.phase === 'spin' && target) { moveX = Math.cos(playerAngle); moveY = Math.sin(playerAngle); spd = Wh.headSpeed; }
+      } else
+      if (playerDist < (t.aggroRange || 700)) {
+        if (target && target.radius != null) {
+          // 最北戦線で発信機を狙っている時：周回せず、うねりながらまっすぐ向かって発信機に体当たりする
+          const sway = Math.sin(this.time.now / 1000 * t.swayFreq) * t.swayAmp * Math.min(1, playerDist / 200);
+          moveX = Math.cos(playerAngle + sway); moveY = Math.sin(playerAngle + sway);
+        } else {
+        // 頭はプレイヤーの周りを回る：円周（半径R）に沿って進みつつ、近すぎれば離れ、遠ければ寄る。胴体はその軌跡をなぞって取り囲む
+        const O = SNAKE_ORBIT;
+        e.orbitT = (e.orbitT || 0) + dt;
+        if (e.orbitDir == null) { e.orbitDir = Math.random() < 0.5 ? 1 : -1; e.orbitFlip = O.flipMin + Math.random() * (O.flipMax - O.flipMin); }
+        e.orbitFlip -= dt;
+        // 壁に当たって進めない時間：一定以上続いたら逆回りにして抜け出す
+        if (e._ox != null && Math.hypot(e.gfx.x - e._ox, e.gfx.y - e._oy) < spd * dt * 0.25) e.orbitStuck = (e.orbitStuck || 0) + dt; else e.orbitStuck = 0;
+        e._ox = e.gfx.x; e._oy = e.gfx.y;
+        if (e.orbitFlip <= 0 || e.orbitStuck > 0.35) {
+          e.orbitDir = -e.orbitDir; e.orbitStuck = 0;
+          e.orbitFlip = O.flipMin + Math.random() * (O.flipMax - O.flipMin);
+        }
+        const R = (O.near + O.far) / 2 + (O.far - O.near) / 2 * Math.sin(e.orbitT * Math.PI * 2 / O.period)
+          + Math.sin(this.time.now / 1000 * t.swayFreq) * O.wobble;
+        const phi = playerAngle + Math.PI; // プレイヤーから見た頭の向き
+        const radial = Math.max(-1.5, Math.min(1.5, (playerDist - R) / 60)); // +なら寄る、−なら離れる
+        const tw = Math.max(0.35, 1 - Math.max(0, playerDist - R - 150) / 250); // 遠い時は回るより近づくのを優先
+        moveX = -Math.sin(phi) * e.orbitDir * tw + Math.cos(playerAngle) * radial;
+        moveY =  Math.cos(phi) * e.orbitDir * tw + Math.sin(playerAngle) * radial;
+        }
+      } else {
+        if (e.timer <= 0) { e.dirX = Math.random() * 2 - 1; e.dirY = Math.random() * 2 - 1; e.timer = 1 + Math.random() * 1.5; }
+        moveX = e.dirX * 0.5; moveY = e.dirY * 0.5;
       }
     } else if (t.behavior === 'boss') {
       // 常に追いかけつつ、射程内かつ壁越しでなければ近接と並行して飛び道具も撃ってくる強敵
@@ -8465,6 +9755,8 @@ class GameScene extends Phaser.Scene {
       }
     }
 
+    // 王冠：魔法陣（プレイヤーの足元）に触れている敵は速度が半分になる（突進は中断させず、速さだけ落とす）
+    if (this.crownTouches(e)) spd *= 0.5;
     const len = Math.hypot(moveX, moveY) || 1;
     let nx = e.gfx.x + (moveX / len) * spd * dt;
     let ny = e.gfx.y + (moveY / len) * spd * dt;
@@ -8508,6 +9800,15 @@ class GameScene extends Phaser.Scene {
     const hitWallY = !t.canPassWalls && this.circleHitsWall(e.gfx.x, ny, t.radius);
     if (!hitWallX) e.gfx.x = nx;
     if (!hitWallY) e.gfx.y = ny;
+    if (t.snake && e.coil && (hitWallX || hitWallY)) {
+      // とぐろの途中で先頭が壁にぶつかったら、そこで攻撃を終える（輪は解けて、通常の追跡に戻る）
+      e.coil = null; e.state = 'idle'; e.coilCd = SNAKE_COIL.coilCooldown; e.whirlCd = Math.max(e.whirlCd || 0, 2);
+      this.spawnBurst(e.gfx.x, e.gfx.y, 0xffffff, 8);
+    }
+    if (t.snake) {
+      if (e.whirl) this.snakeWhirlUpdate(e, dt); // 振り回し中：胴体は軌跡をなぞらず、頭を軸にした位置へ直接並べる
+      else { this.snakeRecordTrail(e); this.snakeUpdateChain(e); } // 先頭の通った道を記録し、後続（死骸も含む）を全員動かす
+    }
     if (t.behavior === 'charge' && e.state === 'dash' && (hitWallX || hitWallY)) { e.state = 'cooldown'; e.timer = this.chargeCooldownTime(e); }
     // シマハル：クロスビーム攻撃の突進が壁にぶつかって止まった場合も、そこの壁を壊してクロスビームへ移行する
     // （時間切れで止まる場合はdashCharge状態の中のe.timer<=0のほうから同じ処理を呼ぶ）。
@@ -8533,6 +9834,7 @@ class GameScene extends Phaser.Scene {
     const wantWhite = e.state === 'telegraph' || (e.state === 'dashFlash' && e.dashFlashPhase === 'on');
     let fill = wantWhite ? 0xffffff : t.color;
     if (!wantWhite && t.comboRest) fill = this.heatColor(e);
+    if (t.snake && (e.state === 'coil' || e.state === 'whirl')) fill = (e.whirl && e.whirl.rage) ? 0xff2a2a : 0xff8a3a; // とぐろ・振り回し中の先頭
     if (e._fillColor !== fill) {
       e._fillColor = fill;
       e.gfx.setFillStyle(fill);
@@ -8540,36 +9842,7 @@ class GameScene extends Phaser.Scene {
     if (e.label) { e.label.x = e.gfx.x; e.label.y = e.gfx.y - t.radius - 22; }
   }
 
-  // [調査用] 重いフレーム(50ms超)を左下に表示する。SLOW_FRAME_LOG を false にすれば無効。
-  // 「>50ms」は update() の dt 上限(50ms)を超えたフレーム＝その分ゲームが遅れて見えるフレーム。
-  slowLogMark(label) {
-    if (!SLOW_FRAME_LOG) return;
-    this._slowLogT0 = performance.now();
-    this._slowLogPush('--- ' + label + ' ---');
-  }
-  _slowLogPush(line) {
-    const L = this._slowLogLines || (this._slowLogLines = []);
-    L.push(line);
-    while (L.length > 10) L.shift();
-    let el = this._slowLogEl;
-    if (!el) {
-      el = this._slowLogEl = document.createElement('div');
-      el.style.cssText = 'position:fixed; left:1vh; bottom:1vh; z-index:200; max-width:50vw; background:rgba(0,0,0,0.65); color:#ffd36b; font-family:monospace; font-size:1.5vh; line-height:1.35; padding:0.8vh 1vh; border-radius:0.8vh; white-space:pre; pointer-events:none;';
-      document.body.appendChild(el);
-    }
-    el.textContent = 'SLOW FRAMES (>50ms)\n' + L.join('\n');
-  }
-  slowLogTick(delta) {
-    if (!SLOW_FRAME_LOG || !(delta > 50)) return;
-    const t0 = this._slowLogT0;
-    const rel = t0 ? '+' + ((performance.now() - t0) / 1000).toFixed(1) + 's ' : '';
-    const ph = this.pv ? ' ' + this.pv.phase : '';
-    this._slowLogPush(rel + Math.round(delta) + 'ms' + ph);
-    console.log('[slow frame]', rel, Math.round(delta) + 'ms', ph);
-  }
-
   update(time, delta) {
-    this.slowLogTick(delta);
     // リザルト用：経過時間は、フロア移動の暗転中も含めて数える（リザルト表示中は止める）
     if (!this._resultOpen) this.runStats.time += delta / 1000;
     if (this.transitioning) return;
@@ -8654,7 +9927,7 @@ class GameScene extends Phaser.Scene {
     this.updateProjectiles(dt);
     this.updateRemoteProjectiles(dt);
     this.updateEnemyProjectiles(dt);
-    if (this.bossRush || this.frontline) this.updateBossBar();
+    if (this.bossRush || this.frontline || this.bossFloor) this.updateBossBar();
     this.updateBombs(dt);
     this.updateTraps(dt);
     this.drawTrapVulnFx();
@@ -8678,7 +9951,8 @@ class GameScene extends Phaser.Scene {
     const r = this.player.radius;
     // マジックボムを溜めている間は、溜めた時間に応じて移動速度がどんどん落ちていく
     // （半減期で最終的にchargeSlowMin倍まで近づく。0にはならず、最低限は動ける）。
-    let moveSpeed = this.speed;
+    let moveSpeed = this.speed * (this.accKey === 'snow' ? 1.1 : 1); // 雪の結晶：移動速度+10%
+    if (this.pvpCrownSlowed()) moveSpeed *= 0.5; // PvP：相手の王冠の魔法陣に触れている
     if (this.weapon && this.weapon.chargeBomb && this.charge && this.charge.active) {
       const w = this.weapon;
       const halfLife = w.chargeSlowHalfLife || 2.5;
@@ -8724,6 +9998,10 @@ class GameScene extends Phaser.Scene {
     this.facing.x = this.player.x + Math.cos(faceAngle) * 20;
     this.facing.y = this.player.y + Math.sin(faceAngle) * 20;
     this.facing.rotation = faceAngle;
+    if (this.accText) { this.accText.x = this.player.x; this.accText.y = this.player.y - 13; this.accText.setAlpha(this.player.alpha); this.accText.setVisible(this.player.visible); }
+    if (this.accFx) { this.skullAuraT = Math.max(0, (this.skullAuraT || 0) - dt); this.accFx.rage = (this.accKey === 'skull' && this.skullAuraT > 0) ? Math.min(1, this.skullAuraT / 0.5) : 0; this.accFx.wisps = this.accKey === 'skull' ? this.skullRevives : undefined; accFxUpdate(this.accFx, this.accKey, this.player.x, this.player.y, dt, this.player.visible ? this.player.alpha : 0); }
+    this.updateAccEffects(dt); // 装飾品の特殊効果（炎の燃焼・ブラックホールのビーム）
+    this.updateSnakeDoom(dt); // スネーク：先頭が倒された後のカウントダウン（ホスト／ソロのみ動く）
 
     // 敵の更新 & プレイヤーとの接触判定
     // AIの間引き半径は、実際に映っている画面の大きさ（対角線の半分）＋余裕分、で決める。
@@ -8859,6 +10137,7 @@ class GameScene extends Phaser.Scene {
         }
       }
 
+      if (e.type.snake) this.updateSnakeDoomText(e); // スネーク：先頭が倒された後のカウントダウンの文字
       e.hitCooldown = Math.max(0, e.hitCooldown - dt);
       if (e.trapStunTimer > 0) {
         e.trapStunTimer -= dt;
@@ -8889,8 +10168,8 @@ class GameScene extends Phaser.Scene {
       }
       const dist2 = Phaser.Math.Distance.Between(this.player.x, this.player.y, e.gfx.x, e.gfx.y);
       if (!this.isGhost && !this.isDowned && dist2 < r + e.type.radius && e.hitCooldown <= 0 && this.playerInvuln <= 0 && !this.isEnemyFrozen(e)) {
-        this.recordDamageTaken(e.damage);
-        this.playerHp -= e.damage;
+        const dmgTaken = this.accDmgTaken(Math.round(e.damage * (e._dmgMult || 1))); this.recordDamageTaken(dmgTaken); // 装飾品（盾）の軽減後のダメージ
+        this.playerHp -= dmgTaken;
         this.playerInvuln = 0.6;
         this.interruptBandage(); // 被弾した時点で包帯の持続回復を打ち切る
         this.interruptChargeBomb(true); // 被弾：呼び寄せゴーストも一旦全部消す
@@ -8996,6 +10275,8 @@ class GameScene extends Phaser.Scene {
         if (potion.taken) return false;
         const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, potion.x, potion.y);
         if (d < 24) {
+          // HPが満タンのときは拾えない（回復アイテムはその場に残り、減ってから取れる。全モード共通）
+          if (this.playerHp >= this.playerMaxHp) return true;
           if (this.mp && this.net) {
             potion.taken = true;
             this.net.claimLoot(this.floor, 'potions', potion.idx).then(won => {
@@ -9016,8 +10297,15 @@ class GameScene extends Phaser.Scene {
     const ep = this.dungeon.exitPos;
     if (ep) {
       const pulse = 4 + Math.sin(time / 150) * 3;
-      this.exitGlow.fillStyle(0xffffff, 0.6);
-      this.exitGlow.fillCircle(ep.x * TILE + TILE / 2, ep.y * TILE + TILE / 2, TILE * 0.4 + pulse);
+      const cx = ep.x * TILE + TILE / 2, cy = ep.y * TILE + TILE / 2;
+      // 出口は金色の光と、脈打つ金色の輪で目立たせる（白い光はゴーストと紛らわしかった）
+      const bossDoor = this.nextIsBoss; // 次がボス階なら光も赤
+      this.exitGlow.fillStyle(bossDoor ? 0xff3b3b : 0xffd54c, 0.55);
+      this.exitGlow.fillCircle(cx, cy, TILE * 0.4 + pulse);
+      this.exitGlow.fillStyle(bossDoor ? 0xffb0b0 : 0xfff0a8, 0.5);
+      this.exitGlow.fillCircle(cx, cy, TILE * 0.22);
+      this.exitGlow.lineStyle(2, bossDoor ? 0xff6b6b : 0xffe27a, 0.85);
+      this.exitGlow.strokeCircle(cx, cy, TILE * 0.62 + pulse);
     }
 
     // 出口判定（協力プレイでは全員が出口に揃うまで次の階層へは進まない）。ゴーストは対象外。
@@ -9088,8 +10376,7 @@ class GameScene extends Phaser.Scene {
       //   lastAckAtベースの判定はまさにこの後者を拾うためのもの）を、発生時刻付きで
       //   ログに残して切り分ける必要がある。
       const gapMsNow = Date.now() - this.net.lastAckAt;
-      const recvGapNow = this.net.recvGapMs(); // ホスト→自分（下り）が止まっている時間
-      const netStale = !this.net.isConnected || (gapMsNow > NET_STALE_WARNING_MS) || (recvGapNow > NET_STALE_WARNING_MS);
+      const netStale = !this.net.isConnected || (gapMsNow > NET_STALE_WARNING_MS);
       if (netStale !== this._netWarnShown) {
         this._netWarnShown = netStale;
         document.getElementById('netWarning').style.display = netStale ? 'block' : 'none';
@@ -9098,7 +10385,7 @@ class GameScene extends Phaser.Scene {
       // [調査用] isConnectedはtrueのままgapだけが長く伸び続けている（＝ソケットは繋がった
       // ふりをしたまま書き込みが詰まっている）ケースを想定した、能動的な繋ぎ直し。
       // isConnectedが既にfalseの場合はFirebase自身が再接続処理中なのでここでは何もしない。
-      if (this.net.isConnected && (gapMsNow > NET_FORCE_RECONNECT_MS || recvGapNow > NET_RECV_RECONNECT_MS)) {
+      if (this.net.isConnected && gapMsNow > NET_FORCE_RECONNECT_MS) {
         const didReconnect = this.net.forceReconnect();
         if (didReconnect && NET_DEBUG_LOG) {
           const logEl2 = document.getElementById('netDebugLog');
@@ -9163,6 +10450,49 @@ class GameScene extends Phaser.Scene {
     this.goNextFloor();
   }
 
+  // ソロの通常ダンジョンだけ最高到達階層を記録する（協力・ボスラッシュ・最北戦線・PvP・デベロッパーモードは対象外）
+  recordSoloBest() {
+    if (this.mp || this.bossRush || this.frontline || this.pvp || this.isDevMode) return;
+    const added = recordSoloBestFloor(this.floor);
+    if (added.length) this.announceAccessories(added);
+  }
+
+  // 装飾品を入手した時の知らせ（階層移動の暗転が明けたころに出す）
+  announceAccessories(list) {
+    const text = '🎁 装飾品を獲得！ ' + list.map(a => a.icon + a.name).join('、');
+    this.time.delayedCall(700, () => this.showBanner(text, 3200));
+  }
+
+  // リザルト表示時に、この挑戦の成績を累計に足す（ソロのダンジョン／最北戦線のみ。ボスラッシュ・協力・PvP・デベロッパーは対象外）。
+  // 今回新しく入手した装飾品の配列を返す。同じ挑戦で二度足さないよう、runStatsの同一性で判定する。
+  commitRunStats() {
+    if (this.mp || this.pvp || this.bossRush || this.isDevMode) return [];
+    if (this._committedStats === this.runStats) return [];
+    this._committedStats = this.runStats;
+    const st = this.runStats, save = loadSave();
+    if (this.frontline) {
+      const sec = Math.floor(this.fl ? this.fl.elapsed : st.time);
+      if (sec > save.frontlineBestSec) save.frontlineBestSec = sec;
+    } else {
+      save.soloTotalKills += st.kills || 0;
+      save.soloTotalBosses += st.bosses || 0;
+      if (this.floor > save.soloBestFloor) save.soloBestFloor = this.floor;
+    }
+    const added = unlockAccessories(save);
+    writeSave(save);
+    return added;
+  }
+
+  // PvPで勝った時（デベロッパーモードは対象外）
+  recordPvpWin() {
+    if (this.isDevMode) return;
+    const save = loadSave();
+    save.pvpWins += 1;
+    const added = unlockAccessories(save);
+    writeSave(save);
+    if (added.length) this.announceAccessories(added);
+  }
+
   goNextFloor() {
     if (this.transitioning || this._advancing) return;
 
@@ -9185,6 +10515,7 @@ class GameScene extends Phaser.Scene {
       // 画面が真っ暗なまま固まらないようにする（エラー自体はコンソールに出す）。
       try {
         this.floor++;
+        this.recordSoloBest();
         this.buildFloor();
       } catch (err) {
         console.error('goNextFloor中（buildFloor）にエラーが発生しました:', err);
@@ -9213,11 +10544,30 @@ class GameScene extends Phaser.Scene {
     });
   }
 
+  // ドクロ：鬼火が残っている限り、力尽きてもHP1で生き返る（生き返るたびに鬼火が1つ消える）。
+  // 生き返れたら true。復活直後は少しの間だけ無敵にして、連続で倒されて鬼火が一気に消えるのを防ぐ。
+  trySkullRevive() {
+    if (this.accKey !== 'skull' || !(this.skullRevives > 0)) return false;
+    if (this.transitioning || this.isDowned || this.isGhost) return false;
+    this.skullRevives--;
+    this.playerHp = 1;
+    this.playerInvuln = 2.5;
+    this.skullAuraT = 2.5; // 無敵時間と同じ長さ、暗黒のオーラを燃え上がらせる
+    this.interruptBandage();
+    this.cameras.main.flash(350, 178, 107, 255);
+    this.showFloatText('💀 HP1で復活！', '#e6ccff');
+    this.showBanner('鬼火が身代わりに… 残り' + this.skullRevives, 1400);
+    this.updateHud();
+    if (this.net && this.mp) this.net.updateOwnState({ hp: this.playerHp, maxHp: this.playerMaxHp });
+    return true;
+  }
+
   onPlayerDeath() {
     if (this.pvp) return; // PvPは pvpDie() で処理
     // 同じフレーム内で複数のダメージ源（爆風＋敵の接触など）から続けて呼ばれても、
     // 二重にフェードアウト／ダウン処理が走らないようにする。
     if (this.transitioning || this.isDowned || this.isGhost) return;
+    if (this.trySkullRevive()) return; // ドクロ：鬼火が残っていればHP1で復活
     if (this.mp) {
       // 協力プレイでは即ゴーストにはせず、まず10秒の「ダウン」状態にする。
       // その間に仲間が5秒間近くにいれば蘇生でき、誰も来なければゴーストになる。
@@ -9234,15 +10584,36 @@ class GameScene extends Phaser.Scene {
     });
   }
 
+  // 25階のボスを倒した：オールクリア。リザルト画面の見出しが GAME CLEAR になり、選択肢はロビーへ戻るだけ。
+  triggerAllClear() {
+    if (this._allClear || this._resultOpen) return;
+    this._allClear = true;
+    this.hideBossUi();
+    this.transitioning = true;
+    if (this.mp) this._mpResultStarted = true;
+    this.showBanner('🎉 ALL CLEAR！', 2500);
+    this.cameras.main.fadeOut(1200, 255, 255, 255);
+    this.cameras.main.once('camerafadeoutcomplete', () => { if (this.mp) this.showMpResult(); else this.showResult(); });
+  }
+
+  // リザルト画面の見出し：オールクリアなら GAME CLEAR（金色）、それ以外は RESULT
+  setResultTitle() {
+    const t = document.getElementById('resultTitle');
+    t.textContent = this._allClear ? 'GAME CLEAR' : 'RESULT';
+    t.style.color = this._allClear ? '#ffd54c' : '';
+  }
+
   // ソロ用リザルト画面。到達階層・かかった時間・倒した敵/ボスの数・取った武器とレベルの一覧を出す。
   // （協力プレイのリザルトは showMpResult）
   showResult() {
     this._resultOpen = true;
+    const newAcc = this.commitRunStats();
     // 協力プレイ用の表示を隠して、ソロ用の表示に戻す
     document.getElementById('mpResultTop').style.display = 'none';
     document.getElementById('mpResultPlayers').style.display = 'none';
     document.getElementById('resultBody').style.display = 'flex';
-    document.getElementById('resultRetry').style.display = '';
+    document.getElementById('resultRetry').style.display = this._allClear ? 'none' : ''; // オールクリア後は「ロビーへ」のみ
+    this.setResultTitle();
     const st = this.runStats;
     const total = Math.floor(this.frontline && this.fl ? this.fl.elapsed : st.time);
     const mm = Math.floor(total / 60), ss = total % 60;
@@ -9265,6 +10636,7 @@ class GameScene extends Phaser.Scene {
       rows.push(['倒した雑魚敵', st.kills + '体']);
       rows.push(['倒したボス', st.bosses + '体']);
     }
+    if (newAcc.length) rows.push(['🎁 新しい装飾品', newAcc.map(a => a.icon + a.name).join(' ')]);
     document.getElementById('resultMode').textContent = this.isDevMode ? 'DEVELOPER' : (this.bossRush ? 'BOSS RUSH' : (this.frontline ? 'NORTHERN FRONT' : 'DUNGEON'));
     document.getElementById('resultStats').innerHTML = rows.map(r =>
       '<div class="resultRow"><span>' + escapeHtml(r[0]) + '</span><b>' + escapeHtml(r[1]) + '</b></div>').join('');
@@ -9470,6 +10842,7 @@ class GameScene extends Phaser.Scene {
     const box = document.getElementById('mpResultPlayers');
     box.innerHTML = cards;
 
+    this.setResultTitle();
     document.getElementById('resultBody').style.display = 'none';
     top.style.display = 'flex';
     box.style.display = 'flex';
@@ -9736,6 +11109,11 @@ class GameScene extends Phaser.Scene {
       return;
     }
     if (this.bossRush) {
+      // 今回の挑戦で倒したボス数を記録して、条件を満たした装飾品（炎・ブラックホール）を入手済みにする（デベロッパーモードは対象外）
+      if (!this.isDevMode) {
+        const added = recordBossRushBest(this.runStats.bosses);
+        if (added.length) this.announceAccessories(added);
+      }
       // ボスラッシュだけは、ボスを倒すとHPが全回復する（ソロなのでここで直接処理する）
       this.playerHp = this.playerMaxHp;
       this.interruptBandage();
@@ -9743,15 +11121,24 @@ class GameScene extends Phaser.Scene {
       this.openBossRushExit(pos);  // 出口と報酬の宝箱
       return;
     }
+    if (this.bossFloor && !this.mp) { // ダンジョンのボス階：全てのボスを倒すと出口が開く。25階ならオールクリア（協力プレイは下の配信→onReviveで全員に処理）
+      if (this.bossFloorAlive()) return;
+      if (this.floor >= 25) this.triggerAllClear(); else this.openBossRushExit(pos, true);
+      return;
+    }
     if (this.mp && this.net) {
       this.showBanner('👑 ボスを撃破！ 力尽きた仲間が復活します', 1800);
-      this.net.broadcastRevive(pos);
+      this.net.broadcastRevive(pos, this.bossFloor && !this.bossFloorAlive()); // ボス階：最後の1体を倒した時だけ clear=true（出口を開く／オールクリア）
     }
   }
 
   // ボス撃破のブロードキャストを受けた時の処理。
   // 復活するのはゴーストだけ（ボスの場所付近に復活）。生きている人・ダウン中の人のHPは回復しない。
   onRevive(pos) {
+    if (this.bossFloor && pos && pos.clear) { // ボス階の全てのボスを倒した
+      if (this.floor >= 25) { this.triggerAllClear(); return; } // 25階：全員オールクリア
+      if (!this._rushCleared) this.openBossRushExit(pos, true); // 全員の画面で出口を開く
+    }
     if (this.isGhost) this.reviveGhost(pos);
   }
 }
@@ -9875,7 +11262,6 @@ class Net {
     this._stateSeq = 0; this._playersSeq = 0;
     this.onConnectFail = null;   // WebRTCが繋がらなかった時に呼ばれる（GameSceneが表示を設定する）
     this.onConnStatus = null;    // 通信経路が変わったときに呼ばれる（'P2P' / 'TURN' / null）
-    this.onDiag = null;          // 通信診断の数字を渡す先（GameSceneが表示を設定する）
     this.onRelayUsed = null;     // 接続がTURN（中継サーバー）経由になったときに呼ばれる（GameSceneが表示を設定する）
     this._lastConnFailAt = 0;
 
@@ -9944,6 +11330,10 @@ class Net {
     if (extra) for (const k in extra) { if (extra[k] != null) data[k] = extra[k]; }
     await this.db.ref('rooms/' + roomId).set(data);
     this.roomId = roomId;
+    this._leftRoom = false;
+    // 回線が切れて部屋のデータが消えてしまった時に、書き戻せるよう覚えておく（_restoreRoomOnReconnect）
+    this._roomMeta = { baseSeed, floor, mode: mode || null, fixedWeapon: (extra && extra.fixedWeapon) || null };
+    this._lastFloor = floor;
     return { roomId, baseSeed, floor, mode: mode || null, fixedWeapon: (extra && extra.fixedWeapon) || null };
   }
 
@@ -9954,6 +11344,10 @@ class Net {
     const snap = await this.db.ref('rooms/' + roomId).once('value');
     if (!snap.exists()) throw new Error('ルームが見つかりません');
     const val = snap.val();
+    // 部屋を作る時は必ず baseSeed を書くので、無いのは「作った人の回線が切れて部屋のデータが消え、
+    // プレイヤー情報だけが復活した」壊れた部屋。そのまま入ると、モード（PvP等）が分からず通常ダンジョンとして
+    // 入ってしまい、人によって違うモードで始まるので、入らずに知らせる。
+    if (val.baseSeed == null) throw new Error('ルームの情報が壊れています。作った人にルームを作り直してもらってください');
     const floor = val.floor || 1;
     // 2階層以降に進んだルームにも参加できる。ただし途中参加の人は「ゴースト」として入り、
     // 見て回るだけ（攻撃/被弾/アイテム取得なし）。ボス撃破の余波で復活すれば通常のプレイヤーになる。
@@ -9961,6 +11355,9 @@ class Net {
     const mode = val.mode || null;
     const joinAsGhost = floor >= 2 && mode !== 'frontline' && !allowAnyFloor;
     this.roomId = roomId;
+    this._leftRoom = false;
+    this._roomMeta = { baseSeed: val.baseSeed, floor, mode, fixedWeapon: val.fixedWeapon || null };
+    this._lastFloor = floor;
     return { roomId, baseSeed: val.baseSeed, floor, mode, joinAsGhost, fixedWeapon: val.fixedWeapon || null };
   }
 
@@ -9971,9 +11368,20 @@ class Net {
     this.db.ref('rooms/' + this.roomId + '/fixedWeapon').set(key).catch(() => {});
   }
 
+  // 付けている装飾品（エフェクト）が変わった時に、他のプレイヤーの画面にも反映する（このゲーム中だけの付け替え）。
+  // 回線が切れて自分のノードが作り直されても、変えた後の装飾品が書き戻されるよう、身元情報にも持っておく。
+  setAccessory(key) {
+    if (this._identity) { if (key) this._identity.acc = key; else delete this._identity.acc; }
+    if (!this.roomId || this._leftRoom) return;
+    this.playerRef().update({ acc: key || null }).catch(() => {});
+  }
+
   // 死亡離脱時に明示的にルームから抜ける（onDisconnectを待たず即座に他プレイヤーへ反映するため）
-  leaveRoom() {
+  // soft=true：ページを離れる瞬間（pagehide）の退出。アプリを切り替えただけで、あとで戻ってくることがあるので、
+  // その場合は戻った時に部屋へ復帰できるよう、退出済みの印は付けない（本当にタブを閉じた場合は、もう動かないので影響なし）。
+  leaveRoom(soft) {
     if (!this.roomId) return Promise.resolve();
+    if (!soft) this._leftRoom = true; // 退出後の再接続で、自分のノードや部屋を作り直さないように
     const removed = this.playerRef().remove().catch(() => {});
     this._closeAllPeers();
     return removed; // 呼び出し側が削除の完了を待てるようにする（退出ボタンで使用）
@@ -9981,8 +11389,9 @@ class Net {
 
   // 部屋を丸ごと削除する（プレイヤー一覧だけでなく、フロア進行・ドロップ等
   // その部屋の全データを含む）。最後の1人が抜けるタイミングで呼ぶことを想定。
-  deleteRoom() {
+  deleteRoom(soft) {
     if (!this.roomId) return;
+    if (!soft) this._leftRoom = true; // 削除後の再接続で、部屋を作り直さないように
     this._closeAllPeers();
     return this.db.ref('rooms/' + this.roomId).remove().catch(() => {});
   }
@@ -10017,7 +11426,7 @@ class Net {
     // onDisconnectも再登録し直す（Firebase公式のpresenceパターンに準拠）。
     // なお、この players ノードは「身元情報＋参加時刻(ホスト選出用)」だけを保持し、
     // 毎フレームの位置・HP等はもうここには書かない（WebRTC経由に移行したため）。
-    this._identity = { name, color };
+    this._identity = Object.assign({ name, color }, (extra && extra.acc) ? { acc: extra.acc } : {}); // 再接続時も装飾品を維持する
     this.lastAckAt = Date.now(); // 部屋に参加し直すタイミングでリセットしておく（前の部屋の古い値を引きずらないように）
     const ref = this.playerRef();
     await ref.set(Object.assign({
@@ -10027,6 +11436,20 @@ class Net {
       updatedAt: firebase.database.ServerValue.TIMESTAMP,
     }, this._identity, extra || {}));
     this._armOnDisconnect();
+    // 自分の参加時刻（ホスト選出に使う）を読み戻して覚えておく。回線が切れて自分のノードが作り直された時に、
+    // この値も書き戻さないと「参加時刻なし＝一番後回し」になって、ホストの順番が入れ替わってしまう。
+    try {
+      const js = await ref.child('joinedAt').once('value');
+      if (typeof js.val() === 'number') this._joinedAt = js.val();
+    } catch (e) {}
+
+    // アプリ切り替えから戻った時（接続自体は切れていなくても、pagehideで退出済みになっていることがある）にも復帰する
+    if (!this._resumeHooked) {
+      this._resumeHooked = true;
+      const onResume = () => { if (!document.hidden && this.isConnected) this.restoreRoom(); };
+      document.addEventListener('visibilitychange', onResume);
+      window.addEventListener('pageshow', onResume);
+    }
 
     if (!this._connectedListenerSet) {
       this._connectedListenerSet = true;
@@ -10035,152 +11458,56 @@ class Net {
       // 表示/非表示を切り替えるのに使う（切断中はここがfalseになる）。
       this.db.ref('.info/connected').on('value', snap => {
         this.isConnected = snap.val() === true;
-        if (snap.val() === true && this.roomId && this._identity && this.uid) {
-          this.playerRef().update(Object.assign({}, this._identity, { updatedAt: firebase.database.ServerValue.TIMESTAMP }));
-          this._armOnDisconnect();
+        if (snap.val() === true && this.roomId && this._identity && this.uid && !this._leftRoom) {
+          this._restoreRoomOnReconnect();
         }
       });
     }
   }
 
+  // 接続が回復するたびに、自分の身元情報を書き直す。ついでに、回線が切れている間に部屋のデータが消えていたら
+  // （一人きりの時にアプリを切り替えた等）、基本情報（baseSeed・モード・階層・武器固定）と自分の参加時刻を書き戻す。
+  // 書き戻さないと、後から入る人が「モードのない部屋」に通常ダンジョンとして入ってしまい、
+  // 自分は参加時刻が無くなってホストの順番も入れ替わる。
+  // 自分が退出した後（_leftRoom）は、部屋を作り直さない。
+  restoreRoom() {
+    if (this.roomId && this._identity && this.uid && !this._leftRoom) this._restoreRoomOnReconnect();
+  }
+  async _restoreRoomOnReconnect() {
+    const roomId = this.roomId, uid = this.uid;
+    const roomRef = this.db.ref('rooms/' + roomId);
+    let seedSnap = null, joinSnap = null;
+    try {
+      [seedSnap, joinSnap] = await Promise.all([
+        roomRef.child('baseSeed').once('value'),
+        roomRef.child('players/' + uid + '/joinedAt').once('value'),
+      ]);
+    } catch (e) { /* 読めなければ、従来どおり身元情報の書き直しだけ行う */ }
+    if (roomId !== this.roomId || this._leftRoom) return; // 読んでいる間に退出した／別の部屋に移った
+    const T = firebase.database.ServerValue.TIMESTAMP;
+    const upd = {};
+    for (const k in this._identity) upd['players/' + uid + '/' + k] = this._identity[k];
+    upd['players/' + uid + '/updatedAt'] = T;
+    // 部屋の基本情報が消えていたら書き戻す（baseSeedが無い＝部屋が作り直された印）
+    const meta = this._roomMeta;
+    if (seedSnap && !seedSnap.exists() && meta && meta.baseSeed != null) {
+      upd.baseSeed = meta.baseSeed;
+      upd.floor = Math.max(1, this._lastFloor || meta.floor || 1);
+      if (meta.mode) upd.mode = meta.mode;
+      if (meta.fixedWeapon) upd.fixedWeapon = meta.fixedWeapon;
+      upd.createdAt = T;
+    }
+    // 自分の参加時刻が無くなっていたら書き戻す（ホストの順番を元に戻す）
+    if (joinSnap && typeof joinSnap.val() !== 'number' && typeof this._joinedAt === 'number') {
+      upd['players/' + uid + '/joinedAt'] = this._joinedAt;
+    }
+    try { await roomRef.update(upd); } catch (e) {}
+    if (roomId === this.roomId && !this._leftRoom) this._armOnDisconnect();
+  }
+
   _armOnDisconnect() {
     if (!this.roomId) return;
     this.playerRef().onDisconnect().remove();
-  }
-
-  // ===== 通信診断 =====
-  // 1秒ごとに、受信量・受信の空き時間・往復遅延(RTT)・経路の種類などを集めて onDiag に渡す（表示は GameScene 側）。
-  // ゲスト：自分⇔ホストの下り状況。ホスト：ゲストごとの送信待ち量(溜)と見送り回数。
-  _diagStart() {
-    if (!NET_DIAG_SHOW) return;
-    if (!this._diag) this._diag = { recvBytes: 0, recvMsgs: 0, lastMsgAt: 0, tickAt: Date.now(), samples: [], gaps: [], rtts: [], stallCount: 0, stallMax: 0, netChanges: 0, fbAlive: 0, fbDead: 0, stallClassified: false };
-    try {
-      const c = navigator.connection;
-      if (c && c.addEventListener && !this._diagConnBound) { this._diagConnBound = true; c.addEventListener('change', () => { this._diag.netChanges++; }); }
-    } catch (e) {}
-    if (!this._diagTimer) this._diagTimer = setInterval(() => this._diagTick(), 1000);
-  }
-
-  // Firebase(WebSocket=TCP)にサーバーまで往復する読み取りを1回投げ、返ってくるまでの時間を測る。
-  // WebRTC(UDP)の受信が止まっている間も、こちらが返ってくるなら「UDPだけが止まっている」、
-  // こちらも返ってこないなら「回線自体が途切れている」と切り分けられる。
-  // 誰も購読していない場所を読むので、毎回サーバーまで往復する。権限エラーで拒否されても、サーバーからの返答には変わりない。
-  _fbProbe(now) {
-    if (!this.db || this._fbPending) return;
-    this._fbPending = now;
-    const fin = () => { const t1 = Date.now(); this._fbLast = { t: t1, rtt: t1 - now }; this._fbPending = 0; };
-    try { this.db.ref('_probe/' + (this.uid || 'x')).once('value').then(fin, fin); } catch (e) { this._fbPending = 0; }
-  }
-
-  async _pcInfo(pc) {
-    const info = {};
-    try {
-      const stats = await pc.getStats();
-      let pair = null, sctp = null, tr = null;
-      stats.forEach(st => {
-        if (st.type === 'candidate-pair' && st.nominated && st.state === 'succeeded') pair = st;
-        else if (st.type === 'sctp-transport') sctp = st;
-        else if (st.type === 'transport') tr = st;
-      });
-      if (pair) {
-        if (pair.currentRoundTripTime != null) info.rtt = Math.round(pair.currentRoundTripTime * 1000);
-        const l = stats.get(pair.localCandidateId), r = stats.get(pair.remoteCandidateId);
-        info.lType = l && l.candidateType; info.rType = r && r.candidateType;
-        info.proto = l && l.protocol; info.netType = l && l.networkType; info.relayProto = l && l.relayProtocol;
-      }
-      if (sctp && sctp.smoothedRoundTripTime != null) info.sRtt = Math.round(sctp.smoothedRoundTripTime * 1000);
-      if (tr && tr.selectedCandidatePairChanges != null) info.pairChanges = tr.selectedCandidatePairChanges;
-    } catch (e) { /* getStatsが使えない環境は無視 */ }
-    return info;
-  }
-
-  async _diagTick() {
-    if (this._diagBusy) return;
-    this._diagBusy = true;
-    try {
-      const now = Date.now(), d = this._diag, W = NET_DIAG_WINDOW_MS;
-      if (!d) return;
-      const dtSec = Math.max(0.2, (now - d.tickAt) / 1000); d.tickAt = now;
-      d.samples.push({ t: now, kbps: d.recvBytes * 8 / 1000 / dtSec, msgs: d.recvMsgs / dtSec });
-      d.recvBytes = 0; d.recvMsgs = 0;
-      d.samples = d.samples.filter(x => now - x.t <= W);
-      d.gaps = d.gaps.filter(x => now - x.t <= W);
-      const hasHost = this.isHost && this._guestPeers && this._guestPeers.size > 0;
-      const hasGuest = !this.isHost && !!this._hostPc;
-      if (!this.roomId || (!hasHost && !hasGuest)) { if (this.onDiag) this.onDiag(null); return; }
-      const out = { lines: [], level: 0 };
-      const short = i => i ? [i.lType, i.rType].filter(Boolean).join('-') + (i.proto ? '/' + i.proto : '') + (i.relayProto ? '(' + i.relayProto + ')' : '') : '-';
-      if (hasGuest) {
-        const info = await this._pcInfo(this._hostPc);
-        if (info.rtt != null) d.rtts.push({ t: now, v: info.rtt });
-        d.rtts = d.rtts.filter(x => now - x.t <= W);
-        const n = d.samples.length || 1;
-        const avg = d.samples.reduce((a, x) => a + x.kbps, 0) / n;
-        const max = d.samples.reduce((a, x) => Math.max(a, x.kbps), 0);
-        const rate = d.samples.reduce((a, x) => a + x.msgs, 0) / n;
-        const rttMax = d.rtts.reduce((a, x) => Math.max(a, x.v), 0);
-        const curGap = d.lastMsgAt ? now - d.lastMsgAt : 0;
-        const maxGap = Math.max(curGap, d.gaps.reduce((a, x) => Math.max(a, x.gap), 0));
-        // Firebase往復の確認：止まっている間は毎秒、ふだんは5秒ごと
-        if (curGap >= 1000 || now - (this._fbStartedAt || 0) >= 5000) { this._fbStartedAt = now; this._fbProbe(now); }
-        const fb = this._fbLast, fbPend = this._fbPending ? now - this._fbPending : 0;
-        const fbOkNow = !!fb && now - fb.t < 2500 && fb.rtt < 2000 && fbPend < 2000;
-        const fbDeadNow = fbPend >= 2000;
-        // 止まりが4秒続いた時点で1回だけ「その間にFirebaseの往復が完了したか」を数える
-        if (d.lastMsgAt && curGap >= 4000 && !d.stallClassified) {
-          d.stallClassified = true;
-          if (fb && fb.t > d.lastMsgAt + 1500) d.fbAlive++; else d.fbDead++;
-        }
-        let conn = '';
-        try { const c = navigator.connection; if (c) conn = [c.type, c.effectiveType, c.saveData ? 'saveData' : ''].filter(Boolean).join(' '); } catch (e) {}
-        out.lines.push('RTT' + (info.rtt != null ? info.rtt : '-') + '(最大' + rttMax + ') ↓' + Math.round(avg) + 'kbps(最大' + Math.round(max) + ') ' + Math.round(rate) + '/秒');
-        out.lines.push('空き' + maxGap + 'ms 停止' + d.stallCount + '回(最長' + (d.stallMax / 1000).toFixed(1) + 's) {fps}');
-        out.lines.push(short(info) + ' ' + (info.netType || '') + ' ' + conn + ' 切替' + d.netChanges + '/経路' + (info.pairChanges != null ? info.pairChanges : '-'));
-        out.lines.push('Firebase:' + (fbPend >= 1500 ? '応答待ち' + (fbPend / 1000).toFixed(1) + 's' : (fb ? fb.rtt + 'ms' : '-')) + ' 停止中の応答 あり' + d.fbAlive + '/なし' + d.fbDead);
-        let hint = null;
-        if (!d.lastMsgAt) hint = '接続待ち（まだ何も受信していません）';
-        else if (curGap >= 2000) {
-          if (fbOkNow) hint = '受信が途絶：WebRTC(UDP)だけ止まっている（Firebaseは応答中）';
-          else if (fbDeadNow) hint = '受信が途絶：Firebaseも応答なし＝回線自体が途切れている可能性';
-          else hint = rttMax >= 800 ? '受信が途絶：回線が詰まり気味(RTT悪化)' : '受信が途絶：電波の切れ目/経路の切替?';
-          out.level = 2;
-        }
-        else if (maxGap >= 2000) { hint = '直近に受信の途絶あり（今は回復）'; out.level = 1; }
-        else if (rate < 8) { hint = '受信が少ない：帯域不足かパケット喪失'; out.level = 1; }
-        if (hint) out.lines.push('目安: ' + hint);
-      } else {
-        out.lines.push('[ホスト] {fps}');
-        const items = [];
-        this._guestPeers.forEach((entry, uid) => items.push([uid, entry]));
-        const infos = await Promise.all(items.map(([uid, entry]) => this._pcInfo(entry.pc)));
-        items.forEach(([uid, entry], i) => {
-          const info = infos[i];
-          const ch = entry.channels && entry.channels.state;
-          entry.hist = (entry.hist || []);
-          entry.hist.push({ t: now, buf: Math.max(entry.bufPeak || 0, ch ? ch.bufferedAmount : 0), skip: entry.skipCnt || 0, rtt: info.rtt != null ? info.rtt : 0 });
-          entry.bufPeak = 0; entry.skipCnt = 0;
-          entry.hist = entry.hist.filter(x => now - x.t <= W);
-          const bufMax = entry.hist.reduce((a, x) => Math.max(a, x.buf), 0);
-          const skipSum = entry.hist.reduce((a, x) => a + x.skip, 0);
-          const rttMax = entry.hist.reduce((a, x) => Math.max(a, x.rtt), 0);
-          const nm = String((this._identityMap && this._identityMap[uid] && this._identityMap[uid].name) || uid).slice(0, 6);
-          let mark = '';
-          if (bufMax > NET_STATE_MAX_BUFFERED) { mark = rttMax >= 500 ? ' ←詰まり(回線が遅い)' : ' ←詰まり(RTT正常：途絶?)'; out.level = Math.max(out.level, 2); }
-          else if (skipSum > 0) { out.level = Math.max(out.level, 1); }
-          out.lines.push(nm + ' RTT' + (info.rtt != null ? info.rtt : '-') + '(最大' + rttMax + ') 溜' + bufMax + 'B 見送' + skipSum + ' ' + short(info) + (info.netType ? ' ' + info.netType : '') + mark);
-        });
-        if (out.lines.length > 6) out.lines.length = 6;
-      }
-      if (this.onDiag) this.onDiag(out);
-    } catch (e) {
-      /* 診断の失敗でゲームを止めない */
-    } finally { this._diagBusy = false; }
-  }
-
-  // ゲストがホストから最後に何か受信してからの経過ミリ秒（下りの停止検知用）。ホスト自身・部屋に居ない時は 0。
-  recvGapMs() {
-    if (!this.enabled || !this.roomId || this.isHost || !this._hostUid) return 0;
-    return Date.now() - (this._lastRecvAt || Date.now());
   }
 
   // [調査用→本番用] gapが長く伸びている（＝WebRTC経路が実質詰まっている）場合の、能動的な繋ぎ直し。
@@ -10212,8 +11539,6 @@ class Net {
     // 「古い連番より小さい＝古いデータ」として新ホストの配信が全部捨てられ、他の人の状態が止まって見えてしまう。
     this._lastPlayersSeq = 0;
     this._enemySeqByFloor = {};
-    this._lastRecvAt = Date.now(); // 繋ぎ直し直後は、そこから数え直す
-    this._diagStart();
     const pc = new RTCPeerConnection(RTC_CONFIG);
     this._hostPc = pc;
     // 2本のDataChannelを使い分ける（同じPeerConnection内でも別ストリームなので、片方が詰まっても
@@ -10352,7 +11677,6 @@ class Net {
   _startHosting() {
     if (this._hostingStarted) return;
     this._hostingStarted = true;
-    this._diagStart();
     this._guestPeers = new Map();
     this._guestSeq = {};
     const offersRef = this.db.ref(`rooms/${this.roomId}/rtc/${this.uid}/offers`);
@@ -10440,48 +11764,23 @@ class Net {
     try { ch.send(JSON.stringify(msgObj)); return true; } catch (e) { return false; }
   }
 
-  // perUid を渡すと、ゲストごとに中身を変えたメッセージを作って送る（msgObj は使わない）。
-  _broadcastToGuests(channelName, msgObj, excludeUid, perUid) {
+  _broadcastToGuests(channelName, msgObj, excludeUid) {
     if (!this._guestPeers) return;
-    const raw = perUid ? null : JSON.stringify(msgObj);
+    const raw = JSON.stringify(msgObj);
     this._guestPeers.forEach((entry, uid) => {
       if (uid === excludeUid) return;
       const ch = entry.channels && entry.channels[channelName];
-      if (ch && ch.readyState === 'open') {
-        // 「最新状態」を流す state チャンネルは、送信待ちが溜まっているゲストには送らずに見送る
-        if (channelName === 'state') {
-          const b = ch.bufferedAmount;
-          if (b > (entry.bufPeak || 0)) entry.bufPeak = b; // 診断用：直近の送信待ち量の最大値
-          if (b > NET_STATE_MAX_BUFFERED) { this._stateSkipped = (this._stateSkipped || 0) + 1; entry.skipCnt = (entry.skipCnt || 0) + 1; return; }
-        }
-        try { ch.send(perUid ? JSON.stringify(perUid(uid)) : raw); } catch (e) {}
-      }
+      if (ch && ch.readyState === 'open') { try { ch.send(raw); } catch (e) {} }
     });
   }
 
   // ゲスト視点：ホストから届いたメッセージ（players/enemies/frontline の最新状態、またはevent）
   _onMessageFromHost(raw) {
-    const nowT = Date.now();
-    const dg = this._diag; // 診断用：受信量・受信の空き時間を記録
-    if (dg) {
-      if (dg.lastMsgAt) {
-        const g = nowT - dg.lastMsgAt;
-        if (g > 150) { dg.gaps.push({ t: nowT, gap: g }); if (g > 2000) { dg.stallCount++; dg.stallMax = Math.max(dg.stallMax, g); } }
-      }
-      dg.lastMsgAt = nowT; dg.recvBytes += (raw && raw.length) || 0; dg.recvMsgs++; dg.stallClassified = false;
-    }
-    this._lastRecvAt = nowT; // ホストから何か届いた時刻（下りが止まっていないかの監視用）
     let msg; try { msg = JSON.parse(raw); } catch (e) { return; }
     if (msg.t === 'players') {
       if (!(msg.seq > (this._lastPlayersSeq || 0))) return;
       this._lastPlayersSeq = msg.seq;
-      const prevMap = this._hotMap || {};
-      const nextMap = Object.assign({}, msg.p);
-      for (const k in nextMap) { // 成績(stats)は毎回は付いてこないので、直前の値を引き継ぐ
-        const e = nextMap[k];
-        if (e && e.stats === undefined) { const ps = prevMap[k] && prevMap[k].stats; if (ps) nextMap[k] = Object.assign({}, e, { stats: ps }); }
-      }
-      this._hotMap = nextMap;
+      this._hotMap = Object.assign({}, msg.p);
       // 自分自身の最新状態は、ホストからの(1周遅れの)配信より、ローカルの値を優先する
       if (this._ownLatestState) this._hotMap[this.uid] = this._ownLatestState;
       this._recomputeMergedPlayers();
@@ -10526,7 +11825,6 @@ class Net {
       if (!(msg.seq > (this._guestSeq[guestUid] || 0))) return;
       this._guestSeq[guestUid] = msg.seq;
       this._hotMap[guestUid] = this._mergeInto(Object.assign({}, this._hotMap[guestUid] || {}), msg.p);
-      if (msg.p && msg.p.stats !== undefined) this._markStatsChanged();
       this._recomputeMergedPlayers();
       // ここでは配信し返さない。ホストの定期送信(updateOwnState内の_broadcastPlayers)にまとめて乗せる。
     } else if (msg.t === 'event') {
@@ -10598,7 +11896,7 @@ class Net {
   }
 
   listenFloor(cb) {
-    this.db.ref(`rooms/${this.roomId}/floor`).on('value', snap => { if (snap.exists()) cb(snap.val()); });
+    this.db.ref(`rooms/${this.roomId}/floor`).on('value', snap => { if (snap.exists()) { this._lastFloor = snap.val(); cb(snap.val()); } });
   }
 
   async requestFloorAdvance(fromFloor) {
@@ -10619,35 +11917,13 @@ class Net {
     if (this.isHost) {
       this.lastAckAt = Date.now(); // 自分(ホスト)の分はネットワークを介さず即確定するので常に「詰まっていない」扱い
       this._playersSeq = (this._playersSeq || 0) + 1;
-      if (data && data.stats !== undefined) this._markStatsChanged();
-      this._broadcastPlayers();
+      this._broadcastToGuests('state', { t: 'players', seq: this._playersSeq, p: this._hotMap });
     } else {
       this._ownLatestState = this._mergeInto(Object.assign({}, this._ownLatestState || {}), data);
       this._stateSeq = (this._stateSeq || 0) + 1;
       const ok = this._sendToHost('state', { t: 'state', seq: this._stateSeq, p: data });
       if (ok) this.lastAckAt = Date.now(); // 実際にDataChannelへ送出できた時だけ更新
     }
-  }
-
-  _markStatsChanged() { this._statsBurstUntil = Date.now() + NET_STATS_BURST_MS; }
-
-  // 全ゲストへ「全員の最新状態」を送る。通信量を減らすため、
-  //  ・成績(stats)は、変化の直後と一定間隔のときだけ付ける
-  //  ・受け取るゲスト本人の分は送らない（ゲスト側は元々ローカルの値を優先して使っていた）
-  _broadcastPlayers() {
-    const now = Date.now();
-    let withStats = now < (this._statsBurstUntil || 0);
-    if (!withStats && now - (this._statsFullAt || 0) >= NET_STATS_REFRESH_MS) withStats = true;
-    if (withStats) this._statsFullAt = now;
-    const seq = this._playersSeq, hot = this._hotMap, base = {};
-    for (const k in hot) {
-      const e = hot[k];
-      if (!withStats && e && e.stats !== undefined) { const c = Object.assign({}, e); delete c.stats; base[k] = c; } else base[k] = e;
-    }
-    this._broadcastToGuests('state', null, undefined, uid => {
-      const p = Object.assign({}, base); delete p[uid];
-      return { t: 'players', seq, p };
-    });
   }
 
   // ===== ここから: 敵の同期 =====
@@ -10717,9 +11993,9 @@ class Net {
   listenPvp(cb) { this._eventCbs.pvp = cb; }
 
   // 10階以降のボス撃破時、力尽きてゴースト状態の全員を復活させるためのブロードキャスト。
-  broadcastRevive(pos) { this._sendEvent('revive', pos || {}, true); }
+  broadcastRevive(pos, clear) { this._sendEvent('revive', Object.assign({}, pos || {}, clear ? { clear: true } : {}), true); }
   listenRevive(cb) {
-    this._eventCbs.revive = (val) => cb(val && typeof val.x === 'number' ? { x: val.x, y: val.y } : null);
+    this._eventCbs.revive = (val) => cb(val && typeof val.x === 'number' ? { x: val.x, y: val.y, clear: !!val.clear } : null);
   }
 
   // ===== 最北戦線（協力プレイ） =====
@@ -10779,6 +12055,24 @@ let selectedColor = COLORS[0];
 const nameInput = document.getElementById('nameInput');
 nameInput.value = randomName();
 
+// メニュー最上部に、記録（ソロの最高到達階層など）を表示する
+// 記録の項目は items に足していけば、バーに並んで表示される
+(function showLobbyStats() {
+  const save = loadSave();
+  const items = [
+    ['🏆 最高到達階層', save.soloBestFloor > 0 ? save.soloBestFloor + '階' : '-'],
+  ];
+  document.getElementById('lobbyStats').innerHTML = items.map(it =>
+    '<span>' + escapeHtml(it[0]) + '<b>' + escapeHtml(it[1]) + '</b></span>').join('') +
+    '<button type="button" id="resetSaveBtn">リセット</button>';
+  document.getElementById('resetSaveBtn').addEventListener('click', () => {
+    if (confirm('セーブデータ（装飾品の解放・記録）をすべて消します。よろしいですか？')) {
+      try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+      location.reload();
+    }
+  });
+})();
+
 // ============== デベロッパーモード ==============
 // 名前欄に「developer」と入力すると、開始フロア・所持武器を選んでテストプレイできる。
 const devPanel = document.getElementById('devPanel');
@@ -10795,18 +12089,60 @@ function updateDevPanelVisibility() { devPanel.style.display = isDevName() ? 'bl
 nameInput.addEventListener('input', updateDevPanelVisibility);
 updateDevPanelVisibility();
 
-const colorPicker = document.getElementById('colorPicker');
-COLORS.forEach((c, i) => {
-  const sw = document.createElement('div');
-  sw.className = 'swatch' + (i === 0 ? ' sel' : '');
-  sw.style.background = '#' + c.toString(16).padStart(6, '0');
-  sw.addEventListener('click', () => {
-    selectedColor = c;
-    document.querySelectorAll('.swatch').forEach(s => s.classList.remove('sel'));
-    sw.classList.add('sel');
+// ============== 装飾品の選択（旧：色の選択） ==============
+// 先頭のアイコンで一覧（入手条件つき）を開く。並んだ装飾品は、入手済みなら選べて、未入手は灰色。
+// 付けている装飾品をもう一度押すと外れる。プレイヤーの色は自動（協力プレイでは他の人と被らないように割り当てられる）。
+const accPicker = document.getElementById('accPicker');
+const accModal = document.getElementById('accModal');
+function renderAccPicker() {
+  const save = loadSave();
+  accPicker.innerHTML = '';
+  const listBtn = document.createElement('div');
+  listBtn.className = 'accItem accList';
+  listBtn.textContent = '📋';
+  listBtn.title = '装飾品の一覧';
+  listBtn.addEventListener('click', openAccModal);
+  accPicker.appendChild(listBtn);
+  ACCESSORIES.forEach(a => {
+    const unlocked = !!save.accUnlocked[a.key];
+    const el = document.createElement('div');
+    el.className = 'accItem' + (unlocked ? '' : ' locked') + (unlocked && save.accEquipped === a.key ? ' sel' : '');
+    el.textContent = a.icon;
+    el.title = a.name + '：' + a.desc;
+    el.addEventListener('click', () => {
+      if (!unlocked) { setLobbyStatus('🔒 ' + a.name + '：' + a.desc); return; }
+      const s2 = loadSave();
+      s2.accEquipped = (s2.accEquipped === a.key) ? '' : a.key;
+      writeSave(s2);
+      setLobbyStatus('');
+      renderAccPicker();
+    });
+    accPicker.appendChild(el);
   });
-  colorPicker.appendChild(sw);
-});
+}
+function openAccModal() {
+  const save = loadSave();
+  document.getElementById('accModalList').innerHTML = ACCESSORIES.map(a => {
+    const unlocked = !!save.accUnlocked[a.key];
+    const cur = Math.min(save[a.stat] || 0, a.goal);
+    const state = unlocked ? '獲得済み' : (cur + ' / ' + a.goal + a.unit);
+    return '<div class="accRow' + (unlocked ? '' : ' locked') + '">'
+      + '<div class="accIcon">' + escapeHtml(a.icon) + '</div>'
+      + '<div class="accInfo"><div class="accName">' + escapeHtml(a.name) + '</div><div class="accDesc">' + escapeHtml(a.desc) + '</div>' + (a.effect ? '<div class="accDesc accEffect">' + escapeHtml(a.effect) + '</div>' : '') + '</div>'
+      + '<div class="accState">' + escapeHtml(state) + '</div></div>';
+  }).join('');
+  accModal.style.display = 'flex';
+}
+document.getElementById('accModalClose').addEventListener('click', () => { accModal.style.display = 'none'; });
+accModal.addEventListener('click', e => { if (e.target === accModal) accModal.style.display = 'none'; });
+// 過去の記録（最高到達階層など）で条件を満たしていた装飾品を、起動時に入手済みにする
+(function unlockOnBoot() { const s0 = loadSave(); if (unlockAccessories(s0).length) writeSave(s0); })();
+renderAccPicker();
+// ゲーム開始時に付ける装飾品のkey（入手済みのものだけ）
+function currentAccKey() {
+  const s3 = loadSave();
+  return (s3.accEquipped && s3.accUnlocked[s3.accEquipped] && accessoryByKey(s3.accEquipped)) ? s3.accEquipped : '';
+}
 
 if (!netInstance.enabled) {
   document.getElementById('fbWarning').style.display = 'block';
@@ -10823,7 +12159,7 @@ function setLobbyStatus(msg) { document.getElementById('lobbyStatus').textConten
 const LOBBY_CONTROL_IDS = ['soloBtn', 'bossRushBtn', 'frontlineBtn', 'createRoomBtn', 'createFrontlineRoomBtn', 'createPvpRoomBtn', 'joinRoomBtn', 'roomCodeInput', 'nameInput'];
 function setLobbyBusy(busy) {
   LOBBY_CONTROL_IDS.forEach(id => { document.getElementById(id).disabled = busy; });
-  document.querySelectorAll('#colorPicker .swatch').forEach(sw => {
+  document.querySelectorAll('#accPicker .accItem').forEach(sw => {
     sw.style.pointerEvents = busy ? 'none' : '';
     sw.style.opacity = busy ? '0.5' : '';
   });
@@ -10835,6 +12171,7 @@ function startGame(mode, extra) {
     mode,
     name: nameInput.value.trim() || randomName(),
     color: selectedColor,
+    acc: currentAccKey(), // 付けている装飾品
     net: netInstance,
     baseSeed: extra && extra.baseSeed,
     floor: extra && extra.floor,
@@ -10867,8 +12204,11 @@ const RUSH_WEAPON_DESC = {
   magicbomb: '押し続けて溜め、離すと大爆発（1発装填）',
   cross: '敵を止める魔法陣を出す（ダメージ無し・1発装填）',
   katana: '狙った方向へ瞬間移動しながら軌跡上の敵を斬る',
+  summon: '敵の中からランダムに1体を味方として召喚する（自分では攻撃しない）',
 };
-const RUSH_WEAPONS = WEAPON_TYPES.filter(w => !w.isFreeze && w.type !== 'summon');
+const RUSH_WEAPONS = WEAPON_TYPES.filter(w => !w.isFreeze); // ボスラッシュで選べる武器（召喚術を含む）
+// 最北戦線（ひとり）の武器選択は、これまでどおり召喚術を含めない
+const FRONTLINE_SOLO_WEAPONS = RUSH_WEAPONS.filter(w => w.type !== 'summon');
 // 最北戦線のルーム作成時だけは、ダメージは無いが敵の足止めができる十字架も選択肢に含める
 const FRONTLINE_ROOM_WEAPONS = WEAPON_TYPES.filter(w => w.type !== 'summon');
 const PVP_ROOM_WEAPONS = FRONTLINE_ROOM_WEAPONS.filter(w => w.key !== 'cross' && w.key !== 'magicbomb'); // 十字架はダメージ0、マジックボムはPvPで禁止
@@ -10914,7 +12254,7 @@ let askWeapon = null;
     askWeapon('ボスラッシュ', w => startGame('solo', { bossRush: true, weaponKey: w.key }));
   });
   document.getElementById('frontlineBtn').addEventListener('click', () => {
-    askWeapon('最北戦線', w => startGame('solo', { frontline: true, weaponKey: w.key }));
+    askWeapon('最北戦線', w => startGame('solo', { frontline: true, weaponKey: w.key }), null, FRONTLINE_SOLO_WEAPONS);
   });
 })();
 
