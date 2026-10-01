@@ -324,6 +324,20 @@
   .accRow .accEffect { color: #c9b6ff; }
   .accRow.locked .accName { color: #8a8a99; }
   .accRow.locked .accState { color: #8a8a99; }
+  /* 確認ダイアログ（ブラウザの confirm の代わりに、ゲーム内で出す） */
+  #confirmOverlay {
+    display: none; position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.72);
+    align-items: center; justify-content: center; padding: 12px; box-sizing: border-box; color: #e8e8f0;
+  }
+  #confirmBox {
+    width: min(92vw, 360px); box-sizing: border-box; padding: 18px 16px 14px; border-radius: 12px;
+    background: #1c1c26; border: 1px solid rgba(255,255,255,0.14); text-align: center;
+  }
+  #confirmMsg { font-size: 14px; line-height: 1.6; margin: 0 0 16px; white-space: pre-line; }
+  #confirmBtns { display: flex; gap: 10px; }
+  #confirmBtns button { flex: 1; padding: 10px 0; font-size: 14px; border-radius: 8px; border: none; cursor: pointer; color: #fff; }
+  #confirmCancel { background: #3a3d4d; }
+  #confirmOk { background: #d94a4a; }
   .joinRow { display: flex; gap: 8px; margin-top: 10px; }
   .joinRow input { flex: 1; text-transform: uppercase; }
   .joinRow button { width: auto; padding: 10px 16px; }
@@ -12056,6 +12070,38 @@ let selectedColor = COLORS[0];
 const nameInput = document.getElementById('nameInput');
 nameInput.value = randomName();
 
+// ゲーム内の確認ダイアログ（ブラウザの confirm() の代わり）。OKなら true、キャンセル・外側タップ・Escなら false を返す Promise。
+function askConfirm(message, opts) {
+  opts = opts || {};
+  return new Promise(resolve => {
+    let ov = document.getElementById('confirmOverlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'confirmOverlay';
+      ov.innerHTML = '<div id="confirmBox"><p id="confirmMsg"></p><div id="confirmBtns">' +
+        '<button type="button" id="confirmCancel"></button><button type="button" id="confirmOk"></button></div></div>';
+      document.body.appendChild(ov);
+    }
+    document.getElementById('confirmMsg').textContent = message;
+    const okBtn = document.getElementById('confirmOk'), cancelBtn = document.getElementById('confirmCancel');
+    okBtn.textContent = opts.ok || 'OK';
+    cancelBtn.textContent = opts.cancel || 'キャンセル';
+    const done = v => {
+      ov.style.display = 'none';
+      okBtn.onclick = cancelBtn.onclick = ov.onclick = null;
+      document.removeEventListener('keydown', onKey, true);
+      resolve(v);
+    };
+    const onKey = e => { if (e.key === 'Escape') { e.preventDefault(); done(false); } };
+    okBtn.onclick = () => done(true);
+    cancelBtn.onclick = () => done(false);
+    ov.onclick = e => { if (e.target === ov) done(false); }; // 外側をタップしたらキャンセル
+    document.addEventListener('keydown', onKey, true);
+    ov.style.display = 'flex';
+    cancelBtn.focus(); // 誤ってEnterで消してしまわないよう、初期フォーカスは「やめる」
+  });
+}
+
 // メニュー最上部に、記録（ソロの最高到達階層など）を表示する
 // 記録の項目は items に足していけば、バーに並んで表示される
 (function showLobbyStats() {
@@ -12066,8 +12112,9 @@ nameInput.value = randomName();
   document.getElementById('lobbyStats').innerHTML = items.map(it =>
     '<span>' + escapeHtml(it[0]) + '<b>' + escapeHtml(it[1]) + '</b></span>').join('') +
     '<button type="button" id="resetSaveBtn">リセット</button>';
-  document.getElementById('resetSaveBtn').addEventListener('click', () => {
-    if (confirm('セーブデータ（装飾品の解放・記録）をすべて消します。よろしいですか？')) {
+  document.getElementById('resetSaveBtn').addEventListener('click', async () => {
+    const ok = await askConfirm('セーブデータ（装飾品の解放・記録）をすべて消します。\nよろしいですか？', { ok: '消す', cancel: 'やめる' });
+    if (ok) {
       try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
       location.reload();
     }
