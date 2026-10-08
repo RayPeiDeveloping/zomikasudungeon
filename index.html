@@ -920,7 +920,7 @@ const PVP = {
   ],
   weaponZone: { cx: 10, cy: 4.5, size: 4, holdTime: 3 }, // 武器変更ゾーン（準備室の上側の正方形。中心タイル座標・一辺のタイル数）。holdTime：武器固定の時、全員が入ってからホストが選び直すまでの秒数
   // 人狼ゲームのマップ（バトルフィールドの右隣に作る）。中心に円形の広場、そこから放射状に道が伸びて、道の先に家（円形・入口が1つ）がある。それ以外は岩（壁）。
-  werewolf: { wolves: 1, wolvesMany: 2, manyFrom: 8, bloodyTime: 20, roleLot: { villager: 1, watchman: 1, seer: 1, detective: 1, dupMul: 0.05 }, detectiveTime: 5, detectiveR: 2.2, trailTiles: 20, trailStep: 0.5, seerTime: 10, seerR: 2.5, quotaHold: 10, watchOilMul: 2, watchViewMul: 2, wolfSwordLv: 5, houses: 10, plazaR: 9, houseDist: 30, houseIn: 4.5, houseOut: 6.5, roadW: 3, size: 80, gap: 4, rays: 600, viewR: 20, time: 900, dayTime: 30, dayTime2: 90, voteTime: 30, resultTime: 6, nightTime: 90, nightViewR: 6, nightHole: 0.94, oilMax: 100, oilBurn: 2, oilRegen: 4, oilLow: 0.3, oilMinR: 1.2, oilStartMin: 0.3, oilStartMax: 0.7 },
+  werewolf: { wolves: 1, wolvesMany: 2, manyFrom: 8, bloodyTime: 20, roleLot: { villager: 1, watchman: 1, seer: 1, detective: 1, dupMul: 0.05 }, detectiveTime: 5, detectiveR: 2.2, trailTiles: 20, trailStep: 0.5, seerTime: 10, seerR: 2.5, quotaHold: 15, watchOilMul: 2, watchViewMul: 2, wolfSwordLv: 5, houses: 10, plazaR: 9, houseDist: 30, houseIn: 4.5, houseOut: 6.5, roadW: 3, size: 80, gap: 4, rays: 600, viewR: 20, time: 900, dayTime: 30, dayTime2: 90, voteTime: 30, resultTime: 6, nightTime: 90, nightViewR: 6, nightHole: 0.94, oilMax: 100, oilBurn: 2, oilRegen: 4, oilLow: 0.3, oilMinR: 1.2, oilStartMin: 0.3, oilStartMax: 0.7 },
   // 役職の抽選（roleLot）：人狼以外の人を1人ずつ、重みつき抽選で「普通の村人・見張り番・占い師・探偵」のどれかに決める（普通の村人も役職の一つとして扱う。人数の下限はなし）。
   //   villager／watchman／seer／detective＝各役職の重み（大きいほど出やすい。0にするとその役職は出ない）／dupMul＝同じ役職がすでに1人いるごとに重みに掛ける倍率（重み×dupMul^人数。小さいほど被りにくい）
   //   dupMul 0.05 の目安：5人（人狼以外4人）で4役職が1人ずつそろう確率は約81%、どれかが被る確率は約19%。4人で約6%、3人で約2%。6人以上は役職が4種類しかないので被りが出る
@@ -5188,7 +5188,7 @@ class GameScene extends Phaser.Scene {
   }
 
   // ===== 人狼ゲーム：村人側のノルマ =====
-  // 夜のはじめに、ホストが「生きている人数」個のノルマ品(◆)を出す（'quota'）。場所は、道か広場のどこか（家の中には出ない）。
+  // 夜のはじめに、ホストが「生きている人数」個のノルマ品(◆)を出す（'quota'）。場所は、道か誰も住んでいない家の中（広場には出ない）。
   // 村人陣営（見張り番も）だけが、触れて拾える（'quotaGet'）。人狼は拾えない。
   // 翌朝、ホストが集計して（'quotaRes'）、拾った数が「夜が始まった時点の生きている人数」（＝出たノルマ品の数）以上ならノルマ達成。達成の日が (人数-1) 日になれば村人の勝ち。
   // 達成必要日数＋3日が過ぎても終わらなければ人狼の勝ち。上の点は、灰色＝これからの日／達成するたびに左から緑色。
@@ -5244,7 +5244,7 @@ class GameScene extends Phaser.Scene {
     for (const h of wwd.houses) if (!occ.has(h.k)) for (const t of (qc.house[h.k] || [])) emptyTiles.push(t);
     const cats = [];
     if (qc.road.length) cats.push('road');
-    if (qc.plaza.length) cats.push('plaza');
+    // 広場にはノルマ品を出さない（道と、誰も住んでいない家の中だけ）
     if (emptyTiles.length) cats.push('empty');
     if (!cats.length) return;
     const rand = mulberry32((this.baseSeed || 1) + (pv.round || 0) * 7717 + n * 131 + 17), picks = [];
@@ -5267,7 +5267,7 @@ class GameScene extends Phaser.Scene {
       this.tweens.add({ targets: ring, scale: 6, alpha: 0, duration: 1500, repeat: -1, ease: 'Cubic.easeOut' });
       // 遠くからでも位置が分かるように、細い輪が定期的にけっこう遠くまで広がっていく（線の太さは変えずに半径だけ広げる）
       const far = this.add.graphics().setDepth(13).setBlendMode(Phaser.BlendModes.ADD); far.k = 0;
-      const FAR_R = 800, FAR_MS = 2600, FAR_GAP = 1400; // FAR_R＝広がる最大半径(px)／FAR_MS＝広がる時間／FAR_GAP＝次の輪までの間
+      const FAR_R = 400, FAR_MS = 2600, FAR_GAP = 1400; // FAR_R＝広がる最大半径(px)／FAR_MS＝広がる時間／FAR_GAP＝次の輪までの間
       this.tweens.add({ targets: far, k: 1, duration: FAR_MS, delay: idx * 350, repeat: -1, repeatDelay: FAR_GAP, ease: 'Sine.easeOut',
         onUpdate: () => { if (!far.scene) return; far.clear(); far.lineStyle(3, 0xbff0ff, 0.85 * (1 - far.k)); far.strokeCircle(px, py, 20 + FAR_R * far.k); },
         onRepeat: () => { far.k = 0; } });
@@ -5300,7 +5300,7 @@ class GameScene extends Phaser.Scene {
         else if (days >= q.need + 3) this.wwSideWin('wolf');
       }
     }
-    // 生きている人（人狼も）が、夜にノルマ品の上に quotaHold 秒（10秒）乗り続けたら拾う（人狼が拾った分もノルマに数える）（離れる・別の品に移ると数え直し）
+    // 生きている人（人狼も）が、夜にノルマ品の上に quotaHold 秒（15秒）乗り続けたら拾う（人狼が拾った分もノルマに数える）（離れる・別の品に移ると数え直し）
     let prog = null;
     if (info.night && q.itemsN === info.n && pv.myRole && !this.isGhost && !pv.dead && this._wwFadeAt == null) {
       const now = performance.now(), hold = PVP.werewolf.quotaHold || 10;
