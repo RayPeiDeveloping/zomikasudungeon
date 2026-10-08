@@ -385,7 +385,7 @@
       <div id="fbWarning">協力プレイが使えません（FirebaseのAPIキー未設定、または通信環境の制限でFirebaseの読み込みがブロックされている可能性があります）。「ダンジョン」だけ利用できます。</div>
       <button id="createRoomBtn">ルームを作成</button>
       <button id="createPvpRoomBtn" style="background:#e0533d;">PvPのルームを作成</button>
-      <button id="pvpTestBtn" style="display:none; background:#8a5cf5;">PvPを一人でテスト（通信なし）</button>
+      <button id="pvpTestBtn" style="background:#8a5cf5;">PvPを一人でテスト（通信なし）</button>
       <label style="display:flex; align-items:center; justify-content:center; gap:6px; margin:0 0 6px; cursor:pointer;"><input type="checkbox" id="pvpFixedWeaponChk" checked> 武器固定（全員が同じ武器）</label>
       <button id="createFrontlineRoomBtn" style="background:#4fd67a;">最北戦線のルームを作成</button>
       <div class="joinRow">
@@ -951,6 +951,7 @@ const PVP = {
 const WW_NIGHT_FADE_MS = 3500; // 夜の闇がゆっくり濃くなる時間（ミリ秒）
 const WW_NIGHT_DELAY_MS = 500; // 夜が始まってから闇が濃くなり始めるまでの待ち（暗転で真っ暗な間は、闇を始めない）
 const WW_DAWN_MS = 4000; // 朝になってから、夜の闇がすっかり消えるまでの時間（ミリ秒）
+const WW_BLACK_HOLD_MS = 1800; // 夜の暗転で、真っ暗になってから明るくなり始めるまでの長さ（ミリ秒。この間、真ん中に🤫が出る）
 const WW_FADE_IN = 2.5; // 夜になる前に、画面がゆっくり暗くなっていく秒数（昼のうちに始める）
 
 // 人狼ゲームのマップ領域を grid に書き込む。円や斜めの道はタイルで近似する（タイルの中心の座標で判定）。
@@ -2597,13 +2598,11 @@ class GameScene extends Phaser.Scene {
         this.net.listenShots(payload => this.onIncomingShot(payload));
         this.net.listenEnemyShots(payload => this.onIncomingEnemyShot(payload));
         this.net.listenRevive(pos => this.onRevive(pos));
-        this.net.onConnStatus = mode => {
-          this.setConnBadge(mode); // 画面左上のP2P/TURN表示
-          // TURN以外（P2Pに戻った／切断された）になったら、画面中央の「中継サーバーを使用しています」を消す
-          if (mode !== 'TURN' && this._relayNoticeOn) this.hideRelayNotice();
-        };
-        this.net.onConnectFail = () => this.showBanner('📶 接続できませんでした。ホストがモバイル通信を使用してください', 8000); // TURN（中継）を使っても繋がらなかった時の案内
-        this.net.onRelayUsed = () => { this._relayNoticeOn = true; this.showCenterNotice('中継サーバーを使用しています。電波の状態をご確認ください（公共機関のwifiを使用しているなど）\nホストが制限のない通信に接続してください', 180000); } // TURN（中継サーバー）経由で接続が確立した場合の案内（画面中央に3分間表示、他の通知に上書きされない）
+        // 通信経路の表示（画面上部のP2P/TURN）と、TURN経由になった時の「中継サーバーを使用しています」の通知は出さない。
+        // （TURN経由になるのが普通のため。Net側は onConnStatus / onRelayUsed が null なら何も呼ばない）
+        this.net.onConnStatus = null;
+        this.net.onConnectFail = () => this.showBanner('📶 接続できませんでした。通信環境を変えてもう一度お試しください', 8000); // TURN（中継）を使っても繋がらなかった時の案内
+        this.net.onRelayUsed = null;
         if (this.frontline) {
           this.net.listenFrontline(obj => this.onFrontlineSync(obj)); // 発信機のHP・経過時間・ボスの予定（ホストが配信）
           this.net.listenDrops(v => this.onFrontlineDrop(v));         // 宝箱・包帯のドロップ（ホストが決めて全員に配信）
@@ -2980,14 +2979,15 @@ class GameScene extends Phaser.Scene {
       const isMe = this.net && uid === this.net.uid;
       const crown = (uid === this._hostUid) ? '👑' : '';
       const doorMark = p.atExit ? '🚪' : '';
-      const ghostMark = p.eliminated ? '👻' : (p.downed ? '⏳' : '');
+      const wwHide = !!(this.pv && this.pv.mode === 'werewolf'); // 人狼ゲーム中：死んだことが分からないよう、生死や体力に関わる表示は全員分を出さない
+      const ghostMark = wwHide ? '' : (p.eliminated ? '👻' : (p.downed ? '⏳' : ''));
       // 自分の行は、通信でエコーバックされてくる(最大0.06秒ラグがある)値ではなく
       // ローカルで管理している正の値を使う。ここがズレると「HPバー」と「パーティ一覧の%」で
       // 別々の値が高速に切り替わって見え、あたかもHPが激しく上下しているように見えてしまう。
       const hp = isMe ? this.playerHp : (p.hp || 0);
       const maxHp = isMe ? this.playerMaxHp : (p.maxHp || 100);
       const pct = Math.max(0, Math.round((hp / maxHp) * 100));
-      const statusText = p.eliminated ? 'ゴースト' : (p.downed ? 'ダウン中' : (pct + '%'));
+      const statusText = wwHide ? '' : (p.eliminated ? 'ゴースト' : (p.downed ? 'ダウン中' : (pct + '%')));
       rows.push('<div class="plRow"><span>' + crown + ghostMark + doorMark + escapeHtml(p.name || '?') + (isMe ? '(あなた)' : '') + '</span><span>' + statusText + '</span></div>');
     }
     listEl.innerHTML = rows.join('');
@@ -4062,7 +4062,7 @@ class GameScene extends Phaser.Scene {
   wwApplyVote(m) {
     const pv = this.pv, info = this.wwPhaseInfo();
     if (!pv || !info || !info.voting || info.n !== m.n || !pv.alive.has(m.from)) return;
-    if (m.to != null && m.to !== 'skip' && !(pv.ids.indexOf(m.to) >= 0 && pv.alive.has(m.to))) return; // 自分自身にも投票できる
+    if (m.to != null && m.to !== 'skip' && pv.ids.indexOf(m.to) < 0) return; // 自分自身にも投票できる。死んだ人にも入れられる（誰が死んだか分からないように。ただし無効票：wwVoteTally で処刑の対象にしない）
     const vs = pv.votes[m.n] || (pv.votes[m.n] = {});
     if (m.to == null) delete vs[m.from]; else vs[m.from] = m.to;
     this.wwCheckVoteEnd();
@@ -4091,7 +4091,7 @@ class GameScene extends Phaser.Scene {
   wwVoteTally(n) {
     const vs = (this.pv.votes && this.pv.votes[n]) || {}, cnt = {}; let skip = 0, best = 0, tops = [];
     for (const f in vs) { if (vs[f] === 'skip') skip++; else cnt[vs[f]] = (cnt[vs[f]] || 0) + 1; }
-    for (const t in cnt) { if (cnt[t] > best) { best = cnt[t]; tops = [t]; } else if (cnt[t] === best) tops.push(t); }
+    for (const t in cnt) { if (!this.pv.alive.has(t)) continue; /* 死んだ人への票は無効（処刑の判定に入れない） */ if (cnt[t] > best) { best = cnt[t]; tops = [t]; } else if (cnt[t] === best) tops.push(t); }
     return { cnt, skip, best, tops };
   }
 
@@ -4138,6 +4138,11 @@ class GameScene extends Phaser.Scene {
     el.style.display = 'block';
   }
 
+  // 自分が広場（plazaR タイル以内）にいるか
+  wwInPlaza() {
+    const wwd = this.dungeon && this.dungeon.werewolf;
+    return !!(wwd && this.player && Math.hypot(this.player.x / TILE - wwd.cx, this.player.y / TILE - wwd.cy) <= PVP.werewolf.plazaR);
+  }
   // 投票の画面（左側）。投票の間と、終わったあとの数秒間（結果）だけ出す
   wwUpdateVoteUi() {
     const pv = this.pv, info = this.wwPhaseInfo(), W = PVP.werewolf, my = this.net && this.net.uid;
@@ -4150,6 +4155,8 @@ class GameScene extends Phaser.Scene {
     if (voting) { n = info.n; live = true; this.wwCheckVoteEnd(); }
     else if (ph === 'result') n = info.n; // 結果発表の間は、投票結果を出し続ける
     else if (this._wwVoteRes && performance.now() < this._wwVoteRes.until) n = this._wwVoteRes.n;
+    // 投票できる人（生きている参加者）には、広場に着くまで投票パネルを出さない（昼ごとに、一度着いたらその昼は出し続ける）
+    if (live && pv.ids.indexOf(my) >= 0 && pv.alive.has(my) && !pv.dead && !this.isGhost && this._wwVoteArrN !== info.n) { if (this.wwInPlaza()) this._wwVoteArrN = info.n; else { n = null; live = false; } }
     if (n == null) { if (el) el.style.display = 'none'; this._wwVoteSig = null; return; }
     if (!el) {
       el = document.createElement('div');
@@ -4170,7 +4177,7 @@ class GameScene extends Phaser.Scene {
     const ps = this.latestPlayers || {}, vs = (pv.votes && pv.votes[n]) || {};
     const idx = pv.ids.indexOf(my), canVote = live && idx >= 0 && pv.alive.has(my) && !pv.dead;
     this._wwVoteCan = canVote; this._wwVoteN = n;
-    const cands = pv.ids.filter(id => pv.alive.has(id)); // 自分も候補に出す
+    const cands = pv.ids.slice(); // 自分も、死んだ人も候補に出す（誰が死んだか分からないように）
     const nameOf = uid => (pv.info && pv.info[uid] && pv.info[uid].name) || (ps[uid] && ps[uid].name) || '誰か';
     const hex = uid => { const c = uid === my ? this.playerColor : (ps[uid] && typeof ps[uid].color === 'number') ? ps[uid].color : 0xffffff; return '#' + (c >>> 0).toString(16).padStart(6, '0'); };
     const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -4184,7 +4191,7 @@ class GameScene extends Phaser.Scene {
       const tl = this.wwVoteTally(n), ex = pv.wwExec ? pv.wwExec[n] : undefined;
       if (ex === undefined) resTxt = '集計中…'; // ホストからの結果がまだ届いていない
       else if (ex) resTxt = '処刑：' + nameOf(ex) + '（' + (tl.cnt[ex] || 0) + '票）';
-      else if (!tl.best && !tl.skip) resTxt = '誰も投票しませんでした（処刑なし）';
+      else if (!tl.best && !tl.skip) resTxt = Object.keys(tl.cnt).length ? '処刑なし' : '誰も投票しませんでした（処刑なし）';
       else if (tl.skip > tl.best) resTxt = 'スキップが最多（処刑なし）';
       else resTxt = '同票でした（処刑なし）';
     }
@@ -4982,11 +4989,19 @@ class GameScene extends Phaser.Scene {
     el.style.display = info ? 'block' : 'none';
     if (info) { el.textContent = night ? '🌙 ' + info.left + ' 🤫' : info.phase === 'result' ? '🗳️ 結果発表' : '☀️ 昼 残り' + info.left + '秒'; el.style.color = night ? '#cfd8ff' : (info.phase === 'result' ? '#ffc2a0' : '#ffe9a8'); }
     if (info && night !== !!this._wwWasNight) {
-      if (!this.isGhost && !(night && this.wwNightWarp())) this.showBanner(night ? this.wwNightBannerText() : '☀️ 朝になった' + (info.voting ? '\n🗳️ 昼の間、投票できます' : ''), night ? 3000 : 2400); // 夜の参加者は、暗転→家へワープのあとにバナーを出す
+      if (!night && !this.isGhost) this.wwCenterShow('広場で会議に参加しよう', false, 3500); // 夜が明けた：真ん中に案内を出す
+      if (!this.isGhost && !(night && this.wwNightWarp())) { if (!night) this._wwMorningAt = performance.now(); this.showBanner(night ? this.wwNightBannerText() : '☀️ 朝になった', night ? 3000 : 2400); } // 夜の参加者は、暗転→家へワープのあとにバナーを出す
     }
     // 夜になる WW_FADE_IN 秒前から、昼のうちに画面をゆっくり暗くし始める（夜になってからだと、暗転中にランタンの光が見えてしまう）。参加者だけ。
     if (this._wwFadeAt != null && (!info || this.isGhost)) this.wwNightFadeCancel(); // ラウンドが終わった・ゴーストになった
     else if (info && !night && !this.isGhost && this._wwFadeAt == null && this.wwNextIsNight(info) && info.leftF <= WW_FADE_IN && this.pv.ids.indexOf(this.net.uid) >= 0) this.wwNightFadeStart();
+    // 昼の投票の間に、生きている参加者が広場（plazaR タイル以内）に着いたら、投票できる案内を出す（昼ごとに1回。朝のバナーが消えてから）
+    if (info && info.voting && !night && !this.isGhost && !this.pv.dead && this.pv.alive && this.pv.alive.has(this.net.uid) && this._wwVoteBannerN !== info.n && this.pv.ids.indexOf(this.net.uid) >= 0) {
+      const wwd = this.dungeon && this.dungeon.werewolf;
+      if (wwd && this.player && Math.hypot(this.player.x / TILE - wwd.cx, this.player.y / TILE - wwd.cy) <= PVP.werewolf.plazaR && !(this._wwMorningAt && performance.now() - this._wwMorningAt < 2500)) {
+        this._wwVoteBannerN = info.n; this.showBanner('🗳️ 昼の間、投票できます', 2400);
+      }
+    }
     const ph = info ? info.phase : null;
     this._wwWasPhase = ph;
     this._wwWasNight = night; // 人狼ゲーム中でなくなったら false に戻る（次のゲームの開始で誤ってバナーを出さない）
@@ -5411,6 +5426,32 @@ class GameScene extends Phaser.Scene {
     return '🌙 夜になった…';
   }
 
+  // 画面の真ん中に出す大きな表示（夜の暗転中の🤫・朝の「広場で会議に参加しよう」）。暗転の膜(wwFade:125)より手前に出す
+  wwCenterEl() {
+    let el = document.getElementById('wwCenter');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'wwCenter';
+      el.style.cssText = 'position:fixed; inset:0; z-index:126; display:flex; align-items:center; justify-content:center; text-align:center; pointer-events:none; opacity:0;'
+        + 'color:#fff; font-weight:bold; font-family:sans-serif; text-shadow:0 0 1.4vh rgba(0,0,0,0.9), 0 0.3vh 0.3vh rgba(0,0,0,0.95);';
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  // 真ん中に表示を出す（emoji=true なら絵文字用の特大サイズ）。ms を渡すと、その時間たってから自動で消す
+  wwCenterShow(text, emoji, ms) {
+    const el = this.wwCenterEl();
+    clearTimeout(this._wwCenterT);
+    el.textContent = text; el.style.fontSize = emoji ? '22vh' : '6vh';
+    el.style.transition = 'none'; el.style.opacity = '0'; void el.offsetWidth; // 作り直しの時も、0から始めてなめらかに出す
+    el.style.transition = 'opacity 0.5s ease'; el.style.opacity = '1';
+    if (ms) this._wwCenterT = setTimeout(() => this.wwCenterHide(), ms);
+  }
+  wwCenterHide(now) {
+    clearTimeout(this._wwCenterT);
+    const el = document.getElementById('wwCenter'); if (!el) return;
+    el.style.transition = now ? 'none' : 'opacity 0.6s ease'; el.style.opacity = '0';
+  }
   // 暗転用の黒い膜（なければ作る）
   wwFadeEl() {
     let el = document.getElementById('wwFade');
@@ -5437,7 +5478,7 @@ class GameScene extends Phaser.Scene {
   wwNightFadeCancel() {
     clearTimeout(this._wwWarpT1); clearTimeout(this._wwWarpT2);
     if (this._wwFadeAt == null) return;
-    this._wwFadeAt = null;
+    this._wwFadeAt = null; this.wwCenterHide();
     const el = document.getElementById('wwFade'); if (el) { el.style.transition = 'opacity 0.4s ease'; el.style.opacity = '0'; }
   }
   // 次のフェーズが夜か（最初の昼と、投票の結果発表のあとが夜につながる）
@@ -5452,13 +5493,13 @@ class GameScene extends Phaser.Scene {
     clearTimeout(this._wwWarpT1); clearTimeout(this._wwWarpT2);
     this._wwWarpT1 = setTimeout(() => { // 真っ暗になったので、家へワープ
       const p = this.pv;
-      if (!(p && p.phase === 'battle' && p.mode === 'werewolf')) { this._wwFadeAt = null; el.style.transition = 'opacity 0.4s ease'; el.style.opacity = '0'; return; } // 暗転中にラウンドが終わった
+      if (!(p && p.phase === 'battle' && p.mode === 'werewolf')) { this._wwFadeAt = null; this.wwCenterHide(); el.style.transition = 'opacity 0.4s ease'; el.style.opacity = '0'; return; } // 暗転中にラウンドが終わった
       const sp = this.pvpSpawn(i, p.ids.length);
       this.player.x = sp.x; this.player.y = sp.y;
       this._wwNightFull = true; // 真っ暗な間に、壁の影と夜の闇を全開にする
       this.cameras.main.centerOn(sp.x, sp.y); // カメラも一瞬で移す（暗転中なので見えない）
-      this.showBanner(this.wwNightBannerText(), 3000);
-      this._wwWarpT2 = setTimeout(() => { this._wwFadeAt = null; el.style.transition = 'opacity 1s ease'; el.style.opacity = '0'; }, 400);
+      this.wwCenterShow('🤫', true); // 真っ暗な間、画面の真ん中に🤫を出す
+      this._wwWarpT2 = setTimeout(() => { this._wwFadeAt = null; this.wwCenterHide(); this.showBanner(this.wwNightBannerText(), 3000); el.style.transition = 'opacity 1s ease'; el.style.opacity = '0'; }, WW_BLACK_HOLD_MS);
     }, remain + 100);
     return true;
   }
@@ -5554,7 +5595,7 @@ class GameScene extends Phaser.Scene {
     this.wwQuotaClear();
     this.wwSeerClear();
     this.wwDetClear();
-    clearTimeout(this._wwWarpT1); clearTimeout(this._wwWarpT2); this._wwFadeAt = null; this._wwDawnStart = null;
+    clearTimeout(this._wwWarpT1); clearTimeout(this._wwWarpT2); this._wwFadeAt = null; this._wwDawnStart = null; this.wwCenterHide(true); this._wwVoteArrN = null; this._wwVoteBannerN = null;
     { const wf = document.getElementById('wwFade'); if (wf) { wf.style.transition = 'none'; wf.style.opacity = '0'; } } // 夜の暗転の途中だった場合に備えて解除
     pv.roles = null; pv.myRole = null; this.wwHideRoleTestBtn(); // 役職変更ボタンも消す
     if (pv.weaponStash !== undefined) { const w = pv.weaponStash; pv.weaponStash = undefined; this.pvpEquipWeapon(w.key, w.level); } // 人狼ゲーム中に固定した武器を、もとの武器に戻す
@@ -19095,19 +19136,17 @@ const FIREBASE_CONFIG = {
 // TURN（中継サーバー）について：
 // STUNだけでは「お互いのIPを教え合う」ことしかできないため、Symmetric NATや、UDP自体を
 // 塞ぐ厳しい社内/学校ネットワークでは直接接続(ICE)が最後まで失敗することがある。
-// そのため、ExpressTURN（無料プラン：月1000GBまで）を中継サーバーとして追加してある。
+// そのため、ExpressTURN（無料プラン：月1000GBまで、3478番ポート）を中継サーバーとして追加してある。
 // 直接つながる時はTURNは使われず（通信量に数えられない）、つながらない時だけ中継される。
-// それでも接続できなかった側には「ホストがモバイル通信を使用してください」と表示する
+// それでも接続できなかった側には「通信環境を変えてもう一度お試しください」と表示する
 // （Net.onConnectFail → GameScene）。
 // 注意：ユーザー名・パスワードはこのファイルを開けば誰でも見える。無料枠を他人に使われる
-// 可能性があるので、ファイルを公開する場合は必要に応じて再発行する。
+// 可能性があるので、ファイルを公開する場合は ExpressTURN のダッシュボードで再発行する。
 const RTC_CONFIG = {
   iceServers: [
-    { urls: 'stun:stun.relay.metered.ca:80' },
-    { urls: 'turn:global.relay.metered.ca:80', username: 'efbb50b419e72c3d78c12f99', credential: 'KjZehIXmo2kC00Tb' },
-    { urls: 'turn:global.relay.metered.ca:80?transport=tcp', username: 'efbb50b419e72c3d78c12f99', credential: 'KjZehIXmo2kC00Tb' },
-    { urls: 'turn:global.relay.metered.ca:443', username: 'efbb50b419e72c3d78c12f99', credential: 'KjZehIXmo2kC00Tb' },
-    { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username: 'efbb50b419e72c3d78c12f99', credential: 'KjZehIXmo2kC00Tb' },
+    { urls: 'stun:free.expressturn.com:3478' },
+    { urls: 'turn:free.expressturn.com:3478?transport=udp', username: '000000002106802624', credential: 'NWyjgsEmJ+jRUbCPd4h+x1L/aIs=' },
+    { urls: 'turn:free.expressturn.com:3478?transport=tcp', username: '000000002106802624', credential: 'NWyjgsEmJ+jRUbCPd4h+x1L/aIs=' },
   ],
 };
 
@@ -19533,12 +19572,19 @@ class Net {
       if (pc.connectionState !== 'connected') { this._pcModes.delete(pc); continue; }
       try {
         const stats = await pc.getStats();
-        let pair = null;
-        stats.forEach(st => { if (st.type === 'candidate-pair' && st.nominated && st.state === 'succeeded') pair = st; });
+        const isRelayPair = (pr) => { const l = stats.get(pr.localCandidateId), r = stats.get(pr.remoteCandidateId); return !!((l && l.candidateType === 'relay') || (r && r.candidateType === 'relay')); };
+        // 今選ばれている経路：transport の selectedCandidatePairId が正（nominated かつ succeeded のペアは複数あることがあり、「最後に見つかった1本」は選ばれている経路とは限らない）。
+        // Firefox などで selectedCandidatePairId が無い時は、pair.selected、それも無ければ nominated＆succeeded で代用する
+        let selId = null; stats.forEach(st => { if (st.type === 'transport' && st.selectedCandidatePairId) selId = st.selectedCandidatePairId; });
+        let pair = selId ? stats.get(selId) : null;
+        if (!pair) stats.forEach(st => { if (st.type === 'candidate-pair' && (st.selected || (st.nominated && st.state === 'succeeded'))) pair = st; });
         if (!pair) continue;
-        const local = stats.get(pair.localCandidateId), remote = stats.get(pair.remoteCandidateId);
-        const relay = (local && local.candidateType === 'relay') || (remote && remote.candidateType === 'relay');
-        this._pcModes.set(pc, relay ? 'TURN' : 'P2P');
+        // 実際に中継サーバー(relay)経由で流れた量：relay を含む全ペアの送受信バイト合計の、前回(3秒前)からの増え方。接続確認(STUN)だけなら数百バイトなので、それを大きく超えたら TURN とみなす
+        let relayBytes = 0; stats.forEach(st => { if (st.type === 'candidate-pair' && isRelayPair(st)) relayBytes += (st.bytesSent || 0) + (st.bytesReceived || 0); });
+        if (!this._relayBytesPrev) this._relayBytesPrev = new WeakMap();
+        const prevBytes = this._relayBytesPrev.get(pc); this._relayBytesPrev.set(pc, relayBytes);
+        const relayActive = prevBytes != null && relayBytes - prevBytes > 6000;
+        this._pcModes.set(pc, (isRelayPair(pair) || relayActive) ? 'TURN' : 'P2P');
       } catch (e) { /* getStatsが使えない環境などは無視 */ }
     }
     let mode = null;
