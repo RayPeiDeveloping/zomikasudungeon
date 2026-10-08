@@ -20220,9 +20220,11 @@ function showLobbyBanner(text, ms) {
   clearTimeout(showLobbyBanner._t); showLobbyBanner._t = setTimeout(() => { el.style.opacity = '0'; }, ms || 2200);
 }
 // 四つ腕の調伏の儀ボタン：一度でも四つ腕の調伏の儀をプレイするまでは灰色。押すと解放条件のバナーが出る
+// ARMS4_RITUAL_ALWAYS_OPEN が true の間は、プレイ済みかどうかに関係なく最初から解放（元に戻す時は false にする）
+const ARMS4_RITUAL_ALWAYS_OPEN = true;
 function updateArms4RitualBtn() {
   const b = document.getElementById('arms4RitualBtn'); if (!b) return;
-  const ok = !!loadSave().arms4RitualPlayed;
+  const ok = ARMS4_RITUAL_ALWAYS_OPEN || !!loadSave().arms4RitualPlayed;
   b.style.background = ok ? '#b26bff' : '#777';
   b.style.color = ok ? '' : '#ccc';
   b.style.opacity = ok ? '' : '0.6';
@@ -20343,7 +20345,7 @@ let askWeapon = null;
   // 【期間限定】天使・調伏の儀：武器選択なしで、降魔術（四つ腕の調伏の儀に挑めるLv）で始まり、すぐ四つ腕との調伏の儀に入る
   updateArms4RitualBtn(); // 起動時：未解放なら灰色にする
   document.getElementById('arms4RitualBtn').addEventListener('click', () => {
-    if (!loadSave().arms4RitualPlayed) { showLobbyBanner('天使の調伏の儀を一度でも開始したら解放'); return; } // 未解放
+    if (!ARMS4_RITUAL_ALWAYS_OPEN && !loadSave().arms4RitualPlayed) { showLobbyBanner('天使の調伏の儀を一度でも開始したら解放'); return; } // 未解放
     startGame('solo', { weaponKey: 'summon2', arms4Ritual: true });
   });
   document.getElementById('frontlineBtn').addEventListener('click', () => {
