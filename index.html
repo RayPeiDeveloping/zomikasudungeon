@@ -187,14 +187,16 @@
   }
 
   #rotateHint {
-    display: none; position: fixed; inset: 0; z-index: 50;
+    display: none; position: fixed; inset: 0; z-index: 250; /* ロビー(100)や各種オーバーレイ(〜140)より前に出して、縦向きだと必ず見えるようにする */
     background: rgba(10,10,16,0.94); color: #fff;
     align-items: center; justify-content: center; text-align: center;
     font-size: 18px; line-height: 1.7; padding: 24px;
   }
-  @media (max-width: 900px) and (orientation: portrait) {
-    #rotateHint { display: flex; }
+  @media (pointer: coarse) and (max-width: 900px) and (orientation: portrait) { /* スマホ＝主な入力がタッチ。PCの細い窓では出さない */
+    #rotateHint { display: flex; flex-direction: column; }
   }
+  #rotateHint .wwNote { display: none; margin-top: 18px; padding: 10px 14px; border: 1px solid #8fb3ff; border-radius: 10px; font-size: 15px; color: #cfe0ff; }
+  #rotateHint.ww .wwNote { display: block; }
 
   /* ============== 協力プレイ用ロビー ============== */
   #lobby {
@@ -370,10 +372,10 @@
   #mpCodeRow #leaveRoomBtn:disabled { opacity: 0.6; }
 
   /* ===== 人狼：テキストチャット（横向きの側面パネル＋定型文） ===== */
-  #wwChatBtn { display: none; position: fixed; top: 11vh; right: 2.5vh; z-index: 60; width: 6vh; height: 6vh; min-width: 34px; min-height: 34px; padding: 0;
-    border-radius: 50%; border: 0.2vh solid #8fb3ff; background: rgba(20,26,50,0.85); color: #fff; font-size: max(16px, 3vh); line-height: 1; touch-action: manipulation; }
+  #wwChatBtn { display: none; position: fixed; bottom: max(2.5vh, env(safe-area-inset-bottom)); right: max(2.5vh, env(safe-area-inset-right)); z-index: 60; width: 11vh; height: 11vh; min-width: 56px; min-height: 56px; padding: 0; /* 右上は部屋の情報パネルがあるので、右下に置く */
+    border-radius: 50%; border: 0.3vh solid #8fb3ff; background: rgba(20,26,50,0.88); color: #fff; font-size: max(26px, 5.5vh); line-height: 1; touch-action: manipulation; }
   #wwChatBtn.unread { border-color: #ffd24a; box-shadow: 0 0 1.2vh #ffd24a; }
-  #wwChatBtn b { display: none; position: absolute; top: -0.6vh; right: -0.6vh; min-width: 2.4vh; padding: 0 0.5vh; border-radius: 2vh; background: #e33; color: #fff; font-size: max(10px, 1.8vh); line-height: 2.4vh; }
+  #wwChatBtn b { display: none; position: absolute; top: -0.6vh; right: -0.6vh; min-width: max(20px, 3.6vh); padding: 0 0.6vh; border-radius: 3vh; background: #e33; color: #fff; font-size: max(12px, 2.6vh); line-height: max(20px, 3.6vh); }
   #wwChatPanel { display: none; position: fixed; right: 2.5vh; top: 11vh; bottom: 2.5vh; width: min(38vw, 360px); z-index: 61; flex-direction: column; box-sizing: border-box; padding: 0.8vh;
     background: rgba(10,12,24,0.92); border: 0.2vh solid #5a6aa8; border-radius: 1vh; color: #fff; font-size: max(12px, 2.6vh); }
   #wwChatPanel .wwcHead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6vh; }
@@ -384,15 +386,17 @@
   #wwChatPanel .wwcMsg.ghost { opacity: 0.65; font-style: italic; }
   #wwChatPanel .wwcDot { width: max(12px, 2vh); height: max(12px, 2vh); margin-top: 0.25em; border-radius: 50%; box-sizing: border-box; border: 0.15vh solid rgba(255,255,255,0.75); }
   
+  #wwChatPanel .wwcTip { display: none; font-size: 0.8em; color: #ffd24a; margin-bottom: 0.6vh; }
+  @media (pointer: coarse) and (orientation: landscape) { #wwChatPanel .wwcTip { display: block; } } /* スマホを横向きで使っている時だけ */
   #wwChatPanel .wwcLog { order: 1; }
   #wwChatPanel .wwcRow { order: 2; display: flex; gap: 0.6vh; margin-top: 0.6vh; }
   #wwChatPanel .wwcStamps { order: 3; display: flex; flex-wrap: wrap; gap: 0.5vh; margin: 0.6vh 0 0; } /* 定型文は入力欄の下 */
   #wwChatPanel input { flex: 1; min-width: 0; font-size: inherit; padding: 0.4vh 0.8vh; border-radius: 0.8vh; border: 0.15vh solid #6c7cc0; background: #101428; color: #fff; }
   /* スマホ縦向き：チャットを画面いっぱいに表示（vh基準だと縦長で大きくなりすぎるのでpx基準に切り替える） */
-  @media (max-width: 900px) and (orientation: portrait) {
-    #wwChatBtn { top: calc(env(safe-area-inset-top, 0px) + 12px); right: 12px; width: 48px; height: 48px; font-size: 24px; border-width: 2px; }
-    #wwChatBtn b { top: -4px; right: -4px; min-width: 20px; font-size: 12px; line-height: 20px; border-radius: 10px; padding: 0 4px; }
-    #wwChatPanel { top: 0; right: 0; bottom: 0; left: 0; width: auto; height: auto; border: 0; border-radius: 0; background: rgba(10,12,24,0.98); font-size: 16px;
+  @media (pointer: coarse) and (max-width: 900px) and (orientation: portrait) {
+    #wwChatBtn { z-index: 260; top: calc(env(safe-area-inset-top, 0px) + 12px); bottom: auto; right: 12px; width: 64px; height: 64px; font-size: 32px; border-width: 3px; }
+    #wwChatBtn b { top: -4px; right: -4px; min-width: 24px; font-size: 14px; line-height: 24px; border-radius: 12px; padding: 0 5px; }
+    #wwChatPanel { z-index: 261; top: 0; right: 0; bottom: 0; left: 0; width: auto; height: auto; border: 0; border-radius: 0; background: rgba(10,12,24,0.98); font-size: 16px;
       padding: calc(env(safe-area-inset-top, 0px) + 8px) calc(env(safe-area-inset-right, 0px) + 10px) calc(env(safe-area-inset-bottom, 0px) + 8px) calc(env(safe-area-inset-left, 0px) + 10px); }
     #wwChatPanel .wwcHead { margin-bottom: 8px; font-size: 18px; }
     #wwChatPanel button { border-width: 1px; border-radius: 8px; padding: 8px 12px; }
@@ -543,7 +547,7 @@
 <div id="aimJoystickZone">
   <div id="aimJoystickBase"><div id="aimJoystickKnob"></div></div>
 </div>
-<div id="rotateHint">📱<br>スマホでは端末を横向きにしてプレイしてください</div>
+<div id="rotateHint"><div>📱<br>スマホでは端末を横向きにしてプレイしてください</div><div class="wwNote">💬 人狼のチャットは、縦向きのまま右上の💬ボタンから使えます（全画面で読みやすくなります）</div></div>
 
 <script>
 // ============== スマホ用バーチャルジョイスティック ==============
@@ -591,6 +595,7 @@ const IS_TOUCH_DEVICE = ('ontouchstart' in window) || navigator.maxTouchPoints >
 
   // 2本指以上でのピンチ拡大を防止（こちらも同じ理由でキャプチャフェーズ）
   document.addEventListener('touchmove', (e) => {
+    if (e.target && e.target.closest && e.target.closest('#wwChatBtn, #wwChatPanel')) return; // 人狼チャット：スティックを持ったままでも押せる・ログをスクロールできるようにする
     if (e.touches.length > 1) e.preventDefault();
   }, { passive: false, capture: true });
 })();
@@ -959,18 +964,19 @@ const PVP = {
   ],
   weaponZone: { cx: 10, cy: 4.5, size: 4, holdTime: 3 }, // 武器変更ゾーン（準備室の上側の正方形。中心タイル座標・一辺のタイル数）。holdTime：武器固定の時、全員が入ってからホストが選び直すまでの秒数
   // 人狼ゲームのマップ（バトルフィールドの右隣に作る）。中心に円形の広場、そこから放射状に道が伸びて、道の先に家（円形・入口が1つ）がある。それ以外は岩（壁）。
-  werewolf: { wolves: 1, wolvesMany: 2, manyFrom: 8, bloodyTime: 20, roleLot: { villager: 1, watchman: 1, seer: 1, detective: 1, dupMul: 0.05 }, detectiveTime: 5, detectiveR: 2.2, trailTiles: 20, trailStep: 0.5, seerTime: 15, seerR: 2.5, seerPerNight: 1, quotaHold: 15, watchOilMul: 2, watchViewMul: 2, wolfSwordLv: 5, houses: 10, plazaR: 9, houseDist: 30, houseIn: 4.5, houseOut: 6.5, roadW: 3, size: 80, gap: 4, rays: 600, viewR: 20, time: 900, dayTime: 30, dayTime2: 90, voteTime: 30, resultTime: 6, nightTime: 90, nightViewR: 6, nightHole: 0.94, oilMax: 100, oilBurn: 2, oilRegen: 4, oilLow: 0.3, oilMinR: 1.2, oilStartMin: 0.3, oilStartMax: 0.7 },
+  werewolf: { wolves: 1, wolvesMany: 2, manyFrom: 8, bloodyTime: 20, roleLot: { villager: 1, watchman: 1, seer: 1, detective: 1, dupMul: 0.05 }, detectiveTime: 5, detectiveR: 2.2, trailTiles: 30, trailStep: 0.5, seerTime: 15, seerR: 2.5, seerPerNight: 1, quotaHold: 15, watchOilMul: 2, watchViewMul: 3, wolfViewMul: 2, wolfSwordLv: 5, houses: 10, mapVersion: 2, size2: 96, houseDist2: 38, mapSeed2: 20261010, plazaR: 9, houseDist: 30, houseIn: 4.5, houseOut: 6.5, roadW: 3, size: 80, gap: 4, rays: 600, viewR: 20, time: 900, dayTime: 30, dayTime2: 90, voteTime: 30, resultTime: 6, nightTime: 90, nightViewR: 6, nightHole: 0.94, oilMax: 100, oilBurn: 2, oilRegen: 4, oilLow: 0.3, oilMinR: 1.2, oilStartMin: 0.3, oilStartMax: 0.7 },
   // 役職の抽選（roleLot）：人狼以外の人を1人ずつ、重みつき抽選で「普通の村人・見張り番・調査員・探偵」のどれかに決める（普通の村人も役職の一つとして扱う。人数の下限はなし）。
   //   villager／watchman／seer／detective＝各役職の重み（大きいほど出やすい。0にするとその役職は出ない）／dupMul＝同じ役職がすでに1人いるごとに重みに掛ける倍率（重み×dupMul^人数。小さいほど被りにくい）
   //   dupMul 0.05 の目安：5人（人狼以外4人）で4役職が1人ずつそろう確率は約81%、どれかが被る確率は約19%。4人で約6%、3人で約2%。6人以上は役職が4種類しかないので被りが出る
   // 探偵（村人陣営）：detectiveTime＝死体のまわり（detectiveR タイル以内）に立ち続けて調べ終わるまでの秒数（昼でも夜でもできる）／trailTiles＝犯人の足跡を残すタイル数／trailStep＝足跡の間隔（タイル）
-  // quotaHold＝ノルマ品の上に乗り続けて拾うまでの秒数／役職：seerTime＝調査員が誰かの近く（seerR タイル以内）にいて役職の調査が終わるまでの秒数（結果は翌朝に分かる）／seerPerNight＝1晩に調査できる人数／watchOilMul＝見張り番の油の最大量の倍率／watchViewMul＝見張り番の夜の光の半径の倍率
+  // quotaHold＝ノルマ品の上に乗り続けて拾うまでの秒数／役職：seerTime＝調査員が誰かの近く（seerR タイル以内）にいて役職の調査が終わるまでの秒数（結果は翌朝に分かる）／seerPerNight＝1晩に調査できる人数／watchOilMul＝見張り番の油の最大量の倍率／watchViewMul＝見張り番の夜の光の半径の倍率／wolfViewMul＝人狼の夜の光の半径の倍率
   // 流れ：最初の昼(dayTime)→夜(nightTime)→［昼(dayTime2＋voteTime。昼の間じゅう投票できる。全員が投票済みなら途中で終わる)→結果発表(resultTime。投票結果を見せる間。人狼は殺せない)→夜］をくり返す。昼と結果発表の間は人狼は殺せない／time：ゲーム全体の長さ(秒)／
   // dayTime：最初の昼の長さ／dayTime2：2回目以降の昼の長さ／voteTime：昼に足す時間（昼の長さ＝dayTime2＋voteTime）／nightTime：夜の長さ／nightViewR：夜のランタンの光の半径（タイル数。自分の周りだけ）／
   // nightHole：闇に空ける丸い穴の大きさ（光の半径に対する割合）。光のゆらぎで光の縁が縮んでも、穴の縁より内側に来ない（隙間ができない）ように、1より小さくしておく
   // ランタンの油：oilMax＝最大量／oilBurn＝夜に外にいる間の1秒あたりの消費／oilRegen＝夜に自分の家の中にいる間の1秒あたりの回復（自分の家でのみ回復）／
-  // oilLow＝残量がこの割合を切ると光が縮んでゆらぐ／oilMinR＝油が切れた時の光の半径（タイル数。足元の1マスぐらい）。油は毎晩の始まりに100%から始まる（oilStartMin・oilStartMax は今は使っていない）
+  // oilLow＝残量がこの割合を切ると光が縮んでゆらぐ／oilMinR＝油が切れた時の光の半径（タイル数。足元の1マスぐらい）。油は最初の夜だけ100%から始まり、2晩目からは前の夜の残りを持ち越す（oilStartMin・oilStartMax は今は使っていない）
   // houses：家の数（参加者は均等にばらして割り当てる）／plazaR：広場の半径／houseDist：広場の中心から家の中心まで／houseIn・houseOut：家の内側・外側の半径（差が壁の厚み）/
+  // mapVersion：使うマップ（1＝元のマップ［size・houseDist を使う］／2＝広くて複雑な新マップ［size2・houseDist2・mapSeed2 を使う］。この1つの数字で切り替えられる。全員が同じ版のファイルで遊ぶこと）／
   // roadW：道と入口の幅／size：マップ領域の一辺／gap：バトルフィールドとの間隔／rays：視界の光線の数（多いほど滑らかだが重い）／viewR：見える距離（タイル数。これより遠くは壁がなくても黒くなる。小さいほど軽い）／time：ルール未実装のあいだの、ラウンドの長さ(秒)
   countdown: 10,         // 全員が円に入ってからワープまでの秒数
   minPlayers: 2,         // 開始に必要な最低人数
@@ -987,6 +993,7 @@ const PVP = {
 };
 
 // ===== 人狼ゲームの演出用の定数 =====
+const WW_ROAD_GRASS_NEAR_PLAZA = true; // 家へ続く道の草のグラデーションの向き（true＝広場に近いほど草が濃い／false＝家に近いほど草が濃い）
 const WW_NIGHT_FADE_MS = 3500; // 夜の闇がゆっくり濃くなる時間（ミリ秒）
 const WW_NIGHT_DELAY_MS = 500; // 夜が始まってから闇が濃くなり始めるまでの待ち（暗転で真っ暗な間は、闇を始めない）
 const WW_DAWN_MS = 4000; // 朝になってから、夜の闇がすっかり消えるまでの時間（ミリ秒）
@@ -1026,11 +1033,74 @@ function buildWerewolfRegion(grid, width, height, ox, oy) {
   return { cx, cy, houses, kind, hid, w: width, h: height, ox, oy, size };
 }
 
+
+// kind：6＝家へ続く道（新マップだけ。道(2)と同じ扱いで、床の色だけ草まじり）
+// 【新マップ（mapVersion 2）】元のマップより広く、道が複雑。中心の広場＋放射状の道＋家（ここまでは元と同じ）に、次を足す：
+//   ・内側の環状道路（半径18）と外側の環状道路（半径27。固定シードで決めた3か所が途切れている＝行き止まりができる）
+//   ・家と家の間の斜めの連絡路（偶数番目：内側と外側の環をつなぐ）と、その先の行き止まりの小さな広場（奇数番目：隠れ場所になる）
+//   最後に、広場から歩いてたどり着けない道は岩に戻す（孤立した道ができない）。固定シードなので、全員が同じ形になる。
+function buildWerewolfRegionV2(grid, width, height, ox, oy) {
+  const W = PVP.werewolf, size = W.size2, dist = W.houseDist2, cx = ox + size / 2, cy = oy + size / 2, H = W.houses;
+  const R1 = 18, R2 = 27, RP = 36, RW = 1.5, PR = 3.5, GAP_HALF = 0.28; // 内側の環・外側の環・行き止まりの広場までの距離／環の道幅の半分／広場の半径／途切れの角度の半分(ラジアン)
+  const rand = mulberry32(W.mapSeed2);
+  const adiff = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  const base = rand() * Math.PI * 2, gaps = [0, 1, 2].map(i => base + Math.PI * 2 * i / 3 + (rand() - 0.5) * 0.6);
+  const kind = new Uint8Array(width * height), hid = new Int8Array(width * height).fill(-1);
+  const houses = [], mids = [];
+  for (let k = 0; k < H; k++) { // 0番が真上、時計回り（元のマップと同じ並び）
+    const a = -Math.PI / 2 + Math.PI * 2 * k / H, ux = Math.cos(a), uy = Math.sin(a);
+    houses.push({ k, a, ux, uy, x: cx + ux * dist, y: cy + uy * dist });
+    const am = -Math.PI / 2 + Math.PI * 2 * (k + 0.5) / H; mids.push({ ux: Math.cos(am), uy: Math.sin(am) });
+  }
+  for (let ty = oy; ty < oy + size; ty++) for (let tx = ox; tx < ox + size; tx++) {
+    const px = tx + 0.5, py = ty + 0.5, dx = px - cx, dy = py - cy, r = Math.hypot(dx, dy);
+    let kd = r <= W.plazaR ? 1 : 0, id = -1, zone = false; // zone：家（壁を含む）の範囲の中
+    for (const h of houses) {
+      const hd = Math.hypot(px - h.x, py - h.y);
+      const along = dx * h.ux + dy * h.uy, perp = Math.abs(dx * h.uy - dy * h.ux);
+      const inRoad = perp <= W.roadW / 2 && along >= W.plazaR - 2 && along <= dist - W.houseIn + 0.5;
+      if (hd <= W.houseIn) { kd = (hd > W.houseIn - 1 && perp <= W.roadW / 2 && along < dist) ? 5 : 3; id = h.k; zone = true; break; }
+      if (hd <= W.houseOut) { if (inRoad) { kd = 4; id = h.k; } else kd = 0; zone = true; break; }
+      if (inRoad && kd === 0) kd = 6; // 家へ続く道（広場→家の入口）。草まじりの見た目にして、環状道路などと区別する
+    }
+    if (kd === 0 && !zone) { // 追加の道（家の壁の中には作らない）
+      const ang = Math.atan2(dy, dx);
+      let road = Math.abs(r - R1) <= RW || (Math.abs(r - R2) <= RW && !gaps.some(g => adiff(ang, g) < GAP_HALF));
+      for (let k = 0; k < H && !road; k++) {
+        const m = mids[k], along = dx * m.ux + dy * m.uy, perp = Math.abs(dx * m.uy - dy * m.ux);
+        if (k % 2 === 0) road = perp <= 1 && along >= R1 && along <= R2;                                   // 内側と外側の環をつなぐ斜めの道
+        else road = (perp <= 1 && along >= R2 && along <= RP - 2) || Math.hypot(dx - m.ux * RP, dy - m.uy * RP) <= PR; // 外側の環から伸びる道と、その先の行き止まりの広場
+      }
+      if (road) kd = 2;
+    }
+    if (kd) { grid[ty][tx] = 1; kind[ty * width + tx] = kd; hid[ty * width + tx] = id; }
+  }
+  // 斜めの家では円の近似で目印(5)に隙間ができることがあるので、入口(4)に隣り合う家の中(3)も目印(5)にする（元のマップと同じ処理）
+  const fix = [];
+  for (let ty = oy; ty < oy + size; ty++) for (let tx = ox; tx < ox + size; tx++) {
+    const i = ty * width + tx; if (kind[i] !== 3) continue;
+    for (const [ax, ay] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const j = (ty + ay) * width + tx + ax; if (kind[j] === 4 && hid[j] === hid[i]) { fix.push(i); break; } }
+  }
+  for (const i of fix) kind[i] = 5;
+  // 広場から歩いてたどり着けない道（途切れた環の先の孤立など）は岩に戻す
+  const seen = new Uint8Array(width * height), q = [(Math.floor(cy)) * width + Math.floor(cx)];
+  seen[q[0]] = 1;
+  for (let qi = 0; qi < q.length; qi++) {
+    const i = q[qi], x = i % width, y = (i - x) / width;
+    for (const [ax, ay] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const j = (y + ay) * width + x + ax; if (!seen[j] && kind[j] !== 0) { seen[j] = 1; q.push(j); } }
+  }
+  for (let ty = oy; ty < oy + size; ty++) for (let tx = ox; tx < ox + size; tx++) {
+    const i = ty * width + tx; if (kind[i] === 2 && !seen[i]) { kind[i] = 0; grid[ty][tx] = 0; }
+  }
+  return { cx, cy, houses, kind, hid, w: width, h: height, ox, oy, size };
+}
+
 function generatePvpMap() {
   const P = PVP, pr = P.prep, bt = P.battle, WW = P.werewolf;
   const wox = bt.x + bt.w + WW.gap, woy = 2; // 人狼ゲームのマップ領域の左上
-  const width = wox + WW.size + 2;
-  const height = Math.max(pr.y + pr.h, bt.y + bt.h, woy + WW.size) + 2;
+  const wwV2 = WW.mapVersion === 2, wwSize = wwV2 ? WW.size2 : WW.size; // 人狼マップの一辺（版で切り替え）
+  const width = wox + wwSize + 2;
+  const height = Math.max(pr.y + pr.h, bt.y + bt.h, woy + wwSize) + 2;
   const grid = Array.from({ length: height }, () => Array(width).fill(0));
   const fill = (r) => { for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) grid[y][x] = 1; };
   fill(pr); fill(bt);
@@ -1047,7 +1117,7 @@ function generatePvpMap() {
     pillars.push({ x, y, w, h });
     for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) grid[yy][xx] = 0;
   }
-  const werewolf = buildWerewolfRegion(grid, width, height, wox, woy);
+  const werewolf = (wwV2 ? buildWerewolfRegionV2 : buildWerewolfRegion)(grid, width, height, wox, woy); // 版1＝元のマップ／版2＝新マップ
   return {
     grid, width, height, rooms: [pr, bt], exitPos: null,
     playerStart: { x: pr.x + Math.floor(pr.w / 2), y: pr.y + pr.h - 3 },
@@ -2034,6 +2104,7 @@ function applyWeaponLevel(base, level) {
 
 // ============== Phaserシーン ==============
 const TILE = 32;
+const FLOOR_CHUNK = 16; // 床を焼き付ける区画の一辺（タイル数）。16＝512px（倍率1で約1MB／倍率2で約4MB）
 
 // プレイヤー名など、外部（他プレイヤー/Firebase経由）から来る文字列をHTMLに差し込む前に
 // 必ずこれを通す。素通しでinnerHTMLに入れると、名前欄に<script>等を仕込まれた場合に
@@ -4265,7 +4336,7 @@ class GameScene extends Phaser.Scene {
   }
 
   // ===== 人狼ゲーム：ランタンの油 =====
-  // 夜、外にいる間は油が減り、自分の家の中にいる間だけ回復する。油は毎晩の始まりに、最大量の30〜70%のランダムな量から始まる。
+  // 夜、外にいる間は油が減り、自分の家の中にいる間だけ回復する。油は最初の夜だけ最大量の100%から始まり、2晩目からは前の夜の残りを持ち越す（夜に自分の家の中にいる間だけ回復する）。
   // 油が oilLow を切ると光の半径が縮みながらゆらぎ、切れると足元の1マス(oilMinR)だけになる。結果は this._wwR（光の半径・タイル数）に入れ、視界とランタンの光が使う。
   // 自分のランタンの油が切れているかを全員に知らせる（切れた間は1秒に1回。戻ったら on:false を1回）。
   // 知らせを受け取っても、印を出すのは人狼の画面だけ（村人側の画面には何も出ない）。
@@ -4295,18 +4366,19 @@ class GameScene extends Phaser.Scene {
         + '<div id="wwOilFill" style="width:100%; height:100%; background:#ffd21f;"></div></div>';
       document.body.appendChild(box);
     }
-    const watch = pv && pv.myRole === 'watchman', oilMax = W.oilMax * (watch ? (W.watchOilMul || 1) : 1), viewMul = watch ? (W.watchViewMul || 1) : 1; // 見張り番：油の最大量×2・光の半径×2（村人陣営）
+    const watch = pv && pv.myRole === 'watchman', oilMax = W.oilMax * (watch ? (W.watchOilMul || 1) : 1), viewMul = watch ? (W.watchViewMul || 1) : 1; // 見張り番：油の最大量×watchOilMul・光の半径×watchViewMul（村人陣営）
     if (!night || idx < 0 || this.isGhost) { // 昼・観戦・ゴースト：油は使わない（次の夜に、また100%から始まる）
-      if (this._wwOil != null && !night && idx >= 0 && !this.isGhost) this._wwDawnStart = performance.now(); // 朝になった：夜の闇をゆっくり消すために、始まりの時刻を覚える
-      this._wwOil = null; box.style.display = 'none'; this.wwOilOutSync(false);
+      if (this._wwInNight && !night && idx >= 0 && !this.isGhost) this._wwDawnStart = performance.now(); // 朝になった：夜の闇をゆっくり消すために、始まりの時刻を覚える
+      this._wwInNight = false; box.style.display = 'none'; this.wwOilOutSync(false); // 油の残量（_wwOil）はそのまま持ち越す（次の夜も、前の夜の残りから始まる）
       if (!(this._wwDawnStart != null && performance.now() - this._wwDawnStart < WW_DAWN_MS)) this._wwR = W.nightViewR * viewMul; // 朝の間は、夜の最後の光の半径のまま（油が少なかった人の光が、急に広がらない）
       return;
     }
+    this._wwInNight = true; // 夜の間（朝になった瞬間を見分けるための印）
     if (pv.myRole === 'wolf') { // 人狼は夜目が効くので、油がない：減らない・バーも出さない・視界は一定（ゆらぎなし）（朝の処理のため _wwOil は空にしない）
-      this._wwOil = oilMax; this._wwR = W.nightViewR * (W.watchViewMul || 1); box.style.display = 'none'; this.wwOilOutSync(false); // 視界は見張り番と同じ（watchViewMul倍）
+      this._wwOil = oilMax; this._wwR = W.nightViewR * (W.wolfViewMul || 1); box.style.display = 'none'; this.wwOilOutSync(false); // 人狼の視界は wolfViewMul 倍（見張り番の watchViewMul とは別）
       return;
     }
-    if (this._wwOil == null) this._wwOil = oilMax; // 夜の始まり：全員、油は100%（見張り番も、自分の最大量の100%）
+    if (this._wwOil == null) this._wwOil = oilMax; // 最初の夜だけ：全員、油は100%（見張り番も、自分の最大量の100%）。2晩目からは前の夜の残りを持ち越す
     const i0 = Math.floor(this.player.y / TILE) * ww.w + Math.floor(this.player.x / TILE), inMap = this.player.x >= 0 && this.player.y >= 0 && this.player.x / TILE < ww.w && this.player.y / TILE < ww.h;
     const k = inMap ? ww.kind[i0] : 0, home = inMap && (k === 3 || k === 5) && ww.hid[i0] === this.wwHouseFor(idx, pv.ids.length).k; // 自分の家の中（玄関前を含む）
     this._wwOil = Math.max(0, Math.min(oilMax, this._wwOil + (home ? W.oilRegen : -W.oilBurn) * dt));
@@ -4379,7 +4451,7 @@ class GameScene extends Phaser.Scene {
     if (r === 'wolf') return { text: 'あなたは【人狼】です\n（夜目が効き、ノルマを拾うこともできる。殺すと夜明けまで返り血が残る）', color: '#ff4d4d', ms: 4500 };
     if (r === 'villager') { const pv = this.pv, need = (pv && pv.wwQ) ? pv.wwQ.need : Math.max(1, ((pv && pv.ids) ? pv.ids.length : 2) + 2); return { text: 'あなたは【村人】です\n（ほかの村人と協力してノルマを' + need + '日達成しよう）', color: '#5be08a', ms: 4500 }; }
     if (r === 'seer') return { text: 'あなたは【調査員】です\n（夜、誰かの近くに15秒いると、翌朝その人の役職が分かる。1晩に1人まで）', color: '#c9a6ff', ms: 4500 };
-    if (r === 'watchman') return { text: 'あなたは【見張り番】です\n（油の量と視界が2倍）', color: '#ffd21f', ms: 4500 };
+    if (r === 'watchman') return { text: 'あなたは【見張り番】です\n（油の量が' + PVP.werewolf.watchOilMul + '倍・視界が' + PVP.werewolf.watchViewMul + '倍）', color: '#ffd21f', ms: 4500 };
     if (r === 'detective') return { text: 'あなたは【探偵】です\n（死体のそばに5秒いると、死んだ時刻と犯人の足どりが分かる。昼もできる）', color: '#5bc8ff', ms: 4500 };
     return null;
   }
@@ -4452,7 +4524,7 @@ class GameScene extends Phaser.Scene {
     const order = ['villager', 'wolf', 'watchman', 'seer', 'detective'], next = order[(order.indexOf(pv.myRole) + 1) % order.length];
     pv.roles[my] = next; pv.myRole = next;
     this.pvpEquipWeapon('sword', next === 'wolf' ? PVP.werewolf.wolfSwordLv : 1); // 人狼は剣Lv.5、それ以外はLv.1（役職の始まりと同じ）
-    this._wwOil = null; // 油の最大量は役職で変わる（見張り番は2倍）ので、100%から数え直す
+    this._wwOil = null; this._wwInNight = false; // 油の最大量は役職で変わる（見張り番は watchOilMul 倍）ので、新しいゲームの始まりは100%から数え直す
     this.wwSeerInit(); this.wwDetInit();
     this.wwShowRoleBanner();
     this.wwUpdateRoleTestBtn();
@@ -4575,14 +4647,14 @@ class GameScene extends Phaser.Scene {
     const d = this.dungeon, bt = PVP.battle;
     const tMinX = Math.max(bt.x, Math.floor((cx - r) / TILE)), tMaxX = Math.min(bt.x + bt.w - 1, Math.floor((cx + r) / TILE));
     const tMinY = Math.max(bt.y, Math.floor((cy - r) / TILE)), tMaxY = Math.min(bt.y + bt.h - 1, Math.floor((cy + r) / TILE));
-    let changed = false;
+    const changed = [];
     for (let ty = tMinY; ty <= tMaxY; ty++) {
       for (let tx = tMinX; tx <= tMaxX; tx++) {
         if (d.grid[ty][tx] !== 0) continue;
-        if (Phaser.Math.Distance.Between(cx, cy, tx * TILE + TILE / 2, ty * TILE + TILE / 2) <= r) { d.grid[ty][tx] = 1; changed = true; }
+        if (Phaser.Math.Distance.Between(cx, cy, tx * TILE + TILE / 2, ty * TILE + TILE / 2) <= r) { d.grid[ty][tx] = 1; changed.push([tx, ty]); }
       }
     }
-    if (changed) this._queueWallRedraw(); // 同じフレームで何度壊れても、床の描き直しは1回にまとめる
+    if (changed.length) this._queueWallRedraw(changed); // 同じフレームで何度壊れても、床の描き直しは1回にまとめる（壊れた区画だけ）
   }
 
   // 回復アイテム（通常ダンジョンと同じ包帯。拾うと4秒かけて40回復）を毎ラウンド PVP.potionCount 個、フィールド内側に配置する。
@@ -5322,7 +5394,7 @@ class GameScene extends Phaser.Scene {
     for (let ty = ww.oy; ty < ww.oy + ww.size; ty++) for (let tx = ww.ox; tx < ww.ox + ww.size; tx++) {
       const i = ty * ww.w + tx, k = ww.kind[i];
       if (k === 1) qc.plaza.push([tx, ty]);
-      else if (k === 2) qc.road.push([tx, ty]);
+      else if (k === 2 || k === 6) qc.road.push([tx, ty]);
       else if (k === 3 || k === 5) (qc.house[ww.hid[i]] = qc.house[ww.hid[i]] || []).push([tx, ty]);
     }
     ww._qc = qc; return qc;
@@ -7225,6 +7297,15 @@ class GameScene extends Phaser.Scene {
       const v = ((y * 2654435761) >>> 0) % 5; // 0〜4
       return (0x6e + v * 3) * 0x10000 + (0x4c + v * 2) * 0x100 + (0x2a + v);
     }
+    if (k === 6) { // 家へ続く道：土の色に草の緑を混ぜる。広場からの距離でグラデーションになる（座標から決まるので全員同じ見た目）
+      // WW_ROAD_GRASS_NEAR_PLAZA：true＝広場に近いほど草が濃く、家に近いほど土／false＝その逆（家に近いほど草が濃い）
+      const PW = PVP.werewolf, r = Math.hypot(x + 0.5 - ww.cx, y + 0.5 - ww.cy);
+      let f = Math.min(1, Math.max(0, (r - PW.plazaR) / (PW.houseDist2 - PW.houseIn - PW.plazaR))); // 0＝広場の縁／1＝家の入口
+      if (!WW_ROAD_GRASS_NEAR_PLAZA) f = 1 - f;
+      const noise = ((((x * 73856093) ^ (y * 19349663)) >>> 3) & 3) * 0.04; // 0〜0.12：タイルごとの少しのムラ
+      const t = Math.min(0.85, Math.max(0.1, 0.75 - 0.6 * f + noise)), lerp = (a, b) => Math.round(a + (b - a) * t);
+      return lerp(0x6b, 0x3a) * 0x10000 + lerp(0x52, 0x78) * 0x100 + lerp(0x36, 0x30);
+    }
     return k === 2 ? 0x6b5236 : (k === 4 || k === 5) ? 0xd2b077 : 0x33333f; // 4＋5＝玄関（外側の入口2マス＋内側の玄関前1マス＝合計3マス）は家の中より明るくして目立たせる
   }
 
@@ -7233,15 +7314,27 @@ class GameScene extends Phaser.Scene {
   // ここで自動的に「壁が消えて床が出現した」ように見える）。
   redrawDungeonWalls() {
     this._wallVer = (this._wallVer || 0) + 1;
-    // 【省電力】床は Graphics のままだと、毎フレーム全タイル分の描画コマンドを再実行してしまう。
-    // そこで、描画コマンドは画面に出さない別の Graphics(_floorSrc) に溜めておき、
-    // 1枚の RenderTexture に焼き付けて表示する（壁を壊した時などの作り直し時だけ焼き直す）。
-    // this.graphics 自体は空のまま残し、表示/非表示・破棄だけを RenderTexture に連動させる
+    // 【省電力・省メモリ】床は「区画（FLOOR_CHUNK×FLOOR_CHUNKタイル）」ごとに小さな RenderTexture へ焼き付け、
+    // カメラの近くにある区画だけを持つ。遠ざかった区画の RenderTexture は捨てずに空き箱(free)へ戻し、
+    // 新しく近づいた区画の描画に使い回す（確保と解放を繰り返さないため）。メモリは「マップの広さ」ではなく「画面の広さ」で決まる。
+    // this.graphics 自体は空のまま残し、表示/非表示・破棄だけを区画の入れ物（Container）に連動させる
     // （儀式の間の hide/復元や、フロア切り替え時の destroy がそのまま動くようにするため）。
     const bakeScale = this._floorBakeScale(this.dungeon);
-    let g = this.graphics;
-    if (bakeScale) g = this.graphics._floorSrc || (this.graphics._floorSrc = this.make.graphics({ x: 0, y: 0, add: false }));
-    const dungeon = this.dungeon;
+    if (bakeScale) {
+      const F = this._floorInit(this.graphics, bakeScale);
+      F.dungeon = this.dungeon;
+      this._floorReleaseAll(F); // 中身はすべて古いので、いったん空き箱へ戻す（必要な区画はこのあとすぐ焼き直す）
+      this._floorUpdate(true);
+      return;
+    }
+    // 焼き付けを使わない設定（?nobake=1）：従来どおり Graphics に全タイルを描く
+    const g = this.graphics;
+    g.clear();
+    this._paintFloorTiles(g, this.dungeon, 0, 0, this.dungeon.width, this.dungeon.height, 0, 0);
+  }
+
+  // タイル範囲 [x0,x1)×[y0,y1) の床を g に描く。ox, oy は描き始めのずれ（ピクセル。区画の左上）
+  _paintFloorTiles(g, dungeon, x0, y0, x1, y1, ox, oy) {
     const ep = dungeon.exitPos;
     const EXIT_TILE_FADE_RADIUS = 4; // この距離（タイル数）で白色が完全に消える
     const lerpColor = (c1, c2, k) => {
@@ -7250,11 +7343,13 @@ class GameScene extends Phaser.Scene {
       const b = Math.round((c1 & 255) * (1 - k) + (c2 & 255) * k);
       return (r << 16) | (gr << 8) | b;
     };
-    g.clear();
-    for (let y = 0; y < dungeon.height; y++) {
-      for (let x = 0; x < dungeon.width; x++) {
-        const t = dungeon.grid[y][x];
+    let any = false;
+    for (let y = y0; y < y1; y++) {
+      const row = dungeon.grid[y];
+      for (let x = x0; x < x1; x++) {
+        const t = row[x];
         if (t === 1 || t === 3) {
+          any = true;
           // 出口に近いほど白っぽく、遠ざかるにつれて通常の床色へ徐々に戻る
           let k = 0;
           if (ep) {
@@ -7265,70 +7360,153 @@ class GameScene extends Phaser.Scene {
           const red = this.nextIsBoss; // ボス階への出口は白ではなく赤く染める
           const base = dungeon.werewolf ? this.wwFloorColor(x, y) : 0x33333f; // 人狼ゲームのマップだけ、広場・道・家で床の色を変える
           g.fillStyle(lerpColor(base, red ? 0xb02a2a : 0x9a9aaa, k), 1);
-          g.fillRect(x * TILE, y * TILE, TILE, TILE);
+          g.fillRect(x * TILE - ox, y * TILE - oy, TILE, TILE);
           g.lineStyle(t === 3 ? 2 : 1, lerpColor(0x26262e, red ? 0xff6b6b : 0xdcdce8, k), 1);
-          g.strokeRect(x * TILE, y * TILE, TILE, TILE);
+          g.strokeRect(x * TILE - ox, y * TILE - oy, TILE, TILE);
         }
       }
     }
-    if (bakeScale) this._bakeFloor(this.graphics, bakeScale);
+    return any;
   }
 
   // 壁が壊れた時の床の描き直しを、そのフレームの最後に1回だけ行う。
-  // ビームは線に沿って何十回も destroyWallsInRadius を呼ぶので、そのたびに床全体を描き直す（＋焼き付ける）と、
+  // ビームは線に沿って何十回も destroyWallsInRadius を呼ぶので、そのたびに描き直す（＋焼き付ける）と、
   // 1発撃つだけで画面が止まってしまうため。当たり判定は dungeon.grid を見ているので、描画が1フレーム遅れても影響しない。
-  _queueWallRedraw() {
+  // 壊れたタイルを含む区画だけを焼き直す（tiles：[[tx,ty],...]。省略したら全体を描き直す）
+  _queueWallRedraw(tiles) {
+    const F = this.graphics && this.graphics._floor;
+    if (F && tiles) { for (const t of tiles) this._floorMarkDirty(F, t[0], t[1]); } // 区画ごとの更新（_floorUpdate が次のupdateで焼き直す）
+    else this._wallFullRedrawWanted = true;
     if (this._wallRedrawQueued) return;
     this._wallRedrawQueued = true;
     this.events.once(Phaser.Scenes.Events.POST_UPDATE, () => {
       this._wallRedrawQueued = false;
-      if (this.graphics && this.graphics.scene) this.redrawDungeonWalls();
+      if (!(this.graphics && this.graphics.scene)) { this._wallFullRedrawWanted = false; return; }
+      if (this._wallFullRedrawWanted || !(this.graphics._floor)) { this._wallFullRedrawWanted = false; this.redrawDungeonWalls(); }
+      else { this._wallVer = (this._wallVer || 0) + 1; this._floorUpdate(true); } // 区画ごとの焼き直し（壊れた区画だけ）。壁が壊れたことを知らせる版番号（_wallVer）は従来どおり進める
     });
   }
 
   // 床を RenderTexture に焼き付ける時の倍率を返す（0 なら焼き付けず、従来どおり Graphics で描く）。
-  // カメラズームが大きい画面でも線がぼやけないよう最大2倍で焼くが、テクスチャの上限サイズやメモリを超える場合は倍率を下げる。
+  // カメラズームが大きい画面でも線がぼやけないよう最大2倍で焼く。区画は小さいので、テクスチャの上限サイズは気にしなくてよい。
   _floorBakeScale(d) {
     if (!d || window.POWER_SAVE.floorBake === false) return 0;
-    const r = this.game.renderer, gl = r && r.gl;
-    if (this._maxTexSize == null) this._maxTexSize = gl ? Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096, 8192) : 4096; // GPUへの問い合わせは重いので1回だけ
-    const maxTex = this._maxTexSize;
-    const W = d.width * TILE, H = d.height * TILE;
-    let sc = Math.max(1, Math.min(2, Math.round(window.GAME_VIEW_ZOOM || 1)));
-    while (sc >= 1 && (W * sc > maxTex || H * sc > maxTex || W * H * sc * sc > 16e6)) sc--; // 16e6px ≒ 64MB
-    return sc >= 1 ? sc : 0;
+    return Math.max(1, Math.min(2, Math.round(window.GAME_VIEW_ZOOM || 1)));
   }
 
-  _bakeFloor(holder, sc) {
-    const src = holder._floorSrc, d = this.dungeon;
-    if (!src) return;
-    const W = Math.ceil(d.width * TILE * sc), H = Math.ceil(d.height * TILE * sc);
-    let rt = holder._floorRT;
-    if (rt && rt.scene && (rt.width !== W || rt.height !== H)) { rt.destroy(); rt = null; }
-    if (!rt || !rt.scene) {
-      rt = holder._floorRT = this.add.renderTexture(0, 0, W, H).setOrigin(0, 0);
-      rt.setVisible(holder.visible);
-      const sv = holder.setVisible.bind(holder), ds = holder.destroy.bind(holder);
-      holder.setVisible = (v) => { sv(v); if (rt.scene) rt.setVisible(v); return holder; };
-      holder.destroy = (...a) => {
-        if (rt.scene) rt.destroy();
-        if (src.scene) src.destroy();
-        holder._floorRT = holder._floorSrc = null;
-        return ds(...a);
-      };
+  // ---- 床の区画キャッシュ（holder = this.graphics。1つの床ごとに1つ持つ） ----
+  // F.active：いま焼いてある区画 Map（キー "cx,cy" → { rt, cx, cy }。rt が null なら床のない空の区画）
+  // F.free：空き箱（使っていない RenderTexture）／F.dirty：壊れた壁で焼き直しが必要な区画のキー
+  _floorInit(holder, sc) {
+    let F = holder._floor;
+    if (F && F.sc !== sc) { this._floorDestroyTextures(F); F.sc = sc; F.lastKey = ''; } // 倍率が変わったらテクスチャを作り直す
+    if (F) return F;
+    const cont = this.add.container(0, 0); // 区画の入れ物（作った時点の描画順＝従来の床と同じ。区画があとから増えても順番は変わらない）
+    cont.setVisible(holder.visible);
+    F = holder._floor = {
+      sc, cont, src: this.make.graphics({ x: 0, y: 0, add: false }), active: new Map(), free: [], dirty: new Set(),
+      dungeon: null, epoch: this._floorEpoch || 0, lastKey: '',
+    };
+    const sv = holder.setVisible.bind(holder), ds = holder.destroy.bind(holder);
+    holder.setVisible = (v) => { sv(v); if (cont.scene) cont.setVisible(v); return holder; };
+    holder.destroy = (...a) => {
+      if (cont.scene) cont.destroy(); // 入れ物を壊すと、中の区画（RenderTexture）も一緒に壊れる
+      F.active.clear(); F.free.length = 0; F.dirty.clear();
+      if (F.src && F.src.scene) F.src.destroy();
+      holder._floor = null;
+      return ds(...a);
+    };
+    return F;
+  }
+
+  _floorDestroyTextures(F) {
+    for (const c of F.active.values()) if (c.rt && c.rt.scene) c.rt.destroy();
+    for (const rt of F.free) if (rt && rt.scene) rt.destroy();
+    F.active.clear(); F.free.length = 0; F.dirty.clear();
+  }
+
+  // 焼いてある区画をすべて空き箱へ戻す（RenderTexture は捨てない）
+  _floorReleaseAll(F) {
+    for (const c of F.active.values()) if (c.rt) { c.rt.setVisible(false); F.free.push(c.rt); }
+    F.active.clear(); F.dirty.clear(); F.lastKey = '';
+  }
+
+  // タイル(tx,ty)が変わった：その区画と、境目にあるなら隣の区画も焼き直す対象にする（タイルの縁の線が隣へはみ出るため）
+  _floorMarkDirty(F, tx, ty) {
+    const N = FLOOR_CHUNK;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const x = tx + dx, y = ty + dy;
+      if (x < 0 || y < 0) continue;
+      F.dirty.add(Math.floor(x / N) + ',' + Math.floor(y / N));
     }
-    rt.setScale(1 / sc);
-    src.setScale(sc);
+  }
+
+  // 1つの区画を焼く。箱（RenderTexture）は空き箱から取り、なければ新しく作る
+  _floorBakeChunk(F, cx, cy) {
+    const N = FLOOR_CHUNK, d = F.dungeon, key = cx + ',' + cy;
+    const old = F.active.get(key);
+    let rt = old ? old.rt : null;
+    F.src.clear();
+    const any = this._paintFloorTiles(F.src, d, cx * N, cy * N, Math.min(d.width, (cx + 1) * N), Math.min(d.height, (cy + 1) * N), cx * N * TILE, cy * N * TILE);
+    if (!any) { // この区画には床がない：箱は返す
+      if (rt) { rt.setVisible(false); F.free.push(rt); }
+      F.active.set(key, { rt: null, cx, cy });
+      return;
+    }
+    if (!rt) rt = F.free.pop() || null;
+    const size = N * TILE * F.sc;
+    if (!rt) { rt = this.add.renderTexture(0, 0, size, size).setOrigin(0, 0); F.cont.add(rt); }
+    rt.setPosition(cx * N * TILE, cy * N * TILE);
+    rt.setScale(1 / F.sc);
+    F.src.setScale(F.sc);
     rt.clear();
-    rt.draw(src);
+    rt.draw(F.src);
+    F.active.set(key, { rt, cx, cy });
+  }
+
+  // 毎フレーム：カメラの近くの区画だけを持つ。force=true なら今すぐ必要な区画をすべて焼く
+  _floorUpdate(force) {
+    const holder = this.graphics, F = holder && holder._floor;
+    if (!F || !F.dungeon || !holder.scene) return;
+    if (F.epoch !== (this._floorEpoch || 0)) { F.epoch = this._floorEpoch || 0; this._floorReleaseAll(F); force = true; } // WebGLコンテキストが失われた後：RenderTextureの中身は消えているので焼き直す
+    const d = F.dungeon, N = FLOOR_CHUNK, CS = N * TILE;
+    const cam = this.cameras.main;
+    // 見える範囲（ワールド座標）。カメラはplayerを追いかけて1フレーム遅れて動くので、playerのまわりの同じ大きさの範囲も加える
+    const vw = cam.width / cam.zoom, vh = cam.height / cam.zoom;
+    const rects = [{ x: cam.scrollX + cam.width / 2 - vw / 2, y: cam.scrollY + cam.height / 2 - vh / 2, w: vw, h: vh }];
+    if (this.player && this.player.x != null) rects.push({ x: this.player.x - vw / 2, y: this.player.y - vh / 2, w: vw, h: vh });
+    const maxCX = Math.floor((d.width - 1) / N), maxCY = Math.floor((d.height - 1) / N);
+    const ranges = rects.map(r => ({
+      x0: Math.max(0, Math.floor(r.x / CS)), x1: Math.min(maxCX, Math.floor((r.x + r.w) / CS)),
+      y0: Math.max(0, Math.floor(r.y / CS)), y1: Math.min(maxCY, Math.floor((r.y + r.h) / CS)),
+    }));
+    const key = ranges.map(r => r.x0 + ',' + r.x1 + ',' + r.y0 + ',' + r.y1).join('|');
+    if (!force && !F.dirty.size && key === F.lastKey) return;
+    F.lastKey = key;
+    const inRange = (cx, cy, m) => ranges.some(r => cx >= r.x0 - m && cx <= r.x1 + m && cy >= r.y0 - m && cy <= r.y1 + m);
+    // 1) 壊れた壁の区画：焼いてある区画は焼き直す（焼いていない区画は、必要になった時に新しく焼くので何もしない）
+    if (F.dirty.size) {
+      for (const k of F.dirty) { const c = F.active.get(k); if (c && inRange(c.cx, c.cy, 1)) this._floorBakeChunk(F, c.cx, c.cy); else if (c) { if (c.rt) { c.rt.setVisible(false); F.free.push(c.rt); } F.active.delete(k); } }
+      F.dirty.clear();
+    }
+    // 2) 遠ざかった区画（見える範囲から2区画より外）は空き箱へ戻す
+    for (const [k, c] of F.active) if (!inRange(c.cx, c.cy, 2)) { if (c.rt) { c.rt.setVisible(false); F.free.push(c.rt); } F.active.delete(k); }
+    // 3) 見える範囲の区画は今すぐ焼く。そのまわり1区画（余白）は、先に焼いておくが、1フレームに1つまで
+    let budget = force ? 4 : 1;
+    for (let cy = 0; cy <= maxCY; cy++) for (let cx = 0; cx <= maxCX; cx++) {
+      if (F.active.has(cx + ',' + cy)) continue;
+      if (inRange(cx, cy, 0)) this._floorBakeChunk(F, cx, cy);
+      else if (budget > 0 && inRange(cx, cy, 1)) { this._floorBakeChunk(F, cx, cy); budget--; }
+    }
+    // 4) 見える範囲の区画だけ表示する（余白の区画は焼いておくだけで、描画はしない）
+    for (const c of F.active.values()) if (c.rt) c.rt.setVisible(inRange(c.cx, c.cy, 0));
   }
 
   // WebGLコンテキストが失われて復帰した時（iOSでのバックグラウンド復帰など）、RenderTextureの中身は消えるので焼き直す。
+  // 儀式の間などで退避中の床もあるので、世代番号を進めておき、各床が次に使われる時（_floorUpdate）に焼き直す
   _rebakeFloor() {
-    const h = this.graphics;
-    if (!h || !h._floorRT || !h._floorRT.scene || !h._floorSrc || !h._floorSrc.scene) return;
-    const sc = this._floorBakeScale(this.dungeon);
-    if (sc) this._bakeFloor(h, sc);
+    this._floorEpoch = (this._floorEpoch || 0) + 1;
+    this._floorUpdate(true);
   }
 
   // 儀式部屋のあるダンジョンで、このタイルを壊してよいか。元のダンジョンの中は従来どおり（最外周の1マスは壊せない）。
@@ -7356,7 +7534,7 @@ class GameScene extends Phaser.Scene {
     // mapTopY：演出後の四つ腕のボス部屋で、マップの上端（この行より上は存在しない＝最外周なので壊さない）
     const tMinY = Math.max(1, dungeon.mapTopY !== undefined ? dungeon.mapTopY + 1 : 1, Math.floor((cy - r) / TILE));
     const tMaxY = Math.min(dungeon.height - 2, Math.floor((cy + r) / TILE));
-    let changed = false;
+    const changed = [];
     for (let ty = tMinY; ty <= tMaxY; ty++) {
       for (let tx = tMinX; tx <= tMaxX; tx++) {
         if (dungeon.grid[ty][tx] !== 0) continue; // 壁(=0)だけを破壊対象にする
@@ -7364,11 +7542,11 @@ class GameScene extends Phaser.Scene {
         const centerX = tx * TILE + TILE / 2, centerY = ty * TILE + TILE / 2;
         if (Phaser.Math.Distance.Between(cx, cy, centerX, centerY) <= r) {
           dungeon.grid[ty][tx] = 1;
-          changed = true;
+          changed.push([tx, ty]);
         }
       }
     }
-    if (changed) this._queueWallRedraw(); // 同じフレームで何度壊れても、床の描き直しは1回にまとめる
+    if (changed.length) this._queueWallRedraw(changed); // 同じフレームで何度壊れても、床の描き直しは1回にまとめる（壊れた区画だけ）
   }
   // 線分(x1,y1)-(x2,y2)に沿って壁を壊す（destroyWallsInRadiusを線分上に何度も呼ぶ簡易実装）。
   // halfWidthはビームの半分の太さ：見た目のビームより少し広めに壊れるよう、タイル半分ぶん余裕を持たせる。
@@ -17846,6 +18024,7 @@ class GameScene extends Phaser.Scene {
   }
 
   update(time, delta) {
+    this._floorUpdate(); // 床：カメラの近くの区画だけを焼いて持つ（遠い区画は空き箱へ）
     // リザルト用：経過時間は、フロア移動の暗転中も含めて数える（リザルト表示中は止める）
     if (!this._resultOpen) this.runStats.time += delta / 1000;
     if (this.transitioning) { if (this._clkOn) this.endClock(); if (this._astral) this.astralEnd(true); return; } // 階の移動中は幽体離脱・時計の時間停止を終える
@@ -19264,6 +19443,7 @@ class GameScene extends Phaser.Scene {
     }
     if (this.bossFloor && !this.mp) { // ダンジョンのボス階：全てのボスを倒すと出口が開く。25階ならオールクリア（協力プレイは下の配信→onReviveで全員に処理）
       if (this.bossFloorAlive()) return;
+      this.healFull(); // ボス階の全てのボスを倒したらHP全回復
       this.recordArmorClear(); // 🪖 鎧の入手条件（開始から4分以内に10階層のボスを倒す）
       this.showClearTime(); // 次の部屋に進むまで経過時間を上に出す
       if (this.floor >= 25) this.triggerAllClear(); else this.openBossRushExit(pos, true);
@@ -19275,10 +19455,20 @@ class GameScene extends Phaser.Scene {
     }
   }
 
+  // HPを全回復する（ボス階のボス撃破用）。包帯の回復中は中断し、協力プレイでは他の人に見えるHPも更新する
+  healFull() {
+    if (this.playerHp >= this.playerMaxHp) return;
+    this.playerHp = this.playerMaxHp;
+    this.interruptBandage();
+    if (this.net && this.mp) this.net.updateOwnState({ hp: this.playerHp, maxHp: this.playerMaxHp });
+    this.updateHud();
+  }
+
   // ボス撃破のブロードキャストを受けた時の処理。
   // 復活するのはゴーストだけ（ボスの場所付近に復活）。生きている人・ダウン中の人のHPは回復しない。
   onRevive(pos) {
     if (this.bossFloor && pos && pos.clear) { // ボス階の全てのボスを倒した
+      if (!this.isGhost && !this.isDowned) this.healFull(); // 生きている人はHP全回復（ゴーストはこのあとの復活で全回復／ダウン中の人は対象外）
       if (this.floor >= 25) { this.triggerAllClear(); return; } // 25階：全員オールクリア
       if (!this._rushCleared) this.openBossRushExit(pos, true); // 全員の画面で出口を開く
     }
@@ -20264,8 +20454,8 @@ class OfflineNet {
 const netInstance = new Net(FIREBASE_CONFIG);
 
 // 初期の名前：修飾語＋敵キャラ名（例：瀕死シマハル）。「〜な」の形の修飾語は使わない。名前欄は20文字までなので、修飾語は5文字以内・動物は7文字以内にする。
-const NAME_MODIFIERS = ['ゾミカス', 'ポンコツ', '雑魚', '瀕死の', 'ヤケクソ', '寝不足', '腹ペコ', '迷子の', '無職の', '爆速', '激弱', '泥酔', '半泣き', 'ファッキン', '勇敢な', '無課金', 'キチガイ', '二度寝', '夜更かし', '丸腰', '全裸の', '空回り', '史上最強の', 'エリート', '淫夢厨の', '他力本願', '狂気の', '激ヤバ', '無双', 'アンパンマンは', '財布の中の', 'バーサーカー', '最後の','10連勤の','ゾミゾミ','午後八時の','アンチ'];
-const NAME_ANIMALS = ['ゾミカス', 'バーサーカー', 'シマハル', 'スライム', 'コウモリ', '胞子', 'チャージャー', 'ブルート', 'シューター', 'ゴースト', 'オーバーロード', 'カルテット', 'デトネーター', 'ゾートロープ', 'ウロボロス', '天使','キチガイ','ニンゲン','殺人鬼','探偵','人狼','調査員','村人','見張り番','緑川大輔','ゾミドゥン','フロンティア','ポイコツ','マイケル','ボブ']; // 後ろにつく言葉（ゲームに登場する敵キャラの名前など）
+const NAME_MODIFIERS = ['ゾミカス', 'ポンコツ', '雑魚', '瀕死の', 'ヤケクソ', '寝不足', '腹ペコ', '迷子の', '無職の', '爆速', '激弱', '泥酔', '半泣き', 'ファッキン', '勇敢な', '無課金', 'キチガイ', '二度寝', '夜更かし', '丸腰', '全裸の', '空回り', '史上最強の', 'エリート', '淫夢厨の', '他力本願', '狂気の', '激ヤバ', '無双', 'サイエンス', '財布の中の', 'バーサーカー', '最後の','10連勤の','ゾミゾミ','午後八時の','アンチ'];
+const NAME_ANIMALS = ['ゾミカス', 'バーサーカー', 'シマハル', 'スライム', 'コウモリ', '胞子', 'チャージャー', 'ブルート', 'シューター', 'ゴースト', 'オーバーロード', 'カルテット', 'デトネーター', 'ゾートロープ', 'ウロボロス', '天使','キチガイ','ニンゲン','殺人鬼','探偵','人狼','調査員','村人','見張り番','安藤五郎','ゾミドゥン','フロンティア','ポイコツ','マイケル','ボブ']; // 後ろにつく言葉（ゲームに登場する敵キャラの名前など）
 function randomName() {
   const pick = arr => arr[Math.floor(Math.random() * arr.length)];
   return pick(NAME_MODIFIERS) + pick(NAME_ANIMALS); // 同じ言葉が重なる（ゾミカスゾミカス等）のもOK
@@ -20731,7 +20921,7 @@ function launchGame() {
 // ================================================================================
 window.WWChat = (() => {
   const MAX_LEN = 60, SEND_GAP = 800, KEEP = 50;
-  const STAMPS = ['情報あります', '信じます', '怪しい', '合ってます', '違います', 'ｺﾎﾟｫ…', '反論があります'];
+  const STAMPS = ['情報あります', '信じます', '怪しい', '合ってます', '違います', 'ｺﾎﾟｫ…', '異議あり！'];
   let scene = null, btn = null, badge = null, panel = null, log = null, input = null, sendBtn = null, stampBtns = [];
   let open = false, unread = 0, lastSend = 0, timer = null;
   const recv = {};
@@ -20756,7 +20946,7 @@ window.WWChat = (() => {
     const vv = window.visualViewport;
     // 縦向きの全画面表示：常に「いま見えている範囲」にぴったり合わせる（キーボードの有無に関係なく）。
     // 入力欄にカーソルを置いた直後、ブラウザが画面を押し上げた分もすぐ追従するので、ヘッダーが画面外へ飛ばない。
-    if (vv && window.matchMedia && matchMedia('(max-width: 900px) and (orientation: portrait)').matches) {
+    if (vv && window.matchMedia && matchMedia('(pointer: coarse) and (max-width: 900px) and (orientation: portrait)').matches) {
       panel.style.top = vv.offsetTop + 'px'; panel.style.bottom = 'auto'; panel.style.height = vv.height + 'px';
     } else if (vv && document.activeElement === input && vv.height < window.innerHeight - 80) {
       panel.style.top = (vv.offsetTop + 6) + 'px'; panel.style.bottom = 'auto'; panel.style.height = Math.max(vv.height - 12, 140) + 'px';
@@ -20779,6 +20969,7 @@ window.WWChat = (() => {
     if (!btn) return;
     const ok = canUse();
     btn.style.display = ok ? 'block' : 'none';
+    const rh = document.getElementById('rotateHint'); if (rh) rh.classList.toggle('ww', ok); // 人狼中は「縦向きでもチャットは使える」案内を足す
     if (!ok) { if (open) setOpen(false); return; }
     badge.textContent = unread || ''; badge.style.display = unread ? 'block' : 'none'; btn.classList.toggle('unread', unread > 0);
     const can = canSend();
@@ -20822,11 +21013,25 @@ window.WWChat = (() => {
     btn = document.createElement('button'); btn.id = 'wwChatBtn'; btn.type = 'button'; btn.textContent = '💬';
     badge = document.createElement('b'); btn.appendChild(badge);
     panel = document.createElement('div'); panel.id = 'wwChatPanel';
-    panel.innerHTML = '<div class="wwcHead"><span>💬 チャット</span><button type="button" class="wwcClose">✕</button></div><div class="wwcLog"></div><div class="wwcStamps"></div><div class="wwcRow"><input type="text" maxlength="60" autocomplete="off" enterkeyhint="send"><button type="button" class="wwcSend">送信</button></div>';
+    panel.innerHTML = '<div class="wwcHead"><span>💬 チャット</span><button type="button" class="wwcClose">✕</button></div><div class="wwcTip">📱 縦向きにすると、チャットが全画面で見やすくなります</div><div class="wwcLog"></div><div class="wwcStamps"></div><div class="wwcRow"><input type="text" maxlength="60" autocomplete="off" enterkeyhint="send"><button type="button" class="wwcSend">送信</button></div>';
     log = panel.querySelector('.wwcLog'); input = panel.querySelector('input'); sendBtn = panel.querySelector('.wwcSend');
     const st = panel.querySelector('.wwcStamps');
     STAMPS.forEach(s => { const b = document.createElement('button'); b.type = 'button'; b.textContent = s; b.addEventListener('click', () => send(s)); st.appendChild(b); stampBtns.push(b); });
     [btn, panel].forEach(el => ['pointerdown', 'mousedown', 'touchstart'].forEach(ev => el.addEventListener(ev, e => e.stopPropagation()))); // 下のゲーム操作（移動・攻撃）に伝えない
+    // スティックを持った（＝2本指の）状態だと、ブラウザがタップをclickとして扱ってくれないことがあるため、
+    // ボタンは「指を離した時」に直接反応させる（ほとんど動いていない時だけ＝スクロールとは区別する）
+    const tapStart = {};
+    [btn, panel].forEach(root => {
+      root.addEventListener('touchstart', e => { for (const t of e.changedTouches) tapStart[t.identifier] = { x: t.clientX, y: t.clientY }; }, { passive: true });
+      root.addEventListener('touchend', e => {
+        const t = e.changedTouches[0], st = t && tapStart[t.identifier];
+        if (t) delete tapStart[t.identifier];
+        const b = e.target && e.target.closest && e.target.closest('button');
+        if (!b || b.disabled || !st || Math.hypot(t.clientX - st.x, t.clientY - st.y) > 12) return;
+        e.preventDefault(); // 続けてclickが二重に発火しないようにする
+        b.click();
+      }, { passive: false });
+    });
     btn.addEventListener('click', () => setOpen(!open));
     panel.querySelector('.wwcClose').addEventListener('click', () => setOpen(false));
     sendBtn.addEventListener('click', () => { if (send(input.value)) input.value = ''; });
