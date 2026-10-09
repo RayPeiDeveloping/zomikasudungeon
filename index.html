@@ -368,6 +368,40 @@
   #mpCodeRow #leaveRoomBtn { background: #6a2b2b; }
   #mpCodeRow #leaveRoomBtn.armed { background: #d63a3a; box-shadow: 0 0 1vh rgba(255,80,80,0.8); } /* 1回押した状態（もう一度押すと退出） */
   #mpCodeRow #leaveRoomBtn:disabled { opacity: 0.6; }
+
+  /* ===== 人狼：テキストチャット（横向きの側面パネル＋定型文） ===== */
+  #wwChatBtn { display: none; position: fixed; top: 11vh; right: 2.5vh; z-index: 60; width: 6vh; height: 6vh; min-width: 34px; min-height: 34px; padding: 0;
+    border-radius: 50%; border: 0.2vh solid #8fb3ff; background: rgba(20,26,50,0.85); color: #fff; font-size: max(16px, 3vh); line-height: 1; touch-action: manipulation; }
+  #wwChatBtn.unread { border-color: #ffd24a; box-shadow: 0 0 1.2vh #ffd24a; }
+  #wwChatBtn b { display: none; position: absolute; top: -0.6vh; right: -0.6vh; min-width: 2.4vh; padding: 0 0.5vh; border-radius: 2vh; background: #e33; color: #fff; font-size: max(10px, 1.8vh); line-height: 2.4vh; }
+  #wwChatPanel { display: none; position: fixed; right: 2.5vh; top: 11vh; bottom: 2.5vh; width: min(38vw, 360px); z-index: 61; flex-direction: column; box-sizing: border-box; padding: 0.8vh;
+    background: rgba(10,12,24,0.92); border: 0.2vh solid #5a6aa8; border-radius: 1vh; color: #fff; font-size: max(12px, 2.6vh); }
+  #wwChatPanel .wwcHead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6vh; }
+  #wwChatPanel button { font-size: inherit; color: #fff; background: #34406e; border: 0.15vh solid #6c7cc0; border-radius: 0.8vh; padding: 0.4vh 1vh; touch-action: manipulation; }
+  #wwChatPanel button:disabled, #wwChatPanel input:disabled { opacity: 0.45; }
+  #wwChatPanel .wwcLog { flex: 1; min-height: 0; overflow-y: auto; word-break: break-all; line-height: 1.35; padding: 0.4vh; background: rgba(0,0,0,0.3); border-radius: 0.8vh; }
+  #wwChatPanel .wwcMsg { display: grid; grid-template-columns: max(14px, 2.4vh) 1fr; column-gap: 0.8vh; } /* 左の列は体の色の丸（固定幅なので、発言の開始位置がそろう） */
+  #wwChatPanel .wwcMsg.ghost { opacity: 0.65; font-style: italic; }
+  #wwChatPanel .wwcDot { width: max(12px, 2vh); height: max(12px, 2vh); margin-top: 0.25em; border-radius: 50%; box-sizing: border-box; border: 0.15vh solid rgba(255,255,255,0.75); }
+  
+  #wwChatPanel .wwcStamps { display: flex; flex-wrap: wrap; gap: 0.5vh; margin: 0.6vh 0; }
+  #wwChatPanel .wwcRow { display: flex; gap: 0.6vh; }
+  #wwChatPanel input { flex: 1; min-width: 0; font-size: inherit; padding: 0.4vh 0.8vh; border-radius: 0.8vh; border: 0.15vh solid #6c7cc0; background: #101428; color: #fff; }
+  /* スマホ縦向き：チャットを画面いっぱいに表示（vh基準だと縦長で大きくなりすぎるのでpx基準に切り替える） */
+  @media (max-width: 900px) and (orientation: portrait) {
+    #wwChatBtn { top: calc(env(safe-area-inset-top, 0px) + 12px); right: 12px; width: 48px; height: 48px; font-size: 24px; border-width: 2px; }
+    #wwChatBtn b { top: -4px; right: -4px; min-width: 20px; font-size: 12px; line-height: 20px; border-radius: 10px; padding: 0 4px; }
+    #wwChatPanel { top: 0; right: 0; bottom: 0; left: 0; width: auto; height: auto; border: 0; border-radius: 0; background: rgba(10,12,24,0.98); font-size: 16px;
+      padding: calc(env(safe-area-inset-top, 0px) + 8px) calc(env(safe-area-inset-right, 0px) + 10px) calc(env(safe-area-inset-bottom, 0px) + 8px) calc(env(safe-area-inset-left, 0px) + 10px); }
+    #wwChatPanel .wwcHead { margin-bottom: 8px; font-size: 18px; }
+    #wwChatPanel button { border-width: 1px; border-radius: 8px; padding: 8px 12px; }
+    #wwChatPanel .wwcLog { padding: 8px; border-radius: 8px; line-height: 1.45; }
+    #wwChatPanel .wwcMsg { grid-template-columns: 18px 1fr; column-gap: 8px; margin-bottom: 4px; }
+    #wwChatPanel .wwcDot { width: 14px; height: 14px; border-width: 1px; }
+    #wwChatPanel .wwcStamps { gap: 6px; margin: 8px 0; }
+    #wwChatPanel .wwcRow { gap: 8px; }
+    #wwChatPanel input { font-size: 16px; padding: 10px; border-width: 1px; border-radius: 8px; } /* 16px未満だとiOSで入力時に勝手に拡大される */
+  }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.70.0/phaser.min.js"></script>
 <!-- ===== Firebase (協力プレイ用) ===== -->
@@ -2602,6 +2636,7 @@ class GameScene extends Phaser.Scene {
         this.net.listenShots(payload => this.onIncomingShot(payload));
         this.net.listenEnemyShots(payload => this.onIncomingEnemyShot(payload));
         this.net.listenRevive(pos => this.onRevive(pos));
+        if (window.WWChat && this.net.listenChat) { WWChat.init(this); this.net.listenChat(m => WWChat.receive(m)); } // 人狼のテキストチャット
         // 通信経路の表示（画面上部のP2P/TURN）と、TURN経由になった時の「中継サーバーを使用しています」の通知は出さない。
         // （TURN経由になるのが普通のため。Net側は onConnStatus / onRelayUsed が null なら何も呼ばない）
         this.net.onConnStatus = null;
@@ -19936,6 +19971,15 @@ class Net {
       this._recomputeMergedPlayers();
       // ここでは配信し返さない。ホストの定期送信(updateOwnState内の_broadcastPlayers)にまとめて乗せる。
     } else if (msg.t === 'event') {
+      if (msg.k === 'chat') { // チャット：送信者uidはホストが確定し（なりすまし防止）、長さ・連投を制限してから中継する
+        const cp = msg.p;
+        if (!cp || typeof cp !== 'object' || typeof cp.t !== 'string') return;
+        const cnow = performance.now(), crl = this._chatRL || (this._chatRL = {});
+        const carr = (crl[guestUid] || []).filter(x => cnow - x < 5000);
+        if (carr.length >= 8) return;
+        carr.push(cnow); crl[guestUid] = carr;
+        msg.p = { u: guestUid, t: cp.t.slice(0, 60), g: cp.g ? 1 : 0 };
+      }
       this._fireLocal(msg.k, msg.p);               // ホスト自身もこのイベントの対象（元Firebase実装が無条件購読だったのと同じ）
       this._broadcastToGuests('events', msg, guestUid); // 送信者以外の全ゲストへ中継
     }
@@ -20098,6 +20142,8 @@ class Net {
 
   // PvPモード：準備・開始・被弾・脱落・終了の通知（自分にも届く）
   sendPvp(payload) { this._sendEvent('pvp', payload, true); }
+  sendChat(payload) { this._sendEvent('chat', payload, true); }
+  listenChat(cb) { this._eventCbs.chat = cb; }
   listenPvp(cb) { this._eventCbs.pvp = cb; }
 
   // 10階以降のボス撃破時、力尽きてゴースト状態の全員を復活させるためのブロードキャスト。
@@ -20188,6 +20234,8 @@ class OfflineNet {
   setHostUid(uid, isHost) { this.isHost = !!isHost; this._hostUid = uid; }
   // 送信系：selfEcho のあるものだけ自分に折り返す（本物のNetと同じ）
   sendPvp(p) { this._fireLocal('pvp', p); }
+  sendChat(p) { this._fireLocal('chat', p); }
+  listenChat(cb) { this._eventCbs.chat = cb; }
   sendAttack(p) { this._fireLocal('attack', p); }
   sendEnemyShot(p) { this._fireLocal('eshot', p); }
   sendShot() {}
@@ -20670,6 +20718,122 @@ function launchGame() {
     window.addEventListener('orientationchange', () => setTimeout(fixToScreen, 300));
   }
 }
+// ================================================================================
+// 人狼ゲームのテキストチャット（WWChat）。ホストが中継する events チャンネル（kind='chat'）に載せる。
+// ・横向きのまま使える側面パネル＋定型文ボタン（キーボード不要）。PCは物理キーボードで入力できる。
+// ・昼（結果発表を含む）は全員、夜は生きている人は送れない／受け取らない。幽霊は常に話せて、幽霊の発言は幽霊にしか見えない。
+// ・表示は必ず textContent（HTMLとして解釈させない）。60文字まで、送信は0.8秒おき、受信側も同じ人の連投は5秒6件まで。
+// ================================================================================
+window.WWChat = (() => {
+  const MAX_LEN = 60, SEND_GAP = 800, KEEP = 50;
+  const STAMPS = ['情報あります', '信じます', '怪しい', '合ってます', '違います', 'ｺﾎﾟｫ…', '反論があります'];
+  let scene = null, btn = null, badge = null, panel = null, log = null, input = null, sendBtn = null, stampBtns = [];
+  let open = false, unread = 0, lastSend = 0, timer = null;
+  const recv = {};
+  const clean = s => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, MAX_LEN);
+  const myUid = () => (scene && scene.net && scene.net.uid) || null;
+  const colorOf = uid => { // 発言した人の体の色（数値の色だけを '#rrggbb' に変換するので、文字列を流し込まれる心配はない）
+    const ps = (scene && scene.latestPlayers) || {};
+    const c = uid === myUid() ? scene.playerColor : (ps[uid] && ps[uid].color);
+    return '#' + ((typeof c === 'number' ? c : 0xffffff) >>> 0).toString(16).padStart(6, '0').slice(-6);
+  };
+  const canUse = () => !!(scene && scene.pv && scene.pv.mode === 'werewolf');
+  const canSend = () => {
+    if (!canUse()) return false;
+    if (scene.isGhost) return true;
+    const info = scene.wwPhaseInfo && scene.wwPhaseInfo();
+    return !(info && info.night);
+  };
+  const kb = on => { try { if (scene && scene.input && scene.input.keyboard) scene.input.keyboard.enabled = on; } catch (e) { /* 無視 */ } };
+
+  function fit() { // スマホでキーボードが出た時、入力欄が隠れないように見えている範囲へ収める
+    if (!panel || !open) return;
+    const vv = window.visualViewport;
+    if (vv && document.activeElement === input && vv.height < window.innerHeight - 80) {
+      panel.style.top = (vv.offsetTop + 6) + 'px'; panel.style.bottom = 'auto'; panel.style.height = Math.max(vv.height - 12, 140) + 'px';
+    } else { panel.style.top = ''; panel.style.bottom = ''; panel.style.height = ''; }
+  }
+  function setOpen(v) {
+    open = !!v;
+    if (!panel) return;
+    panel.style.display = open ? 'flex' : 'none';
+    if (open) { unread = 0; log.scrollTop = log.scrollHeight; }
+    else if (document.activeElement === input) input.blur();
+    refresh(); fit();
+  }
+  function refresh() {
+    if (!btn) return;
+    const ok = canUse();
+    btn.style.display = ok ? 'block' : 'none';
+    if (!ok) { if (open) setOpen(false); return; }
+    badge.textContent = unread || ''; badge.style.display = unread ? 'block' : 'none'; btn.classList.toggle('unread', unread > 0);
+    const can = canSend();
+    input.disabled = !can; sendBtn.disabled = !can; stampBtns.forEach(b => { b.disabled = !can; });
+    input.placeholder = can ? 'メッセージ' : '夜はチャットできません';
+  }
+  function addLine(uid, text, ghost) {
+    const row = document.createElement('div');
+    row.className = 'wwcMsg' + (ghost ? ' ghost' : '') + (uid === myUid() ? ' me' : '');
+    const n = document.createElement('span'); n.className = 'wwcDot'; n.style.background = colorOf(uid);
+    const t = document.createElement('span'); t.textContent = text;
+    row.appendChild(n); row.appendChild(t);
+    const near = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    log.appendChild(row);
+    while (log.childNodes.length > KEEP) log.removeChild(log.firstChild);
+    if (near || uid === myUid()) log.scrollTop = log.scrollHeight;
+  }
+  function send(text) {
+    text = clean(text);
+    if (!text || !canSend()) return false;
+    const now = performance.now();
+    if (now - lastSend < SEND_GAP) return false;
+    lastSend = now;
+    try { scene.net.sendChat({ u: myUid(), t: text, g: scene.isGhost ? 1 : 0 }); } catch (e) { return false; }
+    return true;
+  }
+  function receive(m) {
+    if (!scene || !m || typeof m !== 'object' || typeof m.t !== 'string' || typeof m.u !== 'string') return;
+    const text = clean(m.t); if (!text) return;
+    const ghost = !!m.g;
+    if (ghost && !scene.isGhost) return;          // 幽霊の発言は幽霊にだけ見せる
+    if (!ghost && !canSend()) return;             // 夜は（生きている人の）発言を受け取らない
+    const now = performance.now(), arr = (recv[m.u] = (recv[m.u] || []).filter(x => now - x < 5000));
+    if (arr.length >= 6) return;
+    arr.push(now);
+    build(); addLine(m.u, text, ghost);
+    if (!open && m.u !== myUid()) { unread = Math.min(unread + 1, 99); refresh(); }
+  }
+  function build() {
+    if (btn) return;
+    btn = document.createElement('button'); btn.id = 'wwChatBtn'; btn.type = 'button'; btn.textContent = '💬';
+    badge = document.createElement('b'); btn.appendChild(badge);
+    panel = document.createElement('div'); panel.id = 'wwChatPanel';
+    panel.innerHTML = '<div class="wwcHead"><span>💬 チャット</span><button type="button" class="wwcClose">✕</button></div><div class="wwcLog"></div><div class="wwcStamps"></div><div class="wwcRow"><input type="text" maxlength="60" autocomplete="off" enterkeyhint="send"><button type="button" class="wwcSend">送信</button></div>';
+    log = panel.querySelector('.wwcLog'); input = panel.querySelector('input'); sendBtn = panel.querySelector('.wwcSend');
+    const st = panel.querySelector('.wwcStamps');
+    STAMPS.forEach(s => { const b = document.createElement('button'); b.type = 'button'; b.textContent = s; b.addEventListener('click', () => send(s)); st.appendChild(b); stampBtns.push(b); });
+    [btn, panel].forEach(el => ['pointerdown', 'mousedown', 'touchstart'].forEach(ev => el.addEventListener(ev, e => e.stopPropagation()))); // 下のゲーム操作（移動・攻撃）に伝えない
+    btn.addEventListener('click', () => setOpen(!open));
+    panel.querySelector('.wwcClose').addEventListener('click', () => setOpen(false));
+    sendBtn.addEventListener('click', () => { if (send(input.value)) input.value = ''; });
+    input.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); if (send(input.value)) input.value = ''; } });
+    input.addEventListener('keyup', e => e.stopPropagation());
+    input.addEventListener('focus', () => { kb(false); setTimeout(fit, 300); }); // 入力中はWASD等がゲームに効かないようにする
+    input.addEventListener('blur', () => { kb(true); fit(); });
+    if (window.visualViewport) { window.visualViewport.addEventListener('resize', fit); window.visualViewport.addEventListener('scroll', fit); }
+    document.body.appendChild(btn); document.body.appendChild(panel);
+  }
+  function init(s) {
+    scene = s; build();
+    log.textContent = ''; unread = 0; lastSend = 0;
+    for (const k in recv) delete recv[k];
+    setOpen(false);
+    if (timer) clearInterval(timer);
+    timer = setInterval(refresh, 500);
+  }
+  return { init, receive };
+})();
+
 // ================================================================================
 // ここから下は「四つ腕」の腕の画像データ（base64）です。長い文字列なので読む必要はありません。
 // 画像を差し替えるときは、この2行の ' ' の中だけを新しいデータに置き換えます。
