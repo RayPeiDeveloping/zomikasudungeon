@@ -920,12 +920,12 @@ const PVP = {
   ],
   weaponZone: { cx: 10, cy: 4.5, size: 4, holdTime: 3 }, // 武器変更ゾーン（準備室の上側の正方形。中心タイル座標・一辺のタイル数）。holdTime：武器固定の時、全員が入ってからホストが選び直すまでの秒数
   // 人狼ゲームのマップ（バトルフィールドの右隣に作る）。中心に円形の広場、そこから放射状に道が伸びて、道の先に家（円形・入口が1つ）がある。それ以外は岩（壁）。
-  werewolf: { wolves: 1, wolvesMany: 2, manyFrom: 8, bloodyTime: 20, roleLot: { villager: 1, watchman: 1, seer: 1, detective: 1, dupMul: 0.05 }, detectiveTime: 5, detectiveR: 2.2, trailTiles: 20, trailStep: 0.5, seerTime: 10, seerR: 2.5, quotaHold: 15, watchOilMul: 2, watchViewMul: 2, wolfSwordLv: 5, houses: 10, plazaR: 9, houseDist: 30, houseIn: 4.5, houseOut: 6.5, roadW: 3, size: 80, gap: 4, rays: 600, viewR: 20, time: 900, dayTime: 30, dayTime2: 90, voteTime: 30, resultTime: 6, nightTime: 90, nightViewR: 6, nightHole: 0.94, oilMax: 100, oilBurn: 2, oilRegen: 4, oilLow: 0.3, oilMinR: 1.2, oilStartMin: 0.3, oilStartMax: 0.7 },
-  // 役職の抽選（roleLot）：人狼以外の人を1人ずつ、重みつき抽選で「普通の村人・見張り番・占い師・探偵」のどれかに決める（普通の村人も役職の一つとして扱う。人数の下限はなし）。
+  werewolf: { wolves: 1, wolvesMany: 2, manyFrom: 8, bloodyTime: 20, roleLot: { villager: 1, watchman: 1, seer: 1, detective: 1, dupMul: 0.05 }, detectiveTime: 5, detectiveR: 2.2, trailTiles: 20, trailStep: 0.5, seerTime: 15, seerR: 2.5, seerPerNight: 1, quotaHold: 15, watchOilMul: 2, watchViewMul: 2, wolfSwordLv: 5, houses: 10, plazaR: 9, houseDist: 30, houseIn: 4.5, houseOut: 6.5, roadW: 3, size: 80, gap: 4, rays: 600, viewR: 20, time: 900, dayTime: 30, dayTime2: 90, voteTime: 30, resultTime: 6, nightTime: 90, nightViewR: 6, nightHole: 0.94, oilMax: 100, oilBurn: 2, oilRegen: 4, oilLow: 0.3, oilMinR: 1.2, oilStartMin: 0.3, oilStartMax: 0.7 },
+  // 役職の抽選（roleLot）：人狼以外の人を1人ずつ、重みつき抽選で「普通の村人・見張り番・調査員・探偵」のどれかに決める（普通の村人も役職の一つとして扱う。人数の下限はなし）。
   //   villager／watchman／seer／detective＝各役職の重み（大きいほど出やすい。0にするとその役職は出ない）／dupMul＝同じ役職がすでに1人いるごとに重みに掛ける倍率（重み×dupMul^人数。小さいほど被りにくい）
   //   dupMul 0.05 の目安：5人（人狼以外4人）で4役職が1人ずつそろう確率は約81%、どれかが被る確率は約19%。4人で約6%、3人で約2%。6人以上は役職が4種類しかないので被りが出る
   // 探偵（村人陣営）：detectiveTime＝死体のまわり（detectiveR タイル以内）に立ち続けて調べ終わるまでの秒数（昼でも夜でもできる）／trailTiles＝犯人の足跡を残すタイル数／trailStep＝足跡の間隔（タイル）
-  // quotaHold＝ノルマ品の上に乗り続けて拾うまでの秒数／役職：seerTime＝占い師が誰かの近く（seerR タイル以内）にいて役職が分かるまでの秒数（1晩に1人まで）／watchOilMul＝見張り番の油の最大量の倍率／watchViewMul＝見張り番の夜の光の半径の倍率
+  // quotaHold＝ノルマ品の上に乗り続けて拾うまでの秒数／役職：seerTime＝調査員が誰かの近く（seerR タイル以内）にいて役職の調査が終わるまでの秒数（結果は翌朝に分かる）／seerPerNight＝1晩に調査できる人数／watchOilMul＝見張り番の油の最大量の倍率／watchViewMul＝見張り番の夜の光の半径の倍率
   // 流れ：最初の昼(dayTime)→夜(nightTime)→［昼(dayTime2＋voteTime。昼の間じゅう投票できる。全員が投票済みなら途中で終わる)→結果発表(resultTime。投票結果を見せる間。人狼は殺せない)→夜］をくり返す。昼と結果発表の間は人狼は殺せない／time：ゲーム全体の長さ(秒)／
   // dayTime：最初の昼の長さ／dayTime2：2回目以降の昼の長さ／voteTime：昼に足す時間（昼の長さ＝dayTime2＋voteTime）／nightTime：夜の長さ／nightViewR：夜のランタンの光の半径（タイル数。自分の周りだけ）／
   // nightHole：闇に空ける丸い穴の大きさ（光の半径に対する割合）。光のゆらぎで光の縁が縮んでも、穴の縁より内側に来ない（隙間ができない）ように、1より小さくしておく
@@ -4273,7 +4273,7 @@ class GameScene extends Phaser.Scene {
     for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); const t = order[i]; order[i] = order[j]; order[j] = t; }
     const wolves = Math.min(order.length >= (PVP.werewolf.manyFrom || 99) ? (PVP.werewolf.wolvesMany || PVP.werewolf.wolves) : PVP.werewolf.wolves, order.length); // 人狼の人数：manyFrom 人以上なら wolvesMany 人、それ未満なら wolves 人
     const rest = order.length - wolves;
-    // 人狼以外の人の役職：1人ずつ、重みつき抽選で「普通の村人・見張り番・占い師・探偵」のどれかに決める（普通の村人も役職の一つ。人数の下限はなし）。
+    // 人狼以外の人の役職：1人ずつ、重みつき抽選で「普通の村人・見張り番・調査員・探偵」のどれかに決める（普通の村人も役職の一つ。人数の下限はなし）。
     // 同じ役職がすでに c 人いると、その役職の重みは 重み×dupMul^c に下がる（被りにくい。出ないこともある）。全員が同じ乱数（rand）で決めるので結果はそろう。
     const LOT = PVP.werewolf.roleLot || { villager: 1, watchman: 1, seer: 1, detective: 1, dupMul: 0.05 };
     const kinds = ['villager', 'watchman', 'seer', 'detective'], cnt = { villager: 0, watchman: 0, seer: 0, detective: 0 };
@@ -4292,7 +4292,7 @@ class GameScene extends Phaser.Scene {
 
   // 役職 → 陣営（'wolf'｜'villager'）。見張り番は村人陣営。勝敗・殺される側の判定は、役職ではなく陣営で見る。
   wwTeam(role) { return role === 'wolf' ? 'wolf' : (role ? 'villager' : null); }
-  wwRoleLabel(role) { return role === 'wolf' ? '人狼' : role === 'watchman' ? '見張り番' : role === 'seer' ? '占い師' : role === 'detective' ? '探偵' : role === 'villager' ? '村人' : (role || '?'); }
+  wwRoleLabel(role) { return role === 'wolf' ? '人狼' : role === 'watchman' ? '見張り番' : role === 'seer' ? '調査員' : role === 'detective' ? '探偵' : role === 'villager' ? '村人' : (role || '?'); }
   wwRoleColor(role) { return role === 'wolf' ? '#ff4d4d' : role === 'watchman' ? '#ffd21f' : role === 'seer' ? '#c9a6ff' : role === 'detective' ? '#5bc8ff' : '#5be08a'; }
 
   // 人狼ゲームの開始時：役職を決め、武器を剣に固定する（人狼Lv.5・村人Lv.1）（もとの武器は準備室に戻る時に戻す）。参加者でない人（観戦）は何もしない。
@@ -4311,7 +4311,7 @@ class GameScene extends Phaser.Scene {
   wwRoleBannerData(r) {
     if (r === 'wolf') return { text: 'あなたは【人狼】です\n（夜目が効き、ノルマを拾うこともできる。殺すと夜明けまで返り血が残る）', color: '#ff4d4d', ms: 4500 };
     if (r === 'villager') { const pv = this.pv, need = (pv && pv.wwQ) ? pv.wwQ.need : Math.max(1, ((pv && pv.ids) ? pv.ids.length : 2) - 1); return { text: 'あなたは【村人】です\n（ほかの村人と協力してノルマを' + need + '日達成しよう）', color: '#5be08a', ms: 4500 }; }
-    if (r === 'seer') return { text: 'あなたは【占い師】です\n（夜、誰かの近くに10秒いると、役職が分かる。1晩に1人まで）', color: '#c9a6ff', ms: 4500 };
+    if (r === 'seer') return { text: 'あなたは【調査員】です\n（夜、誰かの近くに15秒いると、翌朝その人の役職が分かる。1晩に1人まで）', color: '#c9a6ff', ms: 4500 };
     if (r === 'watchman') return { text: 'あなたは【見張り番】です\n（油の量と視界が2倍）', color: '#ffd21f', ms: 4500 };
     if (r === 'detective') return { text: 'あなたは【探偵】です\n（死体のそばに5秒いると、死んだ時刻と犯人の足どりが分かる。昼もできる）', color: '#5bc8ff', ms: 4500 };
     return null;
@@ -4839,6 +4839,8 @@ class GameScene extends Phaser.Scene {
       this.wwApplyQuota(m);
     } else if (m.a === 'quotaGet') {
       this.wwApplyQuotaGet(m);
+    } else if (m.a === 'quotaHold') {
+      this.wwApplyQuotaHold(m);
     } else if (m.a === 'quotaRes') {
       this.wwApplyQuotaRes(m);
     } else if (m.a === 'burn') {
@@ -5007,17 +5009,22 @@ class GameScene extends Phaser.Scene {
     this._wwWasNight = night; // 人狼ゲーム中でなくなったら false に戻る（次のゲームの開始で誤ってバナーを出さない）
   }
 
-  // ===== 人狼ゲーム：占い師（村人陣営） =====
-  // 夜、場所は問わず、生きている誰かの近く（seerR タイル以内）に seerTime 秒（10秒）続けているとその人の役職が分かる（占い師本人にだけ）。1晩に1人まで。
-  // 離れる・別の人が一番近くになる・夜が終わると、数え直し。一度分かった人は、画面右の一覧に残る（同じ人はもう占えない）。
+  // ===== 人狼ゲーム：調査員（村人陣営） =====
+  // 夜、場所は問わず、生きている誰かの近く（seerR タイル以内）に seerTime 秒（15秒）続けていると、調査が終わる。1晩に seerPerNight 人（1人）まで調べられる。
+  // 結果（その人の役職）は、翌朝（夜が明けて、ノルマの結果を見せたあと）にまとめて分かる（調査員本人にだけ）。
+  // 調査中の進み具合のゲージは、調査員本人の画面（画面下）だけに出す（他の人には見せない）。
+  // 離れる・別の人が一番近くになる・夜が終わると、数え直し。一度分かった人は、画面右の一覧に残る（同じ人はもう調べられない）。調査が終わっても朝までに調査員が死んだら、結果は分からない。
   wwSeerInit() {
     const pv = this.pv; if (!pv) return;
-    pv.wwSeer = { t: 0, tgt: null, seen: {}, doneN: -1 }; // doneN＝最後に占った夜の番号（1晩に1人まで）
+    // nightN＝いま数えている夜の番号／cnt＝その夜に調べ終わった人数／pend＝調査が終わって、朝に結果を知らせる予定の人たち
+    pv.wwSeer = { t: 0, tgt: null, seen: {}, nightN: -1, cnt: 0, pend: [] };
+    clearTimeout(this._wwSeerResT);
     this.wwSeerUi(null);
   }
 
   wwSeerClear() {
     if (this.pv) this.pv.wwSeer = null;
+    clearTimeout(this._wwSeerResT);
     for (const id of ['wwSeerBar', 'wwSeerList']) { const e = document.getElementById(id); if (e) e.style.display = 'none'; }
   }
 
@@ -5026,11 +5033,29 @@ class GameScene extends Phaser.Scene {
     if (!s || pv.phase !== 'battle' || pv.mode !== 'werewolf' || pv.myRole !== 'seer') { this.wwSeerUi(null); return; }
     let tgt = null;
     const info = this.wwPhaseInfo(), ww = this.dungeon && this.dungeon.werewolf;
-    if (info && info.night && ww && !this.isGhost && !pv.dead && this._wwFadeAt == null && s.doneN !== info.n) { // 今夜まだ占っていない
+    const myDead = !!(this.isGhost || pv.dead);
+    const maxN = W.seerPerNight || 1;
+    // 夜が明けた：夜のうちに調査が終わった人がいれば、結果をまとめて知らせる（調査員が生きている時だけ）。
+    // ノルマの結果の表示（朝に2.4秒後から4秒間）が終わってから出す
+    if (s.pend.length && info && !info.night) {
+      const list = s.pend; s.pend = [];
+      if (!myDead) {
+        clearTimeout(this._wwSeerResT);
+        this._wwSeerResT = setTimeout(() => {
+          const p = this.pv, ss = p && p.wwSeer;
+          if (!ss || p.phase !== 'battle' || p.mode !== 'werewolf' || p.myRole !== 'seer' || p.dead || this.isGhost) return;
+          for (const r of list) ss.seen[r.id] = r.role;
+          const color = list.length === 1 ? this.wwRoleColor(list[0].role) : '#c9a6ff';
+          this.showBanner('📋 調査結果\n' + list.map(r => r.nm + ' は【' + this.wwRoleLabel(r.role) + '】').join('\n'), 5000, color);
+        }, 6800);
+      }
+    }
+    if (info && info.night && s.nightN !== info.n) { s.nightN = info.n; s.cnt = 0; } // 新しい夜：調べた人数を0に戻す
+    if (info && info.night && ww && !myDead && this._wwFadeAt == null && s.cnt < maxN) { // 今夜まだ調べられる
       const my = this.net.uid, ps = this.latestPlayers || {};
-      let bd = (W.seerR || 2.5) * TILE; // 近さの上限（px）。範囲内で一番近い人を占う対象にする
+      let bd = (W.seerR || 2.5) * TILE; // 近さの上限（px）。範囲内で一番近い人を調べる対象にする
       for (const id of pv.ids) {
-        if (id === my || !pv.alive.has(id) || s.seen[id]) continue;
+        if (id === my || !pv.alive.has(id) || s.seen[id] || s.pend.some(r => r.id === id)) continue; // 分かっている人・今夜もう調べた人は除く
         const p = ps[id]; if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') continue;
         const d = Math.hypot(p.x - this.player.x, p.y - this.player.y);
         if (d <= bd) { bd = d; tgt = id; }
@@ -5038,14 +5063,15 @@ class GameScene extends Phaser.Scene {
     }
     if (tgt && tgt === s.tgt) s.t += dt; else { s.tgt = tgt; s.t = 0; }
     if (tgt && s.t >= W.seerTime) {
-      const role = pv.roles && pv.roles[tgt], nm = (pv.info && pv.info[tgt] && pv.info[tgt].name) || '誰か';
-      s.seen[tgt] = role || '?'; s.doneN = info.n; s.t = 0; s.tgt = null; tgt = null; // 今夜はもう占えない
-      this.showBanner('🔮 ' + nm + ' は【' + this.wwRoleLabel(role) + '】', 3500, this.wwRoleColor(role));
+      const role = (pv.roles && pv.roles[tgt]) || '?', nm = (pv.info && pv.info[tgt] && pv.info[tgt].name) || '誰か';
+      s.pend.push({ id: tgt, role, nm }); s.cnt++; s.t = 0; s.tgt = null; tgt = null; // 結果は朝に
+      this.showBanner('📋 ' + nm + ' の調査が完了\n結果は夜が明けたらわかる', 3500, '#c9a6ff');
     }
-    this.wwSeerUi(tgt ? Math.min(1, s.t / W.seerTime) : null);
+    const prog = tgt ? Math.min(1, s.t / W.seerTime) : null;
+    this.wwSeerUi(prog);
   }
 
-  // 占い中の進み具合（画面下）と、分かった人の一覧（画面右）
+  // 調査中の進み具合（画面下）と、分かった人の一覧（画面右）
   wwSeerUi(prog) {
     const pv = this.pv, s = pv && pv.wwSeer, on = !!(s && pv.phase === 'battle' && pv.mode === 'werewolf' && pv.myRole === 'seer');
     let bar = document.getElementById('wwSeerBar'), list = document.getElementById('wwSeerList');
@@ -5054,7 +5080,7 @@ class GameScene extends Phaser.Scene {
       bar = document.createElement('div'); bar.id = 'wwSeerBar';
       bar.style.cssText = 'position:fixed; left:50%; bottom:14vh; transform:translateX(-50%); z-index:22; display:none; width:30vh; text-align:center; color:#e6d6ff; font-weight:bold; font-size:2.6vh; font-family:sans-serif; pointer-events:none; text-shadow:0 0 1vh rgba(0,0,0,0.9);'
         + '';
-      bar.innerHTML = '🔮 占い中…<div style="margin-top:0.6vh; height:1.6vh; border-radius:1vh; background:rgba(0,0,0,0.6); border:0.25vh solid #c9a6ff; overflow:hidden;"><div id="wwSeerFill" style="height:100%; width:0%; background:#c9a6ff;"></div></div>';
+      bar.innerHTML = '📋 調査中…<div style="margin-top:0.6vh; height:1.6vh; border-radius:1vh; background:rgba(0,0,0,0.6); border:0.25vh solid #c9a6ff; overflow:hidden;"><div id="wwSeerFill" style="height:100%; width:0%; background:#c9a6ff;"></div></div>';
       document.body.appendChild(bar);
       list = document.createElement('div'); list.id = 'wwSeerList';
       list.style.cssText = 'position:fixed; right:1.5vw; top:12vh; z-index:22; display:none; max-width:26vw; min-width:150px; padding:1vh 1.4vh; background:rgba(8,10,28,0.8); border:0.25vh solid #c9a6ff; border-radius:1vh; color:#fff; font-size:2.2vh; font-family:sans-serif; pointer-events:none;';
@@ -5068,7 +5094,7 @@ class GameScene extends Phaser.Scene {
     const key = ids.map(i => i + ':' + s.seen[i]).join(',');
     if (list._k !== key) {
       list._k = key;
-      list.innerHTML = '<div style="font-weight:bold; color:#c9a6ff; margin-bottom:0.4vh;">🔮 占い結果</div>' + ids.map(id => '<div>' + escapeHtml((pv.info && pv.info[id] && pv.info[id].name) || '???') + '：<span style="font-weight:bold; color:' + this.wwRoleColor(s.seen[id]) + ';">' + this.wwRoleLabel(s.seen[id]) + '</span></div>').join('');
+      list.innerHTML = '<div style="font-weight:bold; color:#c9a6ff; margin-bottom:0.4vh;">📋 調査結果</div>' + ids.map(id => '<div>' + escapeHtml((pv.info && pv.info[id] && pv.info[id].name) || '???') + '：<span style="font-weight:bold; color:' + this.wwRoleColor(s.seen[id]) + ';">' + this.wwRoleLabel(s.seen[id]) + '</span></div>').join('');
     }
   }
 
@@ -5267,11 +5293,12 @@ class GameScene extends Phaser.Scene {
       this.tweens.add({ targets: ring, scale: 6, alpha: 0, duration: 1500, repeat: -1, ease: 'Cubic.easeOut' });
       // 遠くからでも位置が分かるように、細い輪が定期的にけっこう遠くまで広がっていく（線の太さは変えずに半径だけ広げる）
       const far = this.add.graphics().setDepth(13).setBlendMode(Phaser.BlendModes.ADD); far.k = 0;
+      const item = { gfx, label, fx: [halo, ring, far], x: px, y: py, taken: false, pend: 0, hot: false, holders: {} }; // hot＝誰かが拾っている最中（光がピンクになる）／holders＝拾っている他の人 uid -> 最後に知らせが来た時刻
       const FAR_R = 400, FAR_MS = 2600, FAR_GAP = 1400; // FAR_R＝広がる最大半径(px)／FAR_MS＝広がる時間／FAR_GAP＝次の輪までの間
       this.tweens.add({ targets: far, k: 1, duration: FAR_MS, delay: idx * 350, repeat: -1, repeatDelay: FAR_GAP, ease: 'Sine.easeOut',
-        onUpdate: () => { if (!far.scene) return; far.clear(); far.lineStyle(3, 0xbff0ff, 0.85 * (1 - far.k)); far.strokeCircle(px, py, 20 + FAR_R * far.k); },
+        onUpdate: () => { if (!far.scene) return; far.clear(); far.lineStyle(item.hot ? 5 : 3, item.hot ? 0xff3fb4 : 0xbff0ff, (item.hot ? 1 : 0.85) * (1 - far.k)); far.strokeCircle(px, py, 20 + FAR_R * far.k); },
         onRepeat: () => { far.k = 0; } });
-      return { gfx, label, fx: [halo, ring, far], x: px, y: py, taken: false, pend: 0 };
+      return item;
     });
   }
 
@@ -5316,7 +5343,40 @@ class GameScene extends Phaser.Scene {
         if (q.hold.t >= hold) { q.items[best].pend = now + 1500; q.hold = null; prog = null; this.net.sendPvp({ a: 'quotaGet', n: info.n, i: best, from: my }); }
       } else q.hold = null;
     } else q.hold = null;
+    this.wwQuotaHoldSync(info, my);
     this.wwQuotaBar(prog);
+  }
+
+  // ノルマ品を拾っている間：自分が拾っているものを全員に知らせる（0.3秒に1回。やめた時は on:false を1回）。
+  // 誰かが拾っている最中のノルマ品は、光（本体・ぼんやりした光・輪・遠くへ広がる輪）がピンク色になる（遠くへ広がる波紋は、線を太く濃いピンクにして、遠くからでも分かるようにしている）。
+  wwQuotaHoldSync(info, my) {
+    const q = this.pv && this.pv.wwQ; if (!q) return;
+    const now = performance.now(), cur = q.hold ? q.hold.i : -1, sent = q.holdSentI == null ? -1 : q.holdSentI;
+    if (cur >= 0) {
+      if (sent !== cur || now - (q.holdSendAt || 0) >= 300) { q.holdSentI = cur; q.holdSendAt = now; this.net.sendPvp({ a: 'quotaHold', n: info.n, i: cur, from: my, on: true }); }
+    } else if (sent >= 0) {
+      q.holdSentI = -1; this.net.sendPvp({ a: 'quotaHold', n: info.n, i: sent, from: my, on: false });
+    }
+    q.items.forEach((it, i) => {
+      const others = Object.keys(it.holders || {}).some(u => now - it.holders[u] < 900); // 知らせが途切れたら（回線切れなど）緑をやめる
+      this.wwQuotaItemHot(it, !!(cur === i || others));
+    });
+  }
+
+  // ノルマ品の色を、ピンク（誰かが拾っている）／水色（ふだん）に切り替える
+  wwQuotaItemHot(it, on) {
+    if (!it || it.taken || !!it.hot === !!on) return;
+    it.hot = !!on;
+    const c = on ? 0xff3fb4 : 0x7ad7ff, rc = on ? 0xffa6dc : 0xbff0ff;
+    try { it.gfx.setFillStyle(c, 0.95); it.fx[0].setFillStyle(c, 0.28); it.fx[1].setStrokeStyle(3, rc, 0.95); } catch (err) { /* 破棄済み */ }
+  }
+
+  // 他の人が拾っている知らせ
+  wwApplyQuotaHold(m) {
+    const pv = this.pv, q = pv && pv.wwQ;
+    if (!q || q.itemsN !== m.n || !m.from || m.from === this.net.uid) return;
+    const it = q.items[m.i]; if (!it || it.taken) return;
+    if (m.on) it.holders[m.from] = performance.now(); else delete it.holders[m.from];
   }
 
   // ノルマ品を拾っている途中の進み具合（画面下）
@@ -5655,7 +5715,7 @@ class GameScene extends Phaser.Scene {
         const win = !!side && this.wwTeam(r.role) === side, me = r.id === my, wolf = r.role === 'wolf';
         return '<tr style="' + (win ? 'background:rgba(255,210,80,0.16);' : (me ? 'background:rgba(120,160,255,0.14);' : '')) + '">'
           + '<td style="' + cell + 'text-align:left;">' + (win ? '👑 ' : '') + escapeHtml(r.name) + (me ? '（あなた）' : '') + '</td>'
-          + '<td style="' + cell + 'font-weight:bold; color:' + this.wwRoleColor(r.role) + ';">' + (wolf ? '🐺 ' : r.role === 'watchman' ? '🏮 ' : r.role === 'seer' ? '🔮 ' : r.role === 'detective' ? '🔍 ' : '🏡 ') + this.wwRoleLabel(r.role) + '</td>'
+          + '<td style="' + cell + 'font-weight:bold; color:' + this.wwRoleColor(r.role) + ';">' + (wolf ? '🐺 ' : r.role === 'watchman' ? '🏮 ' : r.role === 'seer' ? '📋 ' : r.role === 'detective' ? '🔍 ' : '🏡 ') + this.wwRoleLabel(r.role) + '</td>'
           + '<td style="' + cell + (r.alive ? '' : 'color:#8a8fa8;') + '">' + (r.alive ? '生存' : '💀 死亡') + '</td>'
           + '<td style="' + cell + '">' + (wolf ? r.kills : '-') + '</td>'
           + '<td style="' + cell + '">' + (!side ? '-' : win ? '勝ち' : '負け') + '</td>'
@@ -20058,7 +20118,7 @@ const netInstance = new Net(FIREBASE_CONFIG);
 
 // 初期の名前：修飾語＋敵キャラ名（例：瀕死シマハル）。「〜な」の形の修飾語は使わない。名前欄は20文字までなので、修飾語は5文字以内・動物は7文字以内にする。
 const NAME_MODIFIERS = ['ゾミカス', 'ポンコツ', '雑魚', '瀕死の', 'ヤケクソ', '寝不足', '腹ペコ', '迷子の', '無職の', '爆速', '激弱', '泥酔', '半泣き', 'ファッキン', '勇敢な', '無課金', 'キチガイ', '二度寝', '夜更かし', '丸腰', '全裸の', '空回り', '史上最強の', 'エリート', '淫夢厨の', '他力本願', '狂気の', '激ヤバ', '無双', 'アンパンマンは', '財布の中の', 'バーサーカー', '最後の','10連勤の','ゾミゾミ','午後八時の','アンチ'];
-const NAME_ANIMALS = ['ゾミカス', 'バーサーカー', 'シマハル', 'スライム', 'コウモリ', '胞子', 'チャージャー', 'ブルート', 'シューター', 'ゴースト', 'オーバーロード', 'カルテット', 'デトネーター', 'ゾートロープ', 'ウロボロス', '天使','キチガイ','ニンゲン','殺人鬼','探偵','人狼','占い師','村人','見張り番','緑川大輔','ゾミドゥン','フロンティア','ポイコツ','マイケル','ボブ']; // 後ろにつく言葉（ゲームに登場する敵キャラの名前など）
+const NAME_ANIMALS = ['ゾミカス', 'バーサーカー', 'シマハル', 'スライム', 'コウモリ', '胞子', 'チャージャー', 'ブルート', 'シューター', 'ゴースト', 'オーバーロード', 'カルテット', 'デトネーター', 'ゾートロープ', 'ウロボロス', '天使','キチガイ','ニンゲン','殺人鬼','探偵','人狼','調査員','村人','見張り番','緑川大輔','ゾミドゥン','フロンティア','ポイコツ','マイケル','ボブ']; // 後ろにつく言葉（ゲームに登場する敵キャラの名前など）
 function randomName() {
   const pick = arr => arr[Math.floor(Math.random() * arr.length)];
   return pick(NAME_MODIFIERS) + pick(NAME_ANIMALS); // 同じ言葉が重なる（ゾミカスゾミカス等）のもOK
