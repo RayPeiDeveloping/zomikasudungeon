@@ -2446,6 +2446,10 @@ class GameScene extends Phaser.Scene {
     // カメラズームに掛ける。これにより、画面が大きい/小さいどの端末でも見えるエリアの比率と
     // UIとの相対サイズ感が揃う。
     this.cameras.main.setZoom(window.GAME_VIEW_ZOOM || 1);
+    if (!this._floorRebakeBound && this.game.canvas) {
+      this._floorRebakeBound = true;
+      this.game.canvas.addEventListener('webglcontextrestored', () => setTimeout(() => this._rebakeFloor(), 0));
+    }
 
     this.wasd = this.input.keyboard.addKeys({ up: 'W', down: 'S', left: 'A', right: 'D' });
     this.cursors = this.input.keyboard.createCursorKeys();
@@ -7189,7 +7193,14 @@ class GameScene extends Phaser.Scene {
   // ここで自動的に「壁が消えて床が出現した」ように見える）。
   redrawDungeonWalls() {
     this._wallVer = (this._wallVer || 0) + 1;
-    const g = this.graphics;
+    // 【省電力】床は Graphics のままだと、毎フレーム全タイル分の描画コマンドを再実行してしまう。
+    // そこで、描画コマンドは画面に出さない別の Graphics(_floorSrc) に溜めておき、
+    // 1枚の RenderTexture に焼き付けて表示する（壁を壊した時などの作り直し時だけ焼き直す）。
+    // this.graphics 自体は空のまま残し、表示/非表示・破棄だけを RenderTexture に連動させる
+    // （儀式の間の hide/復元や、フロア切り替え時の destroy がそのまま動くようにするため）。
+    const bakeScale = this._floorBakeScale(this.dungeon);
+    let g = this.graphics;
+    if (bakeScale) g = this.graphics._floorSrc || (this.graphics._floorSrc = this.make.graphics({ x: 0, y: 0, add: false }));
     const dungeon = this.dungeon;
     const ep = dungeon.exitPos;
     const EXIT_TILE_FADE_RADIUS = 4; // この距離（タイル数）で白色が完全に消える
@@ -7220,6 +7231,51 @@ class GameScene extends Phaser.Scene {
         }
       }
     }
+    if (bakeScale) this._bakeFloor(this.graphics, bakeScale);
+  }
+
+  // 床を RenderTexture に焼き付ける時の倍率を返す（0 なら焼き付けず、従来どおり Graphics で描く）。
+  // カメラズームが大きい画面でも線がぼやけないよう最大2倍で焼くが、テクスチャの上限サイズやメモリを超える場合は倍率を下げる。
+  _floorBakeScale(d) {
+    if (!d) return 0;
+    const r = this.game.renderer, gl = r && r.gl;
+    const maxTex = gl ? Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096, 8192) : 4096;
+    const W = d.width * TILE, H = d.height * TILE;
+    let sc = Math.max(1, Math.min(2, Math.round(window.GAME_VIEW_ZOOM || 1)));
+    while (sc >= 1 && (W * sc > maxTex || H * sc > maxTex || W * H * sc * sc > 16e6)) sc--; // 16e6px ≒ 64MB
+    return sc >= 1 ? sc : 0;
+  }
+
+  _bakeFloor(holder, sc) {
+    const src = holder._floorSrc, d = this.dungeon;
+    if (!src) return;
+    const W = Math.ceil(d.width * TILE * sc), H = Math.ceil(d.height * TILE * sc);
+    let rt = holder._floorRT;
+    if (rt && rt.scene && (rt.width !== W || rt.height !== H)) { rt.destroy(); rt = null; }
+    if (!rt || !rt.scene) {
+      rt = holder._floorRT = this.add.renderTexture(0, 0, W, H).setOrigin(0, 0);
+      rt.setVisible(holder.visible);
+      const sv = holder.setVisible.bind(holder), ds = holder.destroy.bind(holder);
+      holder.setVisible = (v) => { sv(v); if (rt.scene) rt.setVisible(v); return holder; };
+      holder.destroy = (...a) => {
+        if (rt.scene) rt.destroy();
+        if (src.scene) src.destroy();
+        holder._floorRT = holder._floorSrc = null;
+        return ds(...a);
+      };
+    }
+    rt.setScale(1 / sc);
+    src.setScale(sc);
+    rt.clear();
+    rt.draw(src);
+  }
+
+  // WebGLコンテキストが失われて復帰した時（iOSでのバックグラウンド復帰など）、RenderTextureの中身は消えるので焼き直す。
+  _rebakeFloor() {
+    const h = this.graphics;
+    if (!h || !h._floorRT || !h._floorRT.scene || !h._floorSrc || !h._floorSrc.scene) return;
+    const sc = this._floorBakeScale(this.dungeon);
+    if (sc) this._bakeFloor(h, sc);
   }
 
   // 儀式部屋のあるダンジョンで、このタイルを壊してよいか。元のダンジョンの中は従来どおり（最外周の1マスは壊せない）。
@@ -20547,7 +20603,10 @@ function launchGame() {
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'game',
-    antialias: true,
+    antialias: true, // テクスチャの拡大縮小を滑らかにする設定（文字や画像用。ここをfalseにするとカクカクになる）
+    // 【省電力】WebGL本体のMSAA（図形の縁のギザギザ除去）を切る。画面全体の描画負荷が下がる。
+    // 図形の縁が気になる場合は true に戻す。
+    render: { antialiasGL: false },
     scale: {
       // スマホはアドレスバーの出し引きなどで innerHeight が細かく変動し、その都度
       // RESIZEモードが追従してガタつく（レイアウトが「いい感じにならない」）原因になる。
@@ -20559,7 +20618,8 @@ function launchGame() {
     backgroundColor: '#0d0d12',
     // 起動直後などの重いフレーム後に、Phaserが数秒間deltaを16.7msに頭打ちにして
     // ゲームが半速になる(パニック後クールダウン)のを無効化する
-    fps: { panicMax: 0 },
+    // 【省電力】120Hz端末で120fpsまで回らないよう60fpsに制限（動きの速さはdeltaで計算しているので変わらない）
+    fps: { panicMax: 0, limit: 60 },
     scene: [GameScene],
   });
 
