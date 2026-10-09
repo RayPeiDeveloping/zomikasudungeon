@@ -3046,6 +3046,15 @@ class GameScene extends Phaser.Scene {
       const isDowned = !isGhost && !!p.downed;
       // 人狼ゲーム：ゴースト（死んだ人）は、生きている人からは見えない（ゴースト同士は見える）
       const hideGhost = isGhost && !!(this.pv && this.pv.mode === 'werewolf') && !this.isGhost && !this.pv.dead;
+      { // 人狼ゲーム：人狼にだけ、ランタンの油が切れた人が分かるように、頭の上に赤い印を出す（村人側には出ない）。夜の闇より下の層なので、その人が見える時だけ見える
+        const ot = this.pv && this.pv.mode === 'werewolf' && this.pv.myRole === 'wolf' && this.pv.wwOilOut && this.pv.wwOilOut[uid];
+        const on = !!(ot && performance.now() - ot < 2500 && !hideGhost && !isGhost); // 知らせが途切れたら（回線切れなど）印を消す
+        if (on && !rp.oilTxt) rp.oilTxt = this.add.text(0, 0, '🏮油切れ', { fontSize: '11px', color: '#ff7a7a', fontFamily: 'sans-serif', fontStyle: 'bold', stroke: '#000000', strokeThickness: 3 }).setOrigin(0.5).setResolution(2).setDepth(5.9);
+        if (rp.oilTxt) {
+          rp.oilTxt.setVisible(on);
+          if (on) { rp.oilTxt.x = rp.gfx.x; rp.oilTxt.y = rp.gfx.y - 42; rp.oilTxt.setAlpha(0.65 + 0.35 * Math.abs(Math.sin(this.time.now / 250))); }
+        }
+      }
       rp.gfx.setAlpha(hideGhost ? 0 : (isGhost ? 0.3 : (isDowned ? 0.92 : 0.85)));
       // 装飾品：届いたkeyを表で照合して、正しいものだけ描く
       rp._accKey = accessoryByKey(p.acc) ? p.acc : ''; rp._ghost = isGhost; // 効果の判定用（王冠・盾）
@@ -3108,6 +3117,7 @@ class GameScene extends Phaser.Scene {
     if (!rp) return;
     rp.gfx.destroy(); rp.facing.destroy(); rp.label.destroy(); rp.hpBarBg.destroy(); rp.hpBarFill.destroy(); rp.downedLabel.destroy(); rp.reviveRing.destroy();
     if (rp.winLabel) rp.winLabel.destroy();
+    if (rp.oilTxt) rp.oilTxt.destroy();
     if (rp.accText) rp.accText.destroy();
     if (rp.accFx) accFxDestroy(rp.accFx);
     this.clearRemoteBh(rp);
@@ -4213,6 +4223,18 @@ class GameScene extends Phaser.Scene {
   // ===== 人狼ゲーム：ランタンの油 =====
   // 夜、外にいる間は油が減り、自分の家の中にいる間だけ回復する。油は毎晩の始まりに、最大量の30〜70%のランダムな量から始まる。
   // 油が oilLow を切ると光の半径が縮みながらゆらぎ、切れると足元の1マス(oilMinR)だけになる。結果は this._wwR（光の半径・タイル数）に入れ、視界とランタンの光が使う。
+  // 自分のランタンの油が切れているかを全員に知らせる（切れた間は1秒に1回。戻ったら on:false を1回）。
+  // 知らせを受け取っても、印を出すのは人狼の画面だけ（村人側の画面には何も出ない）。
+  wwOilOutSync(out) {
+    if (!this.pv || !this.net) return;
+    const now = performance.now();
+    if (out) {
+      if (!this._wwOilOutSent || now - (this._wwOilOutAt || 0) >= 1000) { this._wwOilOutSent = true; this._wwOilOutAt = now; this.net.sendPvp({ a: 'oilOut', from: this.net.uid, on: true }); }
+    } else if (this._wwOilOutSent) {
+      this._wwOilOutSent = false; this.net.sendPvp({ a: 'oilOut', from: this.net.uid, on: false });
+    }
+  }
+
   // 画面下部に、残量を横向きの黄色いバーで出す（夜の参加者だけ）。
   wwUpdateOil() {
     const pv = this.pv, ww = this.dungeon && this.dungeon.werewolf, W = PVP.werewolf;
@@ -4232,18 +4254,19 @@ class GameScene extends Phaser.Scene {
     const watch = pv && pv.myRole === 'watchman', oilMax = W.oilMax * (watch ? (W.watchOilMul || 1) : 1), viewMul = watch ? (W.watchViewMul || 1) : 1; // 見張り番：油の最大量×2・光の半径×2（村人陣営）
     if (!night || idx < 0 || this.isGhost) { // 昼・観戦・ゴースト：油は使わない（次の夜に、また100%から始まる）
       if (this._wwOil != null && !night && idx >= 0 && !this.isGhost) this._wwDawnStart = performance.now(); // 朝になった：夜の闇をゆっくり消すために、始まりの時刻を覚える
-      this._wwOil = null; box.style.display = 'none';
+      this._wwOil = null; box.style.display = 'none'; this.wwOilOutSync(false);
       if (!(this._wwDawnStart != null && performance.now() - this._wwDawnStart < WW_DAWN_MS)) this._wwR = W.nightViewR * viewMul; // 朝の間は、夜の最後の光の半径のまま（油が少なかった人の光が、急に広がらない）
       return;
     }
     if (pv.myRole === 'wolf') { // 人狼は夜目が効くので、油がない：減らない・バーも出さない・視界は一定（ゆらぎなし）（朝の処理のため _wwOil は空にしない）
-      this._wwOil = oilMax; this._wwR = W.nightViewR * (W.watchViewMul || 1); box.style.display = 'none'; // 視界は見張り番と同じ（watchViewMul倍）
+      this._wwOil = oilMax; this._wwR = W.nightViewR * (W.watchViewMul || 1); box.style.display = 'none'; this.wwOilOutSync(false); // 視界は見張り番と同じ（watchViewMul倍）
       return;
     }
     if (this._wwOil == null) this._wwOil = oilMax; // 夜の始まり：全員、油は100%（見張り番も、自分の最大量の100%）
     const i0 = Math.floor(this.player.y / TILE) * ww.w + Math.floor(this.player.x / TILE), inMap = this.player.x >= 0 && this.player.y >= 0 && this.player.x / TILE < ww.w && this.player.y / TILE < ww.h;
     const k = inMap ? ww.kind[i0] : 0, home = inMap && (k === 3 || k === 5) && ww.hid[i0] === this.wwHouseFor(idx, pv.ids.length).k; // 自分の家の中（玄関前を含む）
     this._wwOil = Math.max(0, Math.min(oilMax, this._wwOil + (home ? W.oilRegen : -W.oilBurn) * dt));
+    this.wwOilOutSync(this._wwOil <= 0.001); // 油が切れた：人狼の画面にだけ印が出るよう、知らせる
     const r = this._wwOil / oilMax, tm = this.time.now / 1000;
     let R = W.nightViewR * viewMul;
     if (r < W.oilLow) { // 油が少ない：縮んで、少なくなるほど大きくゆらぐ
@@ -4841,6 +4864,8 @@ class GameScene extends Phaser.Scene {
       this.wwApplyQuotaGet(m);
     } else if (m.a === 'quotaHold') {
       this.wwApplyQuotaHold(m);
+    } else if (m.a === 'oilOut') { // 誰かの油が切れた／戻った（印を出すのは人狼の画面だけ）
+      if (m.from && m.from !== my) { const oo = (pv.wwOilOut = pv.wwOilOut || {}); if (m.on) oo[m.from] = performance.now(); else delete oo[m.from]; }
     } else if (m.a === 'quotaRes') {
       this.wwApplyQuotaRes(m);
     } else if (m.a === 'burn') {
