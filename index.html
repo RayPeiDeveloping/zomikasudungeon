@@ -384,8 +384,9 @@
   #wwChatPanel .wwcMsg.ghost { opacity: 0.65; font-style: italic; }
   #wwChatPanel .wwcDot { width: max(12px, 2vh); height: max(12px, 2vh); margin-top: 0.25em; border-radius: 50%; box-sizing: border-box; border: 0.15vh solid rgba(255,255,255,0.75); }
   
-  #wwChatPanel .wwcStamps { display: flex; flex-wrap: wrap; gap: 0.5vh; margin: 0.6vh 0; }
-  #wwChatPanel .wwcRow { display: flex; gap: 0.6vh; }
+  #wwChatPanel .wwcLog { order: 1; }
+  #wwChatPanel .wwcRow { order: 2; display: flex; gap: 0.6vh; margin-top: 0.6vh; }
+  #wwChatPanel .wwcStamps { order: 3; display: flex; flex-wrap: wrap; gap: 0.5vh; margin: 0.6vh 0 0; } /* 定型文は入力欄の下 */
   #wwChatPanel input { flex: 1; min-width: 0; font-size: inherit; padding: 0.4vh 0.8vh; border-radius: 0.8vh; border: 0.15vh solid #6c7cc0; background: #101428; color: #fff; }
   /* スマホ縦向き：チャットを画面いっぱいに表示（vh基準だと縦長で大きくなりすぎるのでpx基準に切り替える） */
   @media (max-width: 900px) and (orientation: portrait) {
@@ -398,8 +399,12 @@
     #wwChatPanel .wwcLog { padding: 8px; border-radius: 8px; line-height: 1.45; }
     #wwChatPanel .wwcMsg { grid-template-columns: 18px 1fr; column-gap: 8px; margin-bottom: 4px; }
     #wwChatPanel .wwcDot { width: 14px; height: 14px; border-width: 1px; }
-    #wwChatPanel .wwcStamps { gap: 6px; margin: 8px 0; }
-    #wwChatPanel .wwcRow { gap: 8px; }
+    #wwChatPanel .wwcRow { gap: 8px; margin-top: 8px; }
+    /* 定型文は1行の横スクロールにして、チャットの表示領域を圧迫しない */
+    #wwChatPanel .wwcStamps { flex-wrap: nowrap; overflow-x: auto; gap: 6px; margin: 8px 0 0; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    #wwChatPanel .wwcStamps::-webkit-scrollbar { display: none; }
+    #wwChatPanel.typing .wwcStamps { display: none; } /* 入力中は定型文を隠して、チャットを最大限広く見せる */
+    #wwChatPanel .wwcStamps button { flex: 0 0 auto; white-space: nowrap; }
     #wwChatPanel input { font-size: 16px; padding: 10px; border-width: 1px; border-radius: 8px; } /* 16px未満だとiOSで入力時に勝手に拡大される */
   }
 </style>
@@ -20749,9 +20754,18 @@ window.WWChat = (() => {
   function fit() { // スマホでキーボードが出た時、入力欄が隠れないように見えている範囲へ収める
     if (!panel || !open) return;
     const vv = window.visualViewport;
-    if (vv && document.activeElement === input && vv.height < window.innerHeight - 80) {
+    // 縦向きの全画面表示：常に「いま見えている範囲」にぴったり合わせる（キーボードの有無に関係なく）。
+    // 入力欄にカーソルを置いた直後、ブラウザが画面を押し上げた分もすぐ追従するので、ヘッダーが画面外へ飛ばない。
+    if (vv && window.matchMedia && matchMedia('(max-width: 900px) and (orientation: portrait)').matches) {
+      panel.style.top = vv.offsetTop + 'px'; panel.style.bottom = 'auto'; panel.style.height = vv.height + 'px';
+    } else if (vv && document.activeElement === input && vv.height < window.innerHeight - 80) {
       panel.style.top = (vv.offsetTop + 6) + 'px'; panel.style.bottom = 'auto'; panel.style.height = Math.max(vv.height - 12, 140) + 'px';
     } else { panel.style.top = ''; panel.style.bottom = ''; panel.style.height = ''; }
+  }
+  function track() { // キーボードの出入りのアニメーション中（約0.8秒）は毎フレーム位置を合わせ直す
+    const end = performance.now() + 800;
+    const step = () => { fit(); if (performance.now() < end) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
   }
   function setOpen(v) {
     open = !!v;
@@ -20818,8 +20832,9 @@ window.WWChat = (() => {
     sendBtn.addEventListener('click', () => { if (send(input.value)) input.value = ''; });
     input.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); if (send(input.value)) input.value = ''; } });
     input.addEventListener('keyup', e => e.stopPropagation());
-    input.addEventListener('focus', () => { kb(false); setTimeout(fit, 300); }); // 入力中はWASD等がゲームに効かないようにする
-    input.addEventListener('blur', () => { kb(true); fit(); });
+    input.addEventListener('focus', () => { panel.classList.add('typing'); kb(false); track(); }); // 入力中はWASD等がゲームに効かないようにする
+    input.addEventListener('blur', () => { panel.classList.remove('typing'); kb(true); track(); });
+    sendBtn.addEventListener('mousedown', e => e.preventDefault()); // 送信ボタンを押しても入力欄のフォーカスを外さない（定型文が再表示されて配置がずれ、タップを外すのを防ぐ）
     if (window.visualViewport) { window.visualViewport.addEventListener('resize', fit); window.visualViewport.addEventListener('scroll', fit); }
     document.body.appendChild(btn); document.body.appendChild(panel);
   }
