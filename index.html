@@ -2021,7 +2021,7 @@ const DEFAULT_SAVE = {
   accEquipped: '',       // 付けている装飾品のkey（''なら何も付けない）
   armorFloor10Fast: 0,   // ダンジョン（ソロ）を始めてから ARMOR_UNLOCK.sec 秒以内に10階層のボスを倒したか（0/1）。1で装飾品「鎧」を入手（デベロッパーモード・協力プレイを除く）
   arms4RitualPlayed: false, // 四つ腕の調伏の儀を一度でも始めたか（デベロッパーモードを除く）。trueで、ロビーの「四つ腕の調伏の儀」ボタンが解放される
-  arms4RitualClears: 0, // ダンジョン（ソロ）で天使の調伏の儀に成功した回数（デベロッパーモード・協力プレイ・【期間限定】調伏の儀モードを除く）。1回で装飾品「エンジェルヘイロー」を入手
+  arms4RitualClears: 0, // ダンジョン（ソロ）またはロビーの【期間限定】天使・調伏の儀で天使の調伏の儀に成功した回数（デベロッパーモード・協力プレイを除く）。1回で装飾品「エンジェルヘイロー」を入手
   soloClears: 0,        // ダンジョン（ソロ）を全クリア（25階オールクリア）した回数（デベロッパーモード・協力プレイ・ボスラッシュを除く）。1回で装飾品「時計」を入手
 };
 function loadSave() {
@@ -2054,7 +2054,7 @@ const ACCESSORIES = [
   { key: 'blackhole', icon: '🕳️', name: 'ブラックホール', stat: 'bossRushBestBosses', goal: 20, unit: '体', desc: 'ボスラッシュで20体目のボスを倒す', effect: '10秒に一度simaharのビームを撃つ' },
   { key: 'swords', icon: '⚔️', name: '双剣', stat: 'soloTotalKills',   goal: 500, unit: '体',  desc: 'ダンジョン（ソロ）で雑魚敵を累計500体倒す', effect: 'ノックバックが2倍になる' },
   { key: 'snow',   icon: '❄️', name: '雪',   stat: 'frontlineBestSec', goal: 300, unit: '秒',  desc: '最北戦線（ソロ）で5分間生き残る', effect: '移動速度+10%' },
-  { key: 'angelhalo', icon: '🪽', name: 'エンジェルヘイロー', stat: 'arms4RitualClears', goal: 1, unit: '回', desc: 'ダンジョン（ソロ）で天使を調伏する', effect: '1分ごとに50%の確率で天使を召喚' }, // 入手条件：ダンジョン（ソロ）で降魔術の天使の調伏の儀に成功する（arms4RitualClears。デベロッパーモード・協力プレイ・【期間限定】調伏の儀モードでは入手できない）
+  { key: 'angelhalo', icon: '🪽', name: 'エンジェルヘイロー', stat: 'arms4RitualClears', goal: 1, unit: '回', desc: '天使を調伏する', effect: '1分ごとに50%の確率で天使を召喚' }, // 入手条件：ダンジョン（ソロ）またはロビーの【期間限定】天使・調伏の儀で、天使の調伏の儀に成功する（arms4RitualClears。デベロッパーモード・協力プレイでは入手できない）
   { key: 'serialkiller', icon: '🔪', name: 'ナイフ', all: true, goal: 0, unit: '個', desc: '他のすべての装飾品を獲得', effect: '近づいた敵を切り刻む' }, // 入手条件：他の装飾品をすべて入手済み（all:true。進捗は入手済みの個数）。効果：範囲内の敵へ絶え間なく斬撃（ACC_SERIALKILLER）。斬られた敵に白と赤の斬撃線が出る。必ず表の最後に置く
 ];
 function accessoryByKey(key) { return ACCESSORIES.find(a => a.key === key) || null; }
@@ -4542,7 +4542,7 @@ class GameScene extends Phaser.Scene {
         if (Phaser.Math.Distance.Between(cx, cy, tx * TILE + TILE / 2, ty * TILE + TILE / 2) <= r) { d.grid[ty][tx] = 1; changed = true; }
       }
     }
-    if (changed) this.redrawDungeonWalls();
+    if (changed) this._queueWallRedraw(); // 同じフレームで何度壊れても、床の描き直しは1回にまとめる
   }
 
   // 回復アイテム（通常ダンジョンと同じ包帯。拾うと4秒かけて40回復）を毎ラウンド PVP.potionCount 個、フィールド内側に配置する。
@@ -7234,12 +7234,25 @@ class GameScene extends Phaser.Scene {
     if (bakeScale) this._bakeFloor(this.graphics, bakeScale);
   }
 
+  // 壁が壊れた時の床の描き直しを、そのフレームの最後に1回だけ行う。
+  // ビームは線に沿って何十回も destroyWallsInRadius を呼ぶので、そのたびに床全体を描き直す（＋焼き付ける）と、
+  // 1発撃つだけで画面が止まってしまうため。当たり判定は dungeon.grid を見ているので、描画が1フレーム遅れても影響しない。
+  _queueWallRedraw() {
+    if (this._wallRedrawQueued) return;
+    this._wallRedrawQueued = true;
+    this.events.once(Phaser.Scenes.Events.POST_UPDATE, () => {
+      this._wallRedrawQueued = false;
+      if (this.graphics && this.graphics.scene) this.redrawDungeonWalls();
+    });
+  }
+
   // 床を RenderTexture に焼き付ける時の倍率を返す（0 なら焼き付けず、従来どおり Graphics で描く）。
   // カメラズームが大きい画面でも線がぼやけないよう最大2倍で焼くが、テクスチャの上限サイズやメモリを超える場合は倍率を下げる。
   _floorBakeScale(d) {
-    if (!d) return 0;
+    if (!d || window.POWER_SAVE.floorBake === false) return 0;
     const r = this.game.renderer, gl = r && r.gl;
-    const maxTex = gl ? Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096, 8192) : 4096;
+    if (this._maxTexSize == null) this._maxTexSize = gl ? Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096, 8192) : 4096; // GPUへの問い合わせは重いので1回だけ
+    const maxTex = this._maxTexSize;
     const W = d.width * TILE, H = d.height * TILE;
     let sc = Math.max(1, Math.min(2, Math.round(window.GAME_VIEW_ZOOM || 1)));
     while (sc >= 1 && (W * sc > maxTex || H * sc > maxTex || W * H * sc * sc > 16e6)) sc--; // 16e6px ≒ 64MB
@@ -7315,7 +7328,7 @@ class GameScene extends Phaser.Scene {
         }
       }
     }
-    if (changed) this.redrawDungeonWalls();
+    if (changed) this._queueWallRedraw(); // 同じフレームで何度壊れても、床の描き直しは1回にまとめる
   }
   // 線分(x1,y1)-(x2,y2)に沿って壁を壊す（destroyWallsInRadiusを線分上に何度も呼ぶ簡易実装）。
   // halfWidthはビームの半分の太さ：見た目のビームより少し広めに壊れるよう、タイル半分ぶん余裕を持たせる。
@@ -12529,7 +12542,7 @@ class GameScene extends Phaser.Scene {
         (this.s2Unlocked = this.s2Unlocked || {})[tr.sk.key] = true;
         tr.phase = 'clear'; tr.t = SUMMON2.trial.returnDelay;
         this.showBanner('⚔ ' + tr.sk.name + '・調伏成功！ この技が使えるようになった', 2000);
-        if (tr.sk.key === 'arms4' && !this.mp && !this.arms4Ritual && !this.isDevMode && !this.bossRush && !this.frontline && !this.pvp) { // ダンジョン（ソロ）で天使を調伏：装飾品「エンジェルヘイロー」の入手条件（デベロッパーモードでは記録しない）
+        if (tr.sk.key === 'arms4' && !this.mp && !this.isDevMode && !this.bossRush && !this.frontline && !this.pvp) { // ダンジョン（ソロ）またはロビーの【期間限定】天使・調伏の儀で天使を調伏：装飾品「エンジェルヘイロー」の入手条件（デベロッパーモードでは記録しない）
           const sv = loadSave(); sv.arms4RitualClears = (sv.arms4RitualClears || 0) + 1;
           const got = unlockAccessories(sv); writeSave(sv);
           if (got.length) { this._ritualNewAcc = (this._ritualNewAcc || []).concat(got); this.time.delayedCall(2100, () => this.showBanner('🪽 ' + got[0].name + 'を入手！', 2500)); }
@@ -20199,7 +20212,7 @@ const netInstance = new Net(FIREBASE_CONFIG);
 
 // 初期の名前：修飾語＋敵キャラ名（例：瀕死シマハル）。「〜な」の形の修飾語は使わない。名前欄は20文字までなので、修飾語は5文字以内・動物は7文字以内にする。
 const NAME_MODIFIERS = ['ゾミカス', 'ポンコツ', '雑魚', '瀕死の', 'ヤケクソ', '寝不足', '腹ペコ', '迷子の', '無職の', '爆速', '激弱', '泥酔', '半泣き', 'ファッキン', '勇敢な', '無課金', 'キチガイ', '二度寝', '夜更かし', '丸腰', '全裸の', '空回り', '史上最強の', 'エリート', '淫夢厨の', '他力本願', '狂気の', '激ヤバ', '無双', 'アンパンマンは', '財布の中の', 'バーサーカー', '最後の','10連勤の','ゾミゾミ','午後八時の','アンチ'];
-const NAME_ANIMALS = ['ゾミカス', 'バーサーカー', 'シマハル', 'スライム', 'コウモリ', '胞子', 'チャージャー', 'ブルート', 'シューター', 'ゴースト', 'オーバーロード', 'カルテット', 'デトネーター', 'ゾートロープ', 'ウロボロス', '天使','キチガイ','ニンゲン','殺人鬼','探偵','人狼','調査員','村人','見張り番','緑川大輔','ゾミドゥン','フロンティア','ポイコツ','マイケル','ボブ','ソレバアインノティウス']; // 後ろにつく言葉（ゲームに登場する敵キャラの名前など）
+const NAME_ANIMALS = ['ゾミカス', 'バーサーカー', 'シマハル', 'スライム', 'コウモリ', '胞子', 'チャージャー', 'ブルート', 'シューター', 'ゴースト', 'オーバーロード', 'カルテット', 'デトネーター', 'ゾートロープ', 'ウロボロス', '天使','キチガイ','ニンゲン','殺人鬼','探偵','人狼','調査員','村人','見張り番','緑川大輔','ゾミドゥン','フロンティア','ポイコツ','マイケル','ボブ']; // 後ろにつく言葉（ゲームに登場する敵キャラの名前など）
 function randomName() {
   const pick = arr => arr[Math.floor(Math.random() * arr.length)];
   return pick(NAME_MODIFIERS) + pick(NAME_ANIMALS); // 同じ言葉が重なる（ゾミカスゾミカス等）のもOK
@@ -20596,6 +20609,13 @@ document.getElementById('joinRoomBtn').addEventListener('click', async () => {
 // （横方向は画面のアスペクト比なりに広く/狭く見える＝横長端末ほど左右が広く見える）。
 const REF_VIEW_H = 400;
 
+// 【省電力の設定】カクつきの原因を切り分けられるよう、URLの末尾に付けて個別にオフにできる（例: index.html?nofps=1&nobake=1）。
+//   ?nofps=1  … フレームレート制限をやめる／ ?nobake=1 … 床の焼き付けをやめる（従来どおりGraphicsで描く）／ ?msaa=1 … 図形の縁のギザギザ除去を戻す
+window.POWER_SAVE = (function () {
+  const q = new URLSearchParams(location.search);
+  return { fpsLimit: q.get('nofps') === '1' ? 0 : 70, floorBake: q.get('nobake') !== '1', antialiasGL: q.get('msaa') === '1' };
+})();
+
 function launchGame() {
   // 画面の高さを基準に「見えるエリア」の比率を揃えるための係数。起動時の画面サイズから算出。
   window.GAME_VIEW_ZOOM = window.innerHeight / REF_VIEW_H;
@@ -20606,7 +20626,7 @@ function launchGame() {
     antialias: true, // テクスチャの拡大縮小を滑らかにする設定（文字や画像用。ここをfalseにするとカクカクになる）
     // 【省電力】WebGL本体のMSAA（図形の縁のギザギザ除去）を切る。画面全体の描画負荷が下がる。
     // 図形の縁が気になる場合は true に戻す。
-    render: { antialiasGL: false },
+    render: { antialiasGL: window.POWER_SAVE.antialiasGL },
     scale: {
       // スマホはアドレスバーの出し引きなどで innerHeight が細かく変動し、その都度
       // RESIZEモードが追従してガタつく（レイアウトが「いい感じにならない」）原因になる。
@@ -20618,8 +20638,10 @@ function launchGame() {
     backgroundColor: '#0d0d12',
     // 起動直後などの重いフレーム後に、Phaserが数秒間deltaを16.7msに頭打ちにして
     // ゲームが半速になる(パニック後クールダウン)のを無効化する
-    // 【省電力】120Hz端末で120fpsまで回らないよう60fpsに制限（動きの速さはdeltaで計算しているので変わらない）
-    fps: { panicMax: 0, limit: 60 },
+    // 【省電力】120Hz端末で120fpsまで回らないよう制限する（動きの速さはdeltaで計算しているので変わらない）。
+    // 60にぴったり合わせると、60Hz画面のわずかな時間のゆらぎで「間引かれる／間引かれない」が交互になりカクつくため、
+    // 60Hz画面では何もしない（毎回通る）よう少し余裕を持たせて70にしてある。120Hz画面では1フレームおきに間引かれて60fpsになる。
+    fps: { panicMax: 0, limit: window.POWER_SAVE.fpsLimit },
     scene: [GameScene],
   });
 
@@ -20708,6 +20730,38 @@ const ARM_IMG_LOW = 'data:image/webp;base64,UklGRownAABXRUJQVlA4WAoAAAAQAAAAfQAA
     };
     document.addEventListener('pointerup', tryFs, true);
     document.addEventListener('touchend', tryFs, true);
+  }
+
+  // ホーム画面（ロビー）に戻る時は location.reload() でページを読み込み直すので、ブラウザが全画面を解除してしまう。
+  // そこで、全画面のままリロード（ページを離れる）した時だけ印を残し、次の読み込み後の「最初の操作」でもう一度全画面にする。
+  // （ブラウザの決まりで、操作なしでは全画面にできない。自分で全画面を解除していた場合は印を残さないので、勝手に戻さない）
+  if (canFs) {
+    const KEEP_KEY = 'wwKeepFullscreen';
+    const markFs = () => { try { if (isFs()) sessionStorage.setItem(KEEP_KEY, '1'); } catch (e) {} };
+    window.addEventListener('pagehide', markFs);
+    window.addEventListener('beforeunload', markFs);
+    let wantFs = false;
+    try { wantFs = sessionStorage.getItem(KEEP_KEY) === '1'; sessionStorage.removeItem(KEEP_KEY); } catch (e) {}
+    if (wantFs) {
+      const evs = ['pointerup', 'touchend', 'mousedown', 'keydown'];
+      const stop = () => {
+        evs.forEach(ev => document.removeEventListener(ev, restoreFs, true));
+        document.removeEventListener('fullscreenchange', onChange);
+        document.removeEventListener('webkitfullscreenchange', onChange);
+      };
+      const onChange = () => { if (isFs()) stop(); };
+      function restoreFs() {
+        if (isFs()) { stop(); return; }
+        try {
+          const r = (root.requestFullscreen || root.webkitRequestFullscreen).call(root);
+          if (r && r.catch) r.catch(() => {}); // 失敗した時は印を残して、次の操作でもう一度試す
+          if (screen.orientation && screen.orientation.lock && matchMedia('(pointer: coarse)').matches) screen.orientation.lock('landscape').catch(() => {});
+        } catch (e) {}
+      }
+      evs.forEach(ev => document.addEventListener(ev, restoreFs, true));
+      document.addEventListener('fullscreenchange', onChange);
+      document.addEventListener('webkitfullscreenchange', onChange);
+    }
   }
 
   // 全画面（またはホーム画面から起動）で遊んでいない、スマホ・タブレットの人に案内を出す（ロビーの下に表示。×で閉じるとその端末では出さない）。
