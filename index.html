@@ -1055,6 +1055,15 @@ const WW_GUIDE = {
     ];
   },
 };
+// 最初の会議（最初の夜が明けた朝）に出す案内の文面（ページの作りは上と同じ）
+WW_GUIDE.meetingPages = function () {
+  return [
+    [ // 1ページ目：チャット
+      [null, 'チャット'],
+      [null, '画面の右下にある💬のボタンから使えます', 'sub'],
+    ],
+  ];
+};
 const WW_FADE_IN = 2.5; // 夜になる前に、画面がゆっくり暗くなっていく秒数（昼のうちに始める）
 
 // 人狼ゲームのマップ領域を grid に書き込む。円や斜めの道はタイルで近似する（タイルの中心の座標で判定）。
@@ -4522,7 +4531,7 @@ class GameScene extends Phaser.Scene {
   // 最初に夜になるまで、役職とその説明を画面に出し続ける（毎フレーム wwUpdateClockUi から呼ぶ。夜になる・ラウンドが終わると消える）
   wwRoleInfoUi(info) {
     const on = this.wwRoleInfoActive(info), d = on ? this.wwRoleBannerData(this.pv.myRole) : null;
-    if (!on) this.wwHideGuide(); // 最初の昼が終わったら、案内ウィンドウも消す
+    if (this._wwGuideKind === 'meeting' ? !(info && info.phase === 'day') : !on) this.wwHideGuide(); // 最初の昼の案内は最初の昼が終わったら、会議の案内は昼（会議）が終わったら消す
     let el = document.getElementById('wwRoleInfo');
     if (!el) {
       if (!d) return;
@@ -4544,13 +4553,15 @@ class GameScene extends Phaser.Scene {
   }
 
   // 最初の昼の案内ウィンドウ：ゲーム開始時に出し、「閉じる」か、最初の夜になると消える（ゲームは止まらない）
-  wwShowGuide() {
+  wwShowGuide(kind) { // kind：'first'＝最初の昼の案内（既定）／'meeting'＝最初の会議（最初の朝）の案内
     const el = document.getElementById('wwGuide'); if (!el) return;
+    kind = kind || 'first'; this._wwGuideKind = kind;
+    if (kind === 'first') this._wwMeetingGuided = false; // 新しいゲームの始まり：最初の会議の案内を、また出せるようにする
     const pv = this.pv;
     const n = (pv && pv.ids) ? pv.ids.length : 2;
     const wolves = (pv && pv.roles) ? Object.keys(pv.roles).filter(id => pv.roles[id] === 'wolf').length : 1;
     const need = (pv && pv.wwQ) ? pv.wwQ.need : Math.max(1, n);
-    const pages = WW_GUIDE.pages(need, Math.max(0, n - wolves), need + 3);
+    const pages = kind === 'meeting' ? WW_GUIDE.meetingPages() : WW_GUIDE.pages(need, Math.max(0, n - wolves), need + 3);
     const body = document.getElementById('wwGuideBody'), prev = document.getElementById('wwGuidePrev'), next = document.getElementById('wwGuideNext'), pg = document.getElementById('wwGuidePage');
     let cur = 0;
     const close = () => { el.style.display = 'none'; };
@@ -4564,7 +4575,7 @@ class GameScene extends Phaser.Scene {
         else if (kind !== 'sub') row.style.marginTop = '0.5em';
         body.appendChild(row);
       }
-      pg.textContent = (cur + 1) + ' / ' + pages.length;
+      pg.textContent = pages.length > 1 ? (cur + 1) + ' / ' + pages.length : '';
       prev.style.visibility = cur > 0 ? 'visible' : 'hidden';
       next.textContent = cur < pages.length - 1 ? '次へ' : '閉じる';
       next.classList.toggle('go', cur < pages.length - 1);
@@ -5247,6 +5258,9 @@ class GameScene extends Phaser.Scene {
     el.style.display = info ? 'block' : 'none';
     if (info) { el.textContent = night ? '🌙 ' + info.left + ' 🤫' : info.phase === 'result' ? '🗳️ 結果発表' : '☀️ 昼 残り' + info.left + '秒'; el.style.color = night ? '#cfd8ff' : (info.phase === 'result' ? '#ffc2a0' : '#ffe9a8'); }
     if (info && night !== !!this._wwWasNight) {
+      if (!night && !this.isGhost && !this._wwMeetingGuided && this.pv && this.pv.ids && this.pv.ids.indexOf(this.net.uid) >= 0) { this._wwMeetingGuided = true; // 最初の会議：チャットの案内（1回だけ）。「広場で会議に参加しよう」(3500ms)が消えてから出す
+        setTimeout(() => { const wi = this.wwPhaseInfo(); if (wi && wi.phase === 'day' && !this.isGhost && this.pv && this.pv.mode === 'werewolf') this.wwShowGuide('meeting'); }, 3600);
+      }
       if (!night && !this.isGhost) this.wwCenterShow('広場で会議に参加しよう', false, 3500); // 夜が明けた：真ん中に案内を出す
       if (!this.isGhost && !(night && this.wwNightWarp())) { if (!night) this._wwMorningAt = performance.now(); this.showBanner(night ? this.wwNightBannerText() : '☀️ 朝になった', night ? 3000 : 2400); } // 夜の参加者は、暗転→家へワープのあとにバナーを出す
     }
