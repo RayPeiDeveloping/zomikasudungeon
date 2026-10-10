@@ -328,6 +328,21 @@
   .accRow .accEffect { color: #c9b6ff; }
   .accRow.locked .accName { color: #8a8a99; }
   .accRow.locked .accState { color: #8a8a99; }
+  /* 人狼ゲーム：最初の昼の案内ウィンドウ（背面は操作できる。ボックスだけ押せる） */
+  #wwGuide { display: none; position: fixed; inset: 0; z-index: 140; pointer-events: none; }
+  #wwGuideBox {
+    pointer-events: auto; position: absolute; top: 36vh; left: 35vw; right: 35vw; bottom: 3vh;
+    display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; padding: 10px 16px 10px;
+    border-radius: 12px; background: rgba(28,28,38,0.92); border: 1px solid rgba(255,255,255,0.18); color: #e8e8f0; text-align: left;
+  }
+  #wwGuideHead { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; }
+  #wwGuideTitle { flex: 1; margin: 0; font-size: 16px; text-align: center; color: #ffe9a8; padding-left: 28px; }
+  #wwGuideX { flex: none; width: 28px; height: 28px; padding: 0; font-size: 14px; border: none; border-radius: 6px; background: #3a3d4d; color: #fff; cursor: pointer; }
+  #wwGuideBody { flex: 1 1 auto; min-height: 0; overflow-y: auto; touch-action: pan-y; overscroll-behavior: contain; font-size: 15px; line-height: 1.8; white-space: pre-line; }
+  #wwGuideNav { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+  #wwGuideNav button { min-width: 64px; padding: 7px 12px; font-size: 14px; border: none; border-radius: 8px; background: #3a3d4d; color: #fff; cursor: pointer; }
+  #wwGuideNav #wwGuideNext.go { background: #2f7df6; } /* 「次へ」の時だけ青（最後のページの「閉じる」はグレーのまま） */
+  #wwGuidePage { font-size: 12px; color: #a0a0b0; }
   /* 確認ダイアログ（ブラウザの confirm の代わりに、ゲーム内で出す） */
   #confirmOverlay {
     display: none; position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.72);
@@ -388,6 +403,8 @@
   
   #wwChatPanel .wwcTip { display: none; font-size: 0.8em; color: #ffd24a; margin-bottom: 0.6vh; }
   @media (pointer: coarse) and (orientation: landscape) { #wwChatPanel .wwcTip { display: block; } } /* スマホを横向きで使っている時だけ */
+  #wwChatPanel .wwcBtns { display: flex; gap: 0.8vh; align-items: center; }
+  #wwChatPanel .wwcVote { display: none; } /* 投票ボタンは、スマホ縦向きで投票画面が出ている間だけ */
   #wwChatPanel .wwcLog { order: 1; }
   #wwChatPanel .wwcRow { order: 2; display: flex; gap: 0.6vh; margin-top: 0.6vh; }
   #wwChatPanel .wwcStamps { order: 3; display: flex; flex-wrap: wrap; gap: 0.5vh; margin: 0.6vh 0 0; } /* 定型文は入力欄の下 */
@@ -410,6 +427,11 @@
     #wwChatPanel.typing .wwcStamps { display: none; } /* 入力中は定型文を隠して、チャットを最大限広く見せる */
     #wwChatPanel .wwcStamps button { flex: 0 0 auto; white-space: nowrap; }
     #wwChatPanel input { font-size: 16px; padding: 10px; border-width: 1px; border-radius: 8px; } /* 16px未満だとiOSで入力時に勝手に拡大される */
+    #wwChatPanel .wwcBtns { gap: 8px; }
+    #wwChatPanel.voteOk .wwcVote { display: inline-block; }
+    /* チャットの全画面の上に、投票の画面を下から重ねて出す（上のバーは見えたままなので、ボタンで戻れる） */
+    #wwVote.wwVoteFront { z-index: 262 !important; left: 0 !important; right: 0 !important; top: auto !important; bottom: 0 !important; transform: none !important; width: auto !important; min-width: 0 !important; max-width: none !important;
+      max-height: 68vh !important; max-height: 68dvh !important; box-sizing: border-box; border-radius: 14px 14px 0 0 !important; border-width: 2px !important; padding: 12px 12px calc(env(safe-area-inset-bottom, 0px) + 12px) !important; background: rgba(8,10,28,0.97) !important; }
   }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.70.0/phaser.min.js"></script>
@@ -474,6 +496,13 @@
     <h1>装飾品<small>（ダンジョンのチェストからも低確率でドロップし、そのゲームが終わるまで有効です）</small></h1>
     <div id="accModalList"></div>
     <button id="accModalClose">閉じる</button>
+  </div>
+</div>
+<div id="wwGuide">
+  <div id="wwGuideBox">
+    <div id="wwGuideHead"><h1 id="wwGuideTitle"></h1><button id="wwGuideX">✕</button></div>
+    <div id="wwGuideBody"></div>
+    <div id="wwGuideNav"><button id="wwGuidePrev">戻る</button><span id="wwGuidePage"></span><button id="wwGuideNext">次へ</button></div>
   </div>
 </div>
 <div id="resultScreen">
@@ -576,7 +605,7 @@ const IS_TOUCH_DEVICE = ('ontouchstart' in window) || navigator.maxTouchPoints >
   let lastTouchEnd = 0;
   function blockIfDoubleTap(e) {
     const t = e.target;
-    if (t && t.closest && t.closest('button, input, .lobbyBox')) return;
+    if (t && t.closest && t.closest('button, input, .lobbyBox, #wwGuideBox')) return;
     const now = Date.now();
     if (now - lastTouchEnd <= 400) {
       e.preventDefault();
@@ -595,7 +624,8 @@ const IS_TOUCH_DEVICE = ('ontouchstart' in window) || navigator.maxTouchPoints >
 
   // 2本指以上でのピンチ拡大を防止（こちらも同じ理由でキャプチャフェーズ）
   document.addEventListener('touchmove', (e) => {
-    if (e.target && e.target.closest && e.target.closest('#wwChatBtn, #wwChatPanel')) return; // 人狼チャット：スティックを持ったままでも押せる・ログをスクロールできるようにする
+    if (e.target && e.target.closest && e.target.closest('#wwChatBtn, #wwChatPanel, #wwGuideBox')) return; // 案内ウィンドウも同じ：スティックを持ったまま、本文をスクロールできるようにする
+    // 人狼チャット：スティックを持ったままでも押せる・ログをスクロールできるようにする
     if (e.touches.length > 1) e.preventDefault();
   }, { passive: false, capture: true });
 })();
@@ -964,7 +994,7 @@ const PVP = {
   ],
   weaponZone: { cx: 10, cy: 4.5, size: 4, holdTime: 3 }, // 武器変更ゾーン（準備室の上側の正方形。中心タイル座標・一辺のタイル数）。holdTime：武器固定の時、全員が入ってからホストが選び直すまでの秒数
   // 人狼ゲームのマップ（バトルフィールドの右隣に作る）。中心に円形の広場、そこから放射状に道が伸びて、道の先に家（円形・入口が1つ）がある。それ以外は岩（壁）。
-  werewolf: { wolves: 1, wolvesMany: 2, manyFrom: 8, bloodyTime: 20, roleLot: { villager: 1, watchman: 1, seer: 1, detective: 1, dupMul: 0.05 }, detectiveTime: 5, detectiveR: 2.2, trailTiles: 30, trailStep: 0.5, seerTime: 15, seerR: 2.5, seerPerNight: 1, quotaHold: 15, watchOilMul: 2, watchViewMul: 3, wolfViewMul: 2, wolfSwordLv: 5, houses: 10, mapVersion: 2, size2: 96, houseDist2: 38, mapSeed2: 20261010, plazaR: 9, houseDist: 30, houseIn: 4.5, houseOut: 6.5, roadW: 3, size: 80, gap: 4, rays: 600, viewR: 20, time: 900, dayTime: 30, dayTime2: 90, voteTime: 30, resultTime: 6, nightTime: 90, nightViewR: 6, nightHole: 0.94, oilMax: 100, oilBurn: 2, oilRegen: 4, oilLow: 0.3, oilMinR: 1.2, oilStartMin: 0.3, oilStartMax: 0.7 },
+  werewolf: { wolves: 1, wolvesMany: 2, manyFrom: 8, bloodyTime: 20, roleLot: { villager: 1, watchman: 1, seer: 1, detective: 1, dupMul: 0.05 }, detectiveTime: 5, detectiveR: 2.2, trailTiles: 30, trailStep: 0.5, seerTime: 15, seerR: 2.5, seerPerNight: 1, quotaHold: 15, watchOilMul: 2, watchViewMul: 3, wolfViewMul: 2, wolfSwordLv: 5, houses: 10, mapVersion: 2, size2: 96, houseDist2: 38, mapSeed2: 20261010, plazaR: 9, houseDist: 30, houseIn: 4.5, houseOut: 6.5, roadW: 3, size: 80, gap: 4, rays: 600, viewR: 20, time: 900, dayTime: 60, dayTime2: 170, voteTime: 30, resultTime: 12, nightTime: 90, nightViewR: 6, nightHole: 0.94, oilMax: 100, oilBurn: 2, oilRegen: 4, oilLow: 0.3, oilMinR: 1.2, oilStartMin: 0.3, oilStartMax: 0.7 },
   // 役職の抽選（roleLot）：人狼以外の人を1人ずつ、重みつき抽選で「普通の村人・見張り番・調査員・探偵」のどれかに決める（普通の村人も役職の一つとして扱う。人数の下限はなし）。
   //   villager／watchman／seer／detective＝各役職の重み（大きいほど出やすい。0にするとその役職は出ない）／dupMul＝同じ役職がすでに1人いるごとに重みに掛ける倍率（重み×dupMul^人数。小さいほど被りにくい）
   //   dupMul 0.05 の目安：5人（人狼以外4人）で4役職が1人ずつそろう確率は約81%、どれかが被る確率は約19%。4人で約6%、3人で約2%。6人以上は役職が4種類しかないので被りが出る
@@ -998,6 +1028,33 @@ const WW_NIGHT_FADE_MS = 3500; // 夜の闇がゆっくり濃くなる時間（�
 const WW_NIGHT_DELAY_MS = 500; // 夜が始まってから闇が濃くなり始めるまでの待ち（暗転で真っ暗な間は、闇を始めない）
 const WW_DAWN_MS = 4000; // 朝になってから、夜の闇がすっかり消えるまでの時間（ミリ秒）
 const WW_BLACK_HOLD_MS = 1800; // 夜の暗転で、真っ暗になってから明るくなり始めるまでの長さ（ミリ秒。この間、真ん中に🤫が出る）
+// 最初の昼に出す案内ウィンドウの文面（title＝見出し／body＝本文。改行は \n）。ここを書き換える
+// 本文はページごとの行の並び（ページの数だけ「次へ」で進む）。1行は [色, 文字, 'sub']。色が null の行は白。'sub' の行は上の行にくっつける（間をあけない）。'・' で始まる行は、折り返した時にそろうよう字下げする。need＝ノルマの必要日数／kill＝人狼が殺す村人側の人数／limit＝ノルマの期限切れ日数
+const WW_GUIDE = {
+  title: '案内',
+  pages(need, kill, limit) {
+    const G = '#5be08a', R = '#ff4d4d';
+    return [
+      [ // 1ページ目：村人・人狼
+        [G, '村人⋯ノルマを' + need + '日達成　／　人狼を処刑'],
+        [G, '・能力を活かして人狼を突き止める、油が切れないよう自宅に帰る'],
+        [G, '・油切れ状態は人狼にバレる'],
+        [R, '人狼⋯村人を' + kill + '人殺す　／　ノルマの期限切れを待つ（' + limit + '日）'],
+        [R, '・ノルマの近くで待ち伏せをする、返り血を見られないように隠れる'],
+      ],
+      [ // 2ページ目：マップ・油・ノルマ
+        [null, 'マップ'],
+        [null, '広場の周りに環状の通路が2つ（行き止まりあり）', 'sub'],
+        [null, 'それぞれの家に体の色の看板', 'sub'],
+        [null, '油'],
+        [null, '自宅でのみ回復する', 'sub'],
+        [null, '次の夜へ残量を持ち越し（リセットなし）', 'sub'],
+        [null, 'ノルマ'],
+        [null, '回収中は色が変わる', 'sub'],
+      ],
+    ];
+  },
+};
 const WW_FADE_IN = 2.5; // 夜になる前に、画面がゆっくり暗くなっていく秒数（昼のうちに始める）
 
 // 人狼ゲームのマップ領域を grid に書き込む。円や斜めの道はタイルで近似する（タイルの中心の座標で判定）。
@@ -4449,7 +4506,7 @@ class GameScene extends Phaser.Scene {
   // 役職ごとの、バナーの文章（1行目＝役職名／2行目以降＝説明）・色・表示時間
   wwRoleBannerData(r) {
     if (r === 'wolf') return { text: 'あなたは【人狼】です\n（夜目が効き、ノルマを拾うこともできる。殺すと夜明けまで返り血が残る）', color: '#ff4d4d', ms: 4500 };
-    if (r === 'villager') { const pv = this.pv, need = (pv && pv.wwQ) ? pv.wwQ.need : Math.max(1, ((pv && pv.ids) ? pv.ids.length : 2) + 2); return { text: 'あなたは【村人】です\n（ほかの村人と協力してノルマを' + need + '日達成しよう）', color: '#5be08a', ms: 4500 }; }
+    if (r === 'villager') { const pv = this.pv, need = (pv && pv.wwQ) ? pv.wwQ.need : Math.max(1, ((pv && pv.ids) ? pv.ids.length : 2)); return { text: 'あなたは【村人】です\n（ほかの村人と協力してノルマを' + need + '日達成しよう）', color: '#5be08a', ms: 4500 }; }
     if (r === 'seer') return { text: 'あなたは【調査員】です\n（夜、誰かの近くに15秒いると、翌朝その人の役職が分かる。1晩に1人まで）', color: '#c9a6ff', ms: 4500 };
     if (r === 'watchman') return { text: 'あなたは【見張り番】です\n（油の量が' + PVP.werewolf.watchOilMul + '倍・視界が' + PVP.werewolf.watchViewMul + '倍）', color: '#ffd21f', ms: 4500 };
     if (r === 'detective') return { text: 'あなたは【探偵】です\n（死体のそばに5秒いると、死んだ時刻と犯人の足どりが分かる。昼もできる）', color: '#5bc8ff', ms: 4500 };
@@ -4465,6 +4522,7 @@ class GameScene extends Phaser.Scene {
   // 最初に夜になるまで、役職とその説明を画面に出し続ける（毎フレーム wwUpdateClockUi から呼ぶ。夜になる・ラウンドが終わると消える）
   wwRoleInfoUi(info) {
     const on = this.wwRoleInfoActive(info), d = on ? this.wwRoleBannerData(this.pv.myRole) : null;
+    if (!on) this.wwHideGuide(); // 最初の昼が終わったら、案内ウィンドウも消す
     let el = document.getElementById('wwRoleInfo');
     if (!el) {
       if (!d) return;
@@ -4484,6 +4542,55 @@ class GameScene extends Phaser.Scene {
     el.appendChild(head);
     if (lines.length > 1) { const sub = document.createElement('div'); sub.textContent = lines.slice(1).join('\n'); sub.style.cssText = 'font-size:2.8vh; color:#ffffff; margin-top:0.6vh;'; el.appendChild(sub); }
   }
+
+  // 最初の昼の案内ウィンドウ：ゲーム開始時に出し、「閉じる」か、最初の夜になると消える（ゲームは止まらない）
+  wwShowGuide() {
+    const el = document.getElementById('wwGuide'); if (!el) return;
+    const pv = this.pv;
+    const n = (pv && pv.ids) ? pv.ids.length : 2;
+    const wolves = (pv && pv.roles) ? Object.keys(pv.roles).filter(id => pv.roles[id] === 'wolf').length : 1;
+    const need = (pv && pv.wwQ) ? pv.wwQ.need : Math.max(1, n);
+    const pages = WW_GUIDE.pages(need, Math.max(0, n - wolves), need + 3);
+    const body = document.getElementById('wwGuideBody'), prev = document.getElementById('wwGuidePrev'), next = document.getElementById('wwGuideNext'), pg = document.getElementById('wwGuidePage');
+    let cur = 0;
+    const close = () => { el.style.display = 'none'; };
+    const render = () => {
+      body.textContent = ''; body.scrollTop = 0;
+      for (const [color, text, kind] of pages[cur]) {
+        const row = document.createElement('div');
+        row.textContent = text;
+        if (color) row.style.color = color;
+        if (text.charAt(0) === '・') { row.style.paddingLeft = '1em'; row.style.textIndent = '-1em'; }
+        else if (kind !== 'sub') row.style.marginTop = '0.5em';
+        body.appendChild(row);
+      }
+      pg.textContent = (cur + 1) + ' / ' + pages.length;
+      prev.style.visibility = cur > 0 ? 'visible' : 'hidden';
+      next.textContent = cur < pages.length - 1 ? '次へ' : '閉じる';
+      next.classList.toggle('go', cur < pages.length - 1);
+    };
+    if (!el._wired) { // スティックを持った（＝2本指の）状態だと、ブラウザがタップをclickとして扱わないことがあるので、ボタンは「指を離した時」に直接反応させる（人狼チャットと同じ作り。ほとんど動いていない時だけ＝スクロールとは区別する）
+      el._wired = true;
+      const box = document.getElementById('wwGuideBox'), tapStart = {};
+      ['pointerdown', 'mousedown', 'touchstart'].forEach(ev => box.addEventListener(ev, e => e.stopPropagation())); // 下のゲーム操作（移動・攻撃）に伝えない
+      box.addEventListener('touchstart', e => { for (const t of e.changedTouches) tapStart[t.identifier] = { x: t.clientX, y: t.clientY }; }, { passive: true });
+      box.addEventListener('touchend', e => {
+        const t = e.changedTouches[0], st = t && tapStart[t.identifier];
+        if (t) delete tapStart[t.identifier];
+        const b = e.target && e.target.closest && e.target.closest('button');
+        if (!b || b.disabled || !st || Math.hypot(t.clientX - st.x, t.clientY - st.y) > 12) return;
+        e.preventDefault(); // 続けてclickが二重に発火しないようにする
+        b.click();
+      }, { passive: false });
+    }
+    document.getElementById('wwGuideTitle').textContent = WW_GUIDE.title;
+    document.getElementById('wwGuideX').onclick = close;
+    prev.onclick = () => { if (cur > 0) { cur--; render(); } };
+    next.onclick = () => { if (cur < pages.length - 1) { cur++; render(); } else close(); };
+    render();
+    el.style.display = 'block';
+  }
+  wwHideGuide() { const el = document.getElementById('wwGuide'); if (el && el.style.display !== 'none') el.style.display = 'none'; }
 
   // 役職のバナー：人狼は赤文字、村人は緑文字。最初の昼の間は、バナーではなく夜になるまで出し続ける表示（wwRoleInfoUi）にする
   wwShowRoleBanner() {
@@ -4536,21 +4643,29 @@ class GameScene extends Phaser.Scene {
     return hs[Math.round(i * hs.length / Math.max(1, n)) % hs.length];
   }
 
-  // 人狼ゲーム：広場の、各家へ続く道の入口の前に、その家の人の体の色の看板を立てる（横長の板に縦長の細い柱が刺さった形）
+  // 人狼ゲーム：広場の、各家へ続く道の入口の前と、家のすぐ前（道の端）に、その家の人の体の色の看板を立てる（横長の板に縦長の細い柱が刺さった形）
   wwBuildSigns() {
     this.wwClearSigns();
     const pv = this.pv, ww = this.dungeon && this.dungeon.werewolf;
     if (!(pv && ww && pv.mode === 'werewolf')) return;
-    const my = this.net.uid, ps = this.latestPlayers || {}, n = pv.ids.length, d = PVP.werewolf.plazaR - 1.2; // d：広場の中心から看板の足元まで（タイル）
-    this._wwSigns = pv.ids.map((id, i) => {
-      const h = this.wwHouseFor(i, n);
-      const col = id === my ? this.playerColor : (ps[id] && typeof ps[id].color === 'number') ? ps[id].color : 0xffffff;
-      const c = this.add.container((ww.cx + h.ux * d) * TILE, (ww.cy + h.uy * d) * TILE).setDepth(3); // 足元が原点。夜の闇(depth 12)より下なので、見えない所では隠れる
+    const W = PVP.werewolf, my = this.net.uid, ps = this.latestPlayers || {}, n = pv.ids.length, d = W.plazaR - 1.2; // d：広場の中心から看板の足元まで（タイル）
+    const signs = [];
+    const mk = (tx, ty, col) => { // 足元が原点。夜の闇(depth 12)より下なので、見えない所では隠れる
+      const c = this.add.container(tx * TILE, ty * TILE).setDepth(3);
       const post = this.add.rectangle(0, -13, 6, 26, 0x6b4a2a).setStrokeStyle(1, 0x2a1a0c); // 柱（板の裏まで刺さっている）
       const board = this.add.rectangle(0, -22, 36, 16, col).setStrokeStyle(2, 0x1a1208);    // 板（プレイヤーの体の色）
       c.add([post, board]);
-      return c;
+      signs.push(c);
+    };
+    pv.ids.forEach((id, i) => {
+      const h = this.wwHouseFor(i, n);
+      const col = id === my ? this.playerColor : (ps[id] && typeof ps[id].color === 'number') ? ps[id].color : 0xffffff;
+      mk(ww.cx + h.ux * d, ww.cy + h.uy * d, col); // 広場側の入口
+      // 家のすぐ前：広場側の壁の少し手前で、道の端に寄せる（入口の正面は空けて、通る邪魔にならないようにする）
+      const f = W.houseOut + 0.7, side = W.roadW / 2 - 0.6;
+      mk(h.x - h.ux * f - h.uy * side, h.y - h.uy * f + h.ux * side, col);
     });
+    this._wwSigns = signs;
   }
 
   wwClearSigns() {
@@ -4958,7 +5073,7 @@ class GameScene extends Phaser.Scene {
         this.playerHp = this.playerMaxHp;
         this.updateHud();
         const mc = PVP.circles.find(c => c.key === pv.mode);
-        if (pv.mode === 'werewolf') this.wwShowRoleBanner(); // 役職のバナー（人狼：赤／村人：緑）
+        if (pv.mode === 'werewolf') { this.wwShowRoleBanner(); this.wwShowGuide(); } // 役職のバナー（人狼：赤／村人：緑）＋最初の昼の案内ウィンドウ
         else if (pv.mode === 'bodycount') this.showBanner('ボディカウント開始！ ' + Math.round(PVP.bodycount.time / 60) + '分間でキル数を競います\nやられても' + PVP.bodycount.respawnTime + '秒でリスポーンします', 3200);
         else this.showBanner((pv.mode === 'survival' ? 'バトル開始！ ' : (mc ? mc.label : '') + '（未実装：サバイバルとして開始）') + ' 回復アイテムが' + PVP.potionCount + '個落ちています', 2800);
       } else {
@@ -5357,12 +5472,12 @@ class GameScene extends Phaser.Scene {
   // ===== 人狼ゲーム：村人側のノルマ =====
   // 夜のはじめに、ホストが「生きている人数」個のノルマ品(◆)を出す（'quota'）。場所は、道か誰も住んでいない家の中（広場には出ない）。
   // 村人陣営（見張り番も）だけが、触れて拾える（'quotaGet'）。人狼は拾えない。
-  // 翌朝、ホストが集計して（'quotaRes'）、拾った数が「夜が始まった時点の生きている人数」（＝出たノルマ品の数）以上ならノルマ達成。達成の日が (人数+2) 日になれば村人の勝ち。
+  // 翌朝、ホストが集計して（'quotaRes'）、拾った数が「夜が始まった時点の生きている人数」（＝出たノルマ品の数）以上ならノルマ達成。達成の日が (人数) 日になれば村人の勝ち。
   // 達成必要日数＋3日が過ぎても終わらなければ人狼の勝ち。上の点は、灰色＝これからの日／達成するたびに左から緑色。
   wwQuotaInit() {
     const pv = this.pv;
     this.wwQuotaClear();
-    pv.wwQ = { need: Math.max(1, pv.ids.length + 2), done: 0, days: 0, items: [], itemsN: -1, spawnCnt: 0, got: {}, spawnSent: {}, resSent: {}, applied: {} };
+    pv.wwQ = { need: Math.max(1, pv.ids.length), done: 0, days: 0, items: [], itemsN: -1, spawnCnt: 0, got: {}, spawnSent: {}, resSent: {}, applied: {} };
     this.wwQuotaUi();
   }
 
@@ -20923,7 +21038,7 @@ window.WWChat = (() => {
   const MAX_LEN = 60, SEND_GAP = 800, KEEP = 50;
   const STAMPS = ['情報あります', '信じます', '怪しい', '合ってます', '違います', 'ｺﾎﾟｫ…', '異議あり！'];
   let scene = null, btn = null, badge = null, panel = null, log = null, input = null, sendBtn = null, stampBtns = [];
-  let open = false, unread = 0, lastSend = 0, timer = null;
+  let open = false, unread = 0, lastSend = 0, timer = null, voteBtn = null, voteFront = false, lastPh = null;
   const recv = {};
   const clean = s => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, MAX_LEN);
   const myUid = () => (scene && scene.net && scene.net.uid) || null;
@@ -20957,8 +21072,17 @@ window.WWChat = (() => {
     const step = () => { fit(); if (performance.now() < end) requestAnimationFrame(step); };
     requestAnimationFrame(step);
   }
+  // 縦向きの全画面チャットから、投票の画面（#wwVote）を手前に出す／戻す
+  const voteEl = () => document.getElementById('wwVote');
+  function setVoteFront(v) {
+    const el = voteEl();
+    voteFront = !!v && !!el && el.style.display === 'block';
+    if (el) el.classList.toggle('wwVoteFront', voteFront);
+    if (voteBtn) voteBtn.textContent = voteFront ? '💬 チャットに戻る' : '🗳️ 投票';
+  }
   function setOpen(v) {
     open = !!v;
+    if (!open && voteFront) setVoteFront(false);
     if (!panel) return;
     panel.style.display = open ? 'flex' : 'none';
     if (open) { unread = 0; log.scrollTop = log.scrollHeight; }
@@ -20970,8 +21094,14 @@ window.WWChat = (() => {
     const ok = canUse();
     btn.style.display = ok ? 'block' : 'none';
     const rh = document.getElementById('rotateHint'); if (rh) rh.classList.toggle('ww', ok); // 人狼中は「縦向きでもチャットは使える」案内を足す
-    if (!ok) { if (open) setOpen(false); return; }
+    if (!ok) { if (open) setOpen(false); lastPh = null; return; }
+    // 投票の結果が出た時と、夜が来た時（切り替わった瞬間だけ）に、チャットを自動で閉じる。そのあと自分で開き直すのは自由
+    const pi = scene.wwPhaseInfo && scene.wwPhaseInfo(), ph = pi ? pi.phase : null;
+    if (ph !== lastPh) { if (open && (ph === 'result' || ph === 'night')) setOpen(false); lastPh = ph; }
     badge.textContent = unread || ''; badge.style.display = unread ? 'block' : 'none'; btn.classList.toggle('unread', unread > 0);
+    const ve = voteEl(), voteShown = !!(ve && ve.style.display === 'block');
+    panel.classList.toggle('voteOk', open && voteShown); // 投票の画面が出ている間だけ、上のバーに投票ボタンを出す
+    if (voteFront && !(open && voteShown)) setVoteFront(false); // 投票が終わって画面が消えたら、手前表示も解除
     const can = canSend();
     input.disabled = !can; sendBtn.disabled = !can; stampBtns.forEach(b => { b.disabled = !can; });
     input.placeholder = can ? 'メッセージ' : '夜はチャットできません';
@@ -21013,7 +21143,8 @@ window.WWChat = (() => {
     btn = document.createElement('button'); btn.id = 'wwChatBtn'; btn.type = 'button'; btn.textContent = '💬';
     badge = document.createElement('b'); btn.appendChild(badge);
     panel = document.createElement('div'); panel.id = 'wwChatPanel';
-    panel.innerHTML = '<div class="wwcHead"><span>💬 チャット</span><button type="button" class="wwcClose">✕</button></div><div class="wwcTip">📱 縦向きにすると、チャットが全画面で見やすくなります</div><div class="wwcLog"></div><div class="wwcStamps"></div><div class="wwcRow"><input type="text" maxlength="60" autocomplete="off" enterkeyhint="send"><button type="button" class="wwcSend">送信</button></div>';
+    panel.innerHTML = '<div class="wwcHead"><span>💬 チャット</span><span class="wwcBtns"><button type="button" class="wwcVote">🗳️ 投票</button><button type="button" class="wwcClose">✕</button></span></div><div class="wwcTip">📱 縦向きにすると、チャットが全画面で見やすくなります</div><div class="wwcLog"></div><div class="wwcStamps"></div><div class="wwcRow"><input type="text" maxlength="60" autocomplete="off" enterkeyhint="send"><button type="button" class="wwcSend">送信</button></div>';
+    voteBtn = panel.querySelector('.wwcVote');
     log = panel.querySelector('.wwcLog'); input = panel.querySelector('input'); sendBtn = panel.querySelector('.wwcSend');
     const st = panel.querySelector('.wwcStamps');
     STAMPS.forEach(s => { const b = document.createElement('button'); b.type = 'button'; b.textContent = s; b.addEventListener('click', () => send(s)); st.appendChild(b); stampBtns.push(b); });
@@ -21034,6 +21165,7 @@ window.WWChat = (() => {
     });
     btn.addEventListener('click', () => setOpen(!open));
     panel.querySelector('.wwcClose').addEventListener('click', () => setOpen(false));
+    voteBtn.addEventListener('click', () => { if (input === document.activeElement) input.blur(); setVoteFront(!voteFront); });
     sendBtn.addEventListener('click', () => { if (send(input.value)) input.value = ''; });
     input.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); if (send(input.value)) input.value = ''; } });
     input.addEventListener('keyup', e => e.stopPropagation());
