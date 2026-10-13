@@ -2065,7 +2065,7 @@ const S2_DEBUG_AIM = false;
 const S2_TEST_UNLOCK_ALL = false;
 // 四つ腕の形態変化：HPの割合がこの値以下になると次の形態へ（第2形態＝70%以下 / 第3形態＝30%以下）。いちど上がった形態は戻らない
 const ARMS4_FORMS = { hp: [0.7, 0.3], skin: 0xc8a692, white: 0xffffff };
-const A4_TEST_FORM_KEYS = true;      // テスト用：true の間、四つ腕の戦闘中に Z＝次の形態へ（演出つき）／X＝第1形態に戻す。完成したら false
+const A4_TEST_FORM_KEYS = false;     // テスト用：true の間、四つ腕の戦闘中に Z＝次の形態へ（演出つき）／X＝第1形態に戻す。完成したら false
 const A4_TEST_FORM = 0;            // テスト用：1〜3を入れると、四つ腕は最初からその形態以上になる（0で無効）
 const ARM_TURN_MAX = 11;          // 腕が向きを変える最高速度(rad/秒)。小さいほどゆっくり動く（大きな向きの変化でも飛ばない）。四つ腕の腕全般に効く
 const BOMB_SPLIT_AT = 0.45;      // デトネーターの爆弾：導火線が全体のこの割合だけ進んだら2つに分裂（0.45＝3秒の導火線なら約1.35秒後）
@@ -2603,7 +2603,7 @@ function accFxUpdate(fx, key, x, y, dt, alpha) {
 }
 // 【テスト用】true の間は、条件に関係なく全ての装飾品（エフェクト）を入手済みにして試せる。試し終わったら false に戻す。
 // 注意：起動時に入手済みとしてセーブへ書き込まれるので、false に戻しても解放済みのままになる（ロビーの「リセット」で消せる）。
-const TEST_UNLOCK_ALL_ACC = true;
+const TEST_UNLOCK_ALL_ACC = false;
 // 条件を満たした装飾品を入手済みにする。今回新しく入手したものの配列を返す（save自体は呼び出し側で保存する）。
 function unlockAccessories(save) {
   const added = [];
