@@ -1005,9 +1005,9 @@ const PVP = {
   // マップの大きさ：maxLanes＝線の本数の上限／gap＝線と線の間隔(タイル。偶数)／spawnW＝左端のスポーン部屋の幅／boxW＝ボックスの一辺／lineLen＝ボックスの右から右端の出口までの線の長さ／endW＝右端の出口の幅／monRoom＝モンスターの部屋（cols＝横に並べる数／w・h＝部屋の大きさ／gap＝部屋の間隔。タイル。マップの右の遠くに作る）
   // 🎁 景品：ラウンドごとに prizeChance の確率で、出口のうち1つが「景品の出口」になる（今は1＝毎回出る。景品の出口以外はモンスターの出口なので、毎回、景品とモンスターの両方がある）。入った人は戦わずに勝ち扱いで、景品をもらう。
   //   prizeWeaponShare＝景品が「今の武器Lv+1（緑の宝箱と同じ）」になる割合／prizeWeapon2Share＝「武器Lv+2」になる割合／prizeHealShare＝景品が「HP全回復」になる割合（武器と合わせた残りが装飾品）。HP全回復は、生き残りの誰かのHPが healBelowHp 以下の時だけ景品に出る（出ない時は、その割合を残りの3種に均等に上乗せする＝武器Lv+1／武器Lv+2／装飾品に +prizeHealShare/3 ずつ）／prizeAccs＝景品になる装飾品（次のラウンドの間だけ付く）
-  // 👹 出口のモンスター：雑魚(mobs)とボス(bosses)は別々に管理する（どちらも弱い順）。雑魚は mobsEnabled が false の間は出ない（一旦出さない。戻す時は true）。出口がN個なら、「雑魚→ボス」とつなげた並びをN個の区画に分けて、各区画から1体ずつ選ぶ＝どの出口も必ず強さが違い、弱い出口から強い出口まで均等にばらける（スライムとゴーストのような似た強さが並ばない）。
+  // 👹 出口のモンスター：雑魚(mobs)とボス(bosses)は別々に管理する（どちらも弱い順）。雑魚は mobsEnabled が true の間だけ出る（false なら全部ボス）。ラウンドが進むほど、①ボスの出口の割合が bossShareStart から1ラウンドごとに bossShareStep ずつ増える（bossShareMax まで）、②雑魚の出口では、一度に戦う雑魚の数が mobCountStart 体から1ラウンドごとに1体ずつ増える（mobCountMax 体まで。同じ種類がまとめて出る）。出口がN個なら、「雑魚→ボス」とつなげた並びをN個の区画に分けて、各区画から1体ずつ選ぶ＝どの出口も必ず強さが違い、弱い出口から強い出口まで均等にばらける（スライムとゴーストのような似た強さが並ばない）。
   //   special＝別枠：天使は雑魚・ボスの並びには入れず（シマハルはボスの並びの最後＝最強に入っている）、ラウンドごとに chance の確率で、出口のうち1つ（まだ別枠になっていない出口）を置き換えて出る。確率を変えたい時は chance、足したい時はここに { key, chance } を足す。steadyRounds＝人数が変わらない（誰もやられない）ラウンドがこの回数続くと、次のラウンドに必ず出る（天使はふだんは chance:0 で出ない）
-  amida: { mobsEnabled: false, mobs: ['bat', 'slime', 'spore', 'charger', 'shooter', 'brute', 'ghost'], bosses: ['quartet', 'snake', 'zoetrope', 'detonator', 'overlord', 'simahar'], special: [{ key: 'arms4', chance: 0, steadyRounds: 3 }], prizeChance: 1, prizeWeaponShare: 0.25, prizeWeapon2Share: 0.15, prizeHealShare: 0.3, healBelowHp: 70, prizeAccs: ['serialkiller', 'skull', 'clock', 'armor', 'crown', 'angelhalo', 'snow'], countdown: 5, pickTime: 20, graceTime: 1, speed: 8, hopTime: 0.2, warpWait: 3, fightMax: 120, monFloor: 10, returnStay: 5, rows: 24, rungChance: 0.5, maxLanes: 12, gap: 4, spawnW: 6, boxW: 3, lineLen: 26, endW: 3, monRoom: { cols: 4, w: 36, h: 24, gap: 40 } },
+  amida: { mobsEnabled: true, mobCountStart: 1, mobCountMax: 6, bossShareStart: 0.2, bossShareStep: 0.1, bossShareMax: 0.8, mobs: ['bat', 'slime', 'spore', 'charger', 'shooter', 'brute', 'ghost'], bosses: ['quartet', 'snake', 'zoetrope', 'detonator', 'overlord', 'simahar'], special: [{ key: 'arms4', chance: 0, steadyRounds: 3 }], prizeChance: 1, prizeWeaponShare: 0.25, prizeWeapon2Share: 0.15, prizeHealShare: 0.3, healBelowHp: 70, prizeAccs: ['serialkiller', 'skull', 'clock', 'armor', 'crown', 'angelhalo', 'snow'], countdown: 5, pickTime: 20, graceTime: 1, speed: 8, hopTime: 0.2, warpWait: 3, fightMax: 120, monFloor: 10, returnStay: 5, rows: 24, rungChance: 0.5, maxLanes: 12, gap: 4, spawnW: 6, boxW: 3, lineLen: 26, endW: 3, monRoom: { cols: 4, w: 36, h: 24, gap: 40 } },
   weaponZone: { cx: 10, cy: 4.5, size: 4, holdTime: 3 }, // 武器変更ゾーン（準備室の上側の正方形。中心タイル座標・一辺のタイル数）。holdTime：武器固定の時、全員が入ってからホストが選び直すまでの秒数
   // 人狼ゲームのマップ（バトルフィールドの右隣に作る）。中心に円形の広場、そこから放射状に道が伸びて、道の先に家（円形・入口が1つ）がある。それ以外は岩（壁）。
   werewolf: { wolves: 1, wolvesMany: 2, manyFrom: 8, bloodyTime: 20, roleLot: { villager: 1, watchman: 1, seer: 1, detective: 1, dupMul: 0.05 }, detectiveTime: 5, detectiveR: 2.2, trailTiles: 30, trailStep: 0.5, seerTime: 15, seerR: 2.5, seerPerNight: 1, quotaHold: 15, watchOilMul: 2, watchViewMul: 3, wolfViewMul: 2, wolfSwordLv: 5, houses: 10, mapVersion: 2, size2: 96, houseDist2: 38, mapSeed2: 20261010, plazaR: 9, houseDist: 30, houseIn: 4.5, houseOut: 6.5, roadW: 3, size: 80, gap: 4, rays: 600, viewR: 20, time: 900, dayTime: 60, dayTime2: 170, voteTime: 30, resultTime: 12, nightTime: 90, nightViewR: 6, nightHole: 0.94, oilMax: 100, oilBurn: 2, oilRegen: 4, oilLow: 0.3, oilMinR: 1.2, oilStartMin: 0.3, oilStartMax: 0.7 },
@@ -5341,8 +5341,7 @@ class GameScene extends Phaser.Scene {
     // 人数が変わらないラウンドの連続数（天使の出現条件）。最初のラウンドは0から数え、次のラウンドからは「前のラウンドと参加人数が同じなら+1、変わったら0」。全員が同じ参加者リスト(ids)で数えるので、全員同じ結果
     if (!part) pv.amidaStale = 0; else pv.amidaStale = (pv.amidaPrevN === ids.length) ? (pv.amidaStale || 0) + 1 : 0;
     pv.amidaPrevN = ids.length;
-    const order = (A.mobsEnabled ? A.mobs : []).concat(A.bosses), picked = []; // 出口ごとに別々の飾りモンスター（雑魚→ボスの弱い順の並び。シマハルはボスの最後（最強）に入っている。天使は別枠なので入っていない）（動かない・当たり判定なし）。弱い順の並びをN個の区画に分け、各区画から1体ずつ選ぶ（どの出口も強さが違う）。全員同じシードなので全員同じ結果
-    for (let k = 0; k < N; k++) { const lo = Math.floor(k * order.length / N), hi = Math.max(lo + 1, Math.floor((k + 1) * order.length / N)); picked.push(order[lo + Math.floor(rand() * (hi - lo))]); }
+    const rd = this.pv.amidaRounds || 1, share = Math.min(A.bossShareMax, A.bossShareStart + A.bossShareStep * (rd - 1)), nBoss = A.mobsEnabled ? Math.max(0, Math.min(N, Math.round(N * share))) : N, mobPool = A.mobs, picked = [], pickSec = (pool, n) => { for (let k = 0; k < n; k++) { const lo = Math.floor(k * pool.length / n), hi = Math.max(lo + 1, Math.floor((k + 1) * pool.length / n)); picked.push(pool[lo + Math.floor(rand() * (hi - lo))]); } }; pickSec(A.bosses, nBoss); pickSec(mobPool, N - nBoss); // ボスの数 nBoss はラウンドが進むほど増える（ボスと雑魚は、それぞれ弱い順の並びをn個の区画に分けて種類を選ぶ）。雑魚の出口は、戦う時に同じ種類を複数体まとめて出す（amidaOnWarp）。 // 出口ごとに別々の飾りモンスター（雑魚→ボスの弱い順の並び。シマハルはボスの最後（最強）に入っている。天使は別枠なので入っていない）（動かない・当たり判定なし）。弱い順の並びをN個の区画に分け、各区画から1体ずつ選ぶ（どの出口も強さが違う）。全員同じシードなので全員同じ結果
     const mons = picked; // 出口の並び順は混ぜる（どの出口が弱いか強いかは、線を引くまで分からない）
     for (let i = mons.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); const t = mons[i]; mons[i] = mons[j]; mons[j] = t; }
     // 🎁 景品の抽選（全員が同じシード → 同じ結果）。乱数は常に4つ使う。別枠より先に決める（景品の出口を別枠で潰さないため）
@@ -5391,9 +5390,11 @@ class GameScene extends Phaser.Scene {
       const srect = this.add.rectangle(sx, cy, A.endW * TILE, A.boxW * TILE, 0x3a3560, 0.8).setDepth(2);
       srect.setStrokeStyle(3, 0x8a82c0, 0.95);
       const isPz = !!(am.prize && am.prize.exit === i); // 🎁 景品の出口：モンスターの代わりに景品を出す
-      const stxt = this.add.text(sx, cy + 26, isPz ? this.amidaPrizeLabel(am.prize) : (ENEMY_JP_NAMES[am.mons[i % am.mons.length]] || ''), Object.assign({}, label, { fontSize: isPz ? '14px' : '20px', align: 'center' })).setOrigin(0.5).setDepth(2.1);
+      const mkey = am.mons[i % am.mons.length], nM = isPz ? 1 : this.amidaMobCount(mkey); // 雑魚の出口は、一度に戦う数も出す
+      const stxt = this.add.text(sx, cy + (nM > 1 ? 33 : 26), isPz ? this.amidaPrizeLabel(am.prize) : (ENEMY_JP_NAMES[mkey] || '') + (nM > 1 ? '\n×' + nM : ''), Object.assign({}, label, { fontSize: isPz ? '14px' : (nM > 1 ? '15px' : '20px'), align: 'center' })).setOrigin(0.5).setDepth(2.1);
       if (isPz) { srect.setFillStyle(0x6b5a1a, 0.9); srect.setStrokeStyle(3, 0xffd54c, 1); const gift = this.add.text(sx, cy - 18, '🎁', { fontSize: '34px', fontFamily: 'sans-serif' }).setOrigin(0.5).setDepth(2.1); am.objs.push(gift); }
-      else this.amidaDrawMonster(am, am.mons[i % am.mons.length], sx, cy - 18, 1); // この出口の飾りモンスター
+      else if (nM > 1) { const rows = nM > 3 ? 2 : 1, perRow = Math.ceil(nM / rows), msc = rows > 1 ? 0.45 : 0.55; for (let n = 0; n < nM; n++) { const rr = Math.floor(n / perRow), cc = n % perRow, inRow = Math.min(perRow, nM - rr * perRow); this.amidaDrawMonster(am, mkey, sx + (cc - (inRow - 1) / 2) * 27, cy + (rows > 1 ? -31 + rr * 23 : -20), msc); } } // 雑魚が複数体：出口の中に、戦う数だけ並べる（4体以上は2段）
+      else this.amidaDrawMonster(am, mkey, sx, cy - 18, 1); // この出口の飾りモンスター
       const who = this.add.text(sx, cy + 1.5 * TILE + 9, '', Object.assign({}, label, { fontSize: '12px' })).setOrigin(0.5).setDepth(2.1);
       am.slots.push({ rect: srect, txt: stxt, who }); am.objs.push(srect, stxt, who);
     }
@@ -5446,6 +5447,11 @@ class GameScene extends Phaser.Scene {
     }
   }
 
+  amidaMobCount(key) { // 雑魚の出口で一度に戦う数（1ラウンド目は mobCountStart 体で、1ラウンドごとに1体ずつ増え、mobCountMax 体まで）。ボスなど雑魚以外は1体。出口の表示と、戦う時の両方で使う
+    const PA = PVP.amida;
+    return (PA.mobsEnabled && PA.mobs.includes(key)) ? Math.min(PA.mobCountMax, PA.mobCountStart + (((this.pv && this.pv.amidaRounds) || 1) - 1)) : 1;
+  }
+
   amidaRoom(i) { // i本目の線のモンスターの部屋（マップの右の遠く）。tx・ty＝左上のタイル／w・h＝大きさ／cx・cy＝真ん中（px）
     const M = this.dungeon.amida.mon, col = i % M.cols, row = Math.floor(i / M.cols), tx = M.x0 + col * (M.w + M.gap), ty = M.y0 + row * (M.h + M.gap);
     return { tx, ty, w: M.w, h: M.h, cx: (tx + M.w / 2) * TILE, cy: (ty + M.h / 2) * TILE };
@@ -5457,7 +5463,7 @@ class GameScene extends Phaser.Scene {
     const grid = this.dungeon.grid, added = [], R = this.amidaRoom(i), key = am.mons[i % am.mons.length];
     for (let y = R.ty; y < R.ty + R.h; y++) for (let x = R.tx; x < R.tx + R.w; x++) if (grid[y] && grid[y][x] === 0) { grid[y][x] = 1; am.tiles.push([x, y]); added.push([x, y]); }
     const nm = ENEMY_JP_NAMES[key];
-    if (nm) { const t = this.add.text(R.cx, R.cy - (R.h / 2) * TILE + 24, nm, { fontSize: '18px', color: '#ffffff', fontFamily: 'sans-serif', fontStyle: 'bold' }).setOrigin(0.5).setDepth(2.3); t.setStroke('#000000', 4); am.objs.push(t); }
+    if (nm) { const t = this.add.text(R.cx, R.cy - (R.h / 2) * TILE + 24, nm + (this.amidaMobCount(key) > 1 ? ' ×' + this.amidaMobCount(key) : ''), { fontSize: '18px', color: '#ffffff', fontFamily: 'sans-serif', fontStyle: 'bold' }).setOrigin(0.5).setDepth(2.3); t.setStroke('#000000', 4); am.objs.push(t); }
     if (added.length) this._queueWallRedraw(added);
   }
 
@@ -5495,9 +5501,13 @@ class GameScene extends Phaser.Scene {
     am.myRoom = R; am.fighting = true; am.fightDone = false; am.noneSince = 0; am.fxBase = new Set((this.children && this.children.list) || []); // 観戦用：この時点にあった物は演出として送らない
     this.player.x = (R.tx + 6) * TILE; this.player.y = R.cy; // 部屋の左寄り
     this.cameras.main.flash(300, 0, 0, 0);
-    const e = this.s2TrialSpawn(key, (R.tx + R.w - 8) * TILE, R.cy, 900, PVP.amida.monFloor); // 部屋の右寄り // 調伏の儀と同じ作り方で、本物のモンスターを1体だけ出す
-    if (e) { e._rtLocal = true; e._amida = true; am.mon = e; if (key === 'arms4') { e._form = 2; e._f2Open = 0; } } // 天使：最初から最後まで第2形態（白く光る体。_formBoss を付けないので形態変化は起きない。第2形態の開幕の技から始める）
-    this.showBanner((ENEMY_JP_NAMES[key] || 'モンスター') + 'との戦い！', 2000);
+    const PA = PVP.amida, nMob = this.amidaMobCount(key); // 雑魚の出口：一度に戦う数（ラウンドが進むほど増える）。ボスなどは1体
+    for (let n = 0; n < nMob; n++) {
+      const ex = (R.tx + R.w - 8 - (n % 2) * 3) * TILE, ey = R.cy + (n - (nMob - 1) / 2) * 2.6 * TILE; // 部屋の右寄りに、縦に並べる（1つおきに少し手前へずらす）
+      const e = this.s2TrialSpawn(key, ex, ey, 900 + n, PA.monFloor); // 調伏の儀と同じ作り方で、本物のモンスターを出す
+      if (e) { e._rtLocal = true; e._amida = true; if (!am.mon) am.mon = e; if (key === 'arms4') { e._form = 2; e._f2Open = 0; } } // 天使：最初から最後まで第2形態（白く光る体。_formBoss を付けないので形態変化は起きない。第2形態の開幕の技から始める）
+    }
+    this.showBanner((ENEMY_JP_NAMES[key] || 'モンスター') + (nMob > 1 ? ' ×' + nMob : '') + 'との戦い！', 2000);
   }
 
   // 🎁 景品の中身の名前（結果画面に出す文字）
@@ -5545,8 +5555,10 @@ class GameScene extends Phaser.Scene {
 
   // 装飾品を付け替える（最大HPも鎧の分だけ合わせる）
   equipAmidaAcc(key) {
+    const wasArmor = (this.accKey || '') === 'armor'; // 鎧を付け直す（もう付けている）時は増やさない
     this.equipRunAccessory(key);
     this.playerMaxHp = Math.round(100 * (key === 'armor' ? ACC_ARMOR.maxHpMult : 1)); // 🪖 鎧：最大HPが2倍
+    if (key === 'armor' && !wasArmor) this.playerHp = Math.min(this.playerMaxHp, this.playerHp + 100); // 🪖 鎧を付けた時：HPが+100（外れる時はHPは変えない。最大HPを超える分だけ下の行で切る）
     if (this.playerHp > this.playerMaxHp) this.playerHp = this.playerMaxHp;
     this.updateHud();
   }
