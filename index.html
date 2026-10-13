@@ -285,6 +285,25 @@
   #weaponSelectList { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
   #weaponSelectList button { margin-top: 0; padding: 8px; }
   /* 宝箱（黄色）の三択：ゲームは止めず、画面上部に小さく出す（ジョイスティックは隠さない） */
+  /* 🚪 隠し書庫（歩き回れる小部屋） */
+  #libraryOverlay { display: none; position: fixed; inset: 0; z-index: 300; background: #000; align-items: center; justify-content: center; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #libraryRoom { position: relative; opacity: 0; text-align: center; color: #e8d9bd; font-family: sans-serif; }
+  #libraryRoom.show { opacity: 1; transition: opacity 3.2s ease-in; }
+  #libCanvas { display: block; width: min(96vw, 640px, 128vh); height: auto; image-rendering: pixelated; border: 3px solid #5a4330; background: #000; touch-action: none; }
+  /* 🔍 調べるボタン：本編の右スティック（#aimJoystickZone/#aimJoystickBase）と同じ位置・大きさの円。虫眼鏡のアイコンだけ出す */
+  #libPrompt { display: none; z-index: 4; position: fixed; right: 14.5vh; top: calc(50% - 23vh + 46vh * 0.62); transform: translateY(-50%); width: 27vh; height: 27vh; box-sizing: border-box; padding: 0; align-items: center; justify-content: center; font-size: 12vh; line-height: 1; background: rgba(255, 236, 160, 0.10); color: #f1dfb8; border: 0.5vh solid rgba(255, 236, 160, 0.4); border-radius: 50%; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+  #libPrompt:active { background: rgba(255, 236, 160, 0.25); }
+  /* 🕹 書庫のスティック（スマホ用）：本編の左スティック（#joystickZone/#joystickBase/#joystickKnob）と同じ位置・大きさ・見た目。触れるのは円（とその少し外側）だけにして、「調べる」ボタン等を邪魔しない */
+  #libStickZone { display: none; position: fixed; left: 0; top: 50%; transform: translateY(-50%); width: 34vw; height: 46vh; z-index: 3; pointer-events: none; opacity: 0; }
+  #libStickZone.show { opacity: 1; transition: opacity 3.2s ease-in; } /* 部屋（#libraryRoom.show）と同じ：暗闇からゆっくり現れる */
+  #libStickBase { position: absolute; left: 14.5vh; top: 62%; transform: translateY(-50%); width: 27vh; height: 27vh; border-radius: 50%; background: rgba(255,255,255,0.08); border: 0.5vh solid rgba(255,255,255,0.25); pointer-events: auto; touch-action: none; }
+  #libStickBase::before { content: ''; position: absolute; inset: -4vh; border-radius: 50%; }
+  #libStickKnob { position: absolute; left: 8.5vh; top: 8.5vh; width: 10vh; height: 10vh; border-radius: 50%; background: rgba(255,255,255,0.55); pointer-events: none; }
+  #libReader { display: none; position: absolute; inset: 0; z-index: 2; background: rgba(0, 0, 0, 0.84); flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; box-sizing: border-box; }
+  #libBookTitle { font-size: 17px; font-weight: bold; color: #f1dfb8; }
+  #libPick { display: none; flex-wrap: wrap; justify-content: center; gap: 6px; }
+  #libPick button { padding: 5px 10px; font-size: 12px; background: #3a2c1e; color: #e8d9bd; border: 1px solid #6a5238; border-radius: 3px; cursor: pointer; }
+  #libBookText { width: min(92vw, 480px); max-height: 52vh; overflow-y: auto; white-space: pre-wrap; line-height: 1.7; font-size: 14px; color: #e8d9bd; background: #20170f; border: 2px solid #5a4330; border-radius: 4px; padding: 14px; box-sizing: border-box; text-align: left; }
   #chestChoiceOverlay {
     display: none; position: fixed; left: 50%; top: max(8px, env(safe-area-inset-top));
     transform: translateX(-50%); z-index: 116; width: min(92vw, 380px); box-sizing: border-box;
@@ -565,6 +584,18 @@
 <div id="bossNameBanner"></div>
 <div id="bossHpBar"><div id="bossHpFill"></div></div>
 <div id="txHud"><div id="txHudLabel">📡 発信機</div><div id="txHpBar"><div id="txHpFill"></div></div></div>
+<div id="libraryOverlay">
+  <div id="libraryRoom">
+    <canvas id="libCanvas" width="480" height="352"></canvas>
+  </div>
+  <div id="libReader">
+    <div id="libBookTitle"></div>
+    <div id="libPick"></div>
+    <div id="libBookText"></div>
+  </div>
+  <button id="libPrompt"></button>
+  <div id="libStickZone"><div id="libStickBase"><div id="libStickKnob"></div></div></div>
+</div>
 <div id="waitingBanner">出口に到達！ 仲間の到着を待っています…</div>
 <div id="netWarning">⚠ 通信が弱くなっています（データが更新されていません）</div>
 <!-- [調査用] NET_DEBUG_LOGがtrueの間だけ、右下に1秒おきの接続状況ログを表示する。
@@ -870,6 +901,167 @@ class Leaf {
 // (2) 一直線ではなく軽くジグザグする、の2つでランダム性・難易度を持たせている。
 // 通常ダンジョンで、出口がマップの端ではなく「どこかの部屋の中」に出る確率（0〜1）。0で従来どおり端のみ。
 const DUNGEON_EXIT_IN_ROOM_CHANCE = 0.5;
+// 🚪 隠し書庫の扉：ごくまれに（階ごとにこの確率で）、次の階への出口と同じ仕組み（carveExit）で、マップの端に目立たない扉が出る。
+// 入ると画面が暗転して、ゆっくり明るくなり、小さな書庫になる。扉から戻れる。ソロのダンジョンだけ（協力プレイでは出ない）。
+// 動作確認用：URLの末尾に ?library=1 を付けて開くと、毎階必ず出る。
+const SECRET_LIBRARY_CHANCE = 1; // 動作確認のため一時的に100%（本番は0.01に戻す）
+const SECRET_LIBRARY_FORCE = /[?&]library=1/.test(location.search);
+// 📚 書庫の本（ゲームの裏情報など）。ここに { title: '本の題名', text: '本文' } を足せば、1冊増える（1つの棚に1冊。調べられる棚の数＝本の数にすること）。N冊目は、書庫に来たN回目から読める（来た回数は save.libraryVisits）。本文は改行（\n）が使える。
+const LIBRARY_BOOKS = [
+  { title: '背表紙のかすれた本', text: '（準備中）\nここに裏情報を書く。' },
+  { title: '古びた日記', text: '（準備中）\nここに裏情報を書く。' },
+  { title: '黒い装丁の本', text: '（準備中）\nここに裏情報を書く。' },
+  { title: '破れた地図帳', text: '（準備中）\nここに裏情報を書く。' },
+  { title: '埃をかぶった図鑑', text: '（準備中）\nここに裏情報を書く。' },
+  { title: '栞の挟まった本', text: '（準備中）\nここに裏情報を書く。' },
+  { title: '題名のない本', text: '（準備中）\nここに裏情報を書く。' },
+];
+// 書庫の画面を開く（HTML の #libraryOverlay）。小さな部屋の中を歩き回れる（キー：WASD／矢印、スマホ：画面をドラッグ）。
+// 棚の一部（readable:true の棚）に近づくと「調べる」が出て、E／スペース／Enter（スマホはボタン）で本が読める。下の扉に入る（またはEsc）と、onClose が呼ばれる。
+// 部屋は暗闇から、ゆっくり明るくなる。playerColor は自分の体の色（Phaser の色の数値）、accIcon は頭上に出す装飾品の絵文字（無ければ null）。自分の見た目は、外（buildFloor の this.player / this.facing / this.accText）と同じ
+function openLibrary(onClose, playerColor, accIcon, visits) {
+  const ov = document.getElementById('libraryOverlay'), room = document.getElementById('libraryRoom');
+  const cv = document.getElementById('libCanvas'), ctx = cv.getContext('2d');
+  const reader = document.getElementById('libReader'), prompt = document.getElementById('libPrompt');
+  const W = 480, H = 352, T = 32, PR = 9, SPEED = 100;
+  const R = (x, y, w, h) => ({ x: x * T, y: y * T, w: w * T, h: h * T });
+  // 棚（動けない壁でもある）。readable:true の棚だけ調べられる（LIBRARY_BOOKS を順番に配る）。棚を足す時はここに足す
+  const shelves = [
+    Object.assign(R(1, 1, 3, 1), { readable: true }), Object.assign(R(4, 1, 3, 1), { readable: true }),
+    Object.assign(R(8, 1, 3, 1), { readable: true }), Object.assign(R(11, 1, 3, 1), { readable: true }),
+    Object.assign(R(1, 3, 1, 3), { readable: true }), Object.assign(R(13, 3, 1, 3), { readable: false }),
+    Object.assign(R(1, 7, 1, 2), { readable: true }), Object.assign(R(13, 7, 1, 2), { readable: true }),
+  ];
+  shelves.forEach(sh => { sh.books = []; });
+  const readable = shelves.filter(sh => sh.readable);
+  // 1つの棚に1冊。i冊目の棚は、書庫に来た回数が i+1 回以上になってから調べられる（まだの棚は光らず、調べられない）
+  const nVisits = Math.max(1, Math.floor(Number(visits) || 1));
+  readable.forEach((sh, i) => { if (LIBRARY_BOOKS[i]) sh.books.push(LIBRARY_BOOKS[i]); sh.unlocked = !!LIBRARY_BOOKS[i] && i < nVisits; });
+  const desk = { x: 192, y: 150, w: 96, h: 48 };
+  const solids = shelves.concat([desk,
+    { x: 0, y: 0, w: W, h: T }, { x: 0, y: 0, w: T, h: H }, { x: W - T, y: 0, w: T, h: H }, // 上・左・右の壁
+    { x: 0, y: H - T, w: 224, h: T }, { x: 256, y: H - T, w: 224, h: T }]); // 下の壁（真ん中の224〜256が扉）
+  const pl = { x: 240, y: 288, a: -Math.PI / 2 };
+  const col = '#' + ((playerColor == null ? 0xffffff : playerColor) >>> 0).toString(16).padStart(6, '0').slice(-6);
+  const hash = n => ((n * 2654435761) >>> 0) % 1000;
+  const hit = (cx, cy, r) => solids.some(q => { const nx = Math.max(q.x, Math.min(cx, q.x + q.w)), ny = Math.max(q.y, Math.min(cy, q.y + q.h)); return (cx - nx) ** 2 + (cy - ny) ** 2 < r * r; });
+  const distTo = (q) => { const nx = Math.max(q.x, Math.min(pl.x, q.x + q.w)), ny = Math.max(q.y, Math.min(pl.y, q.y + q.h)); return Math.hypot(pl.x - nx, pl.y - ny); };
+
+  const keys = {}; let tv = { x: 0, y: 0 }, tOrigin = null, readerOpen = false, target = null, closed = false, raf = 0, t0 = 0, last = 0;
+  const dk = document.createElement('canvas'); dk.width = W; dk.height = H; const dctx = dk.getContext('2d'); // 暗闇の層（光の当たる所だけ抜く）
+
+  // ----- 本を読む -----
+  const showBook = bk => { document.getElementById('libBookTitle').textContent = bk.title; document.getElementById('libBookText').textContent = bk.text; };
+  const openShelf = sh => {
+    if (!sh || !sh.books.length) return;
+    const pick = document.getElementById('libPick'); pick.innerHTML = '';
+    if (sh.books.length > 1) sh.books.forEach(bk => { const bt = document.createElement('button'); bt.textContent = bk.title; bt.onclick = () => showBook(bk); pick.appendChild(bt); });
+    pick.style.display = sh.books.length > 1 ? 'flex' : 'none';
+    showBook(sh.books[0]);
+    readerOpen = true; reader.style.display = 'flex'; stickShow(false);
+  };
+  const closeReader = () => { readerOpen = false; reader.style.display = 'none'; stickShow(true); };
+
+  // ----- 終わる -----
+  const finish = () => {
+    if (closed) return; closed = true;
+    cancelAnimationFrame(raf);
+    document.removeEventListener('keydown', onKeyDown, true); document.removeEventListener('keyup', onKeyUp, true);
+    ov.style.transition = 'opacity .5s'; ov.style.opacity = '0';
+    setTimeout(() => { ov.style.display = 'none'; ov.style.transition = ''; reader.style.display = 'none'; prompt.style.display = 'none'; if (onClose) onClose(); }, 520);
+  };
+
+  // ----- 入力 -----
+  const ctl = k => ({ arrowup: 'u', w: 'u', arrowdown: 'd', s: 'd', arrowleft: 'l', a: 'l', arrowright: 'r', d: 'r' })[k];
+  const onKeyDown = ev => {
+    const k = (ev.key || '').toLowerCase();
+    if (k === 'escape') { ev.preventDefault(); if (readerOpen) closeReader(); else finish(); return; }
+    if (k === 'e' || k === ' ' || k === 'enter') { ev.preventDefault(); if (readerOpen) closeReader(); else if (target) openShelf(target); return; }
+    if (ctl(k)) { ev.preventDefault(); keys[ctl(k)] = true; }
+  };
+  const onKeyUp = ev => { const c = ctl((ev.key || '').toLowerCase()); if (c) keys[c] = false; };
+  document.addEventListener('keydown', onKeyDown, true); document.addEventListener('keyup', onKeyUp, true);
+  // スマホ：本編と同じスティック（左）で歩く。円（とその少し外側）を触って倒した向きへ、倒した量だけ歩く（本編の左スティックと同じ計算）
+  const stickZone = document.getElementById('libStickZone'), sBase = document.getElementById('libStickBase'), sKnob = document.getElementById('libStickKnob');
+  const useStick = (typeof IS_TOUCH_DEVICE !== 'undefined' && IS_TOUCH_DEVICE); let sId = null;
+  function stickShow(on) { stickZone.style.display = (useStick && on) ? 'block' : 'none'; if (!on) stickReset(); }
+  function stickApply(ev) {
+    const r = sBase.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, maxDist = (r.width / 2) * 0.7778; // 本編と同じ可動範囲の比率
+    const dx = ev.clientX - cx, dy = ev.clientY - cy, raw = Math.hypot(dx, dy), dist = Math.min(maxDist, raw), ang = Math.atan2(dy, dx), n = raw || 1;
+    sKnob.style.transform = 'translate(' + Math.cos(ang) * dist + 'px,' + Math.sin(ang) * dist + 'px)';
+    tv = { x: (dist / maxDist) * (dx / n), y: (dist / maxDist) * (dy / n) };
+  }
+  function stickReset() { sKnob.style.transform = 'translate(0px,0px)'; tv = { x: 0, y: 0 }; sId = null; }
+  sBase.onpointerdown = ev => { if (sId !== null) return; ev.preventDefault(); sId = ev.pointerId; try { sBase.setPointerCapture(ev.pointerId); } catch (e) {} stickApply(ev); };
+  sBase.onpointermove = ev => { if (ev.pointerId === sId) stickApply(ev); };
+  sBase.onpointerup = sBase.onpointercancel = ev => { if (ev.pointerId === sId) stickReset(); };
+  stickReset(); stickShow(true);
+  // （スティックが無い端末だけ）触った所を中心に、ドラッグした向きへ歩く
+  cv.onpointerdown = ev => { if (ev.pointerType === 'mouse' || useStick) return; tOrigin = { x: ev.clientX, y: ev.clientY, id: ev.pointerId }; try { cv.setPointerCapture(ev.pointerId); } catch (e) {} };
+  cv.onpointermove = ev => { if (!tOrigin || ev.pointerId !== tOrigin.id) return; const dx = ev.clientX - tOrigin.x, dy = ev.clientY - tOrigin.y, d = Math.hypot(dx, dy); tv = d < 8 ? { x: 0, y: 0 } : { x: dx / Math.max(d, 50), y: dy / Math.max(d, 50) }; };
+  cv.onpointerup = cv.onpointercancel = () => { tOrigin = null; tv = { x: 0, y: 0 }; };
+  prompt.onclick = () => { if (readerOpen) closeReader(); else if (target) openShelf(target); }; // 本を開いている間は、このボタンが閉じるボタン
+
+  // ----- 描く -----
+  const shelfDraw = (sh, idx, t) => {
+    ctx.fillStyle = '#5b3f26'; ctx.fillRect(sh.x, sh.y, sh.w, sh.h);
+    ctx.fillStyle = '#35230f'; ctx.fillRect(sh.x + 2, sh.y + 2, sh.w - 4, sh.h - 4);
+    if (sh.w >= sh.h) { // 横長の棚：本が縦に並ぶ
+      for (let bx = sh.x + 4, n = 0; bx < sh.x + sh.w - 6; bx += 6, n++) { const hh = 17 + hash(idx * 31 + n) % 9; ctx.fillStyle = 'hsl(' + (hash(idx * 17 + n) % 360) + ',32%,' + (30 + hash(n + idx) % 14) + '%)'; ctx.fillRect(bx, sh.y + sh.h - 5 - hh, 5, hh); }
+    } else { // 縦長の棚：本が横に積まれる
+      for (let by = sh.y + 4, n = 0; by < sh.y + sh.h - 6; by += 6, n++) { const ww = 18 + hash(idx * 31 + n) % 8; ctx.fillStyle = 'hsl(' + (hash(idx * 17 + n) % 360) + ',32%,' + (30 + hash(n + idx) % 14) + '%)'; ctx.fillRect(sh.x + 5, by, ww, 5); }
+    }
+    if (sh.readable && sh.unlocked) { const g = 0.35 + 0.35 * Math.sin(t * 2.2 + idx * 1.7), cx = sh.x + sh.w / 2, cy = sh.y + sh.h / 2; ctx.fillStyle = 'rgba(255,236,160,' + g + ')'; ctx.fillRect(cx - 1, cy - 4, 2, 8); ctx.fillRect(cx - 4, cy - 1, 8, 2); } // 調べられる棚のかすかな光
+  };
+  const draw = (t) => {
+    ctx.fillStyle = '#4a3624'; ctx.fillRect(0, 0, W, H); // 床
+    ctx.fillStyle = '#3d2c1c'; for (let y = T; y < H - T; y += 16) { ctx.fillRect(T, y, W - 2 * T, 1); for (let x = T + ((y / 16) % 2) * 24; x < W - T; x += 48) ctx.fillRect(x, y, 1, 16); }
+    ctx.fillStyle = '#5a2a2a'; ctx.fillRect(160, 196, 160, 76); ctx.strokeStyle = '#8a5a3a'; ctx.lineWidth = 2; ctx.strokeRect(164, 200, 152, 68); // 敷物
+    ctx.fillStyle = '#2a1d13'; ctx.fillRect(0, 0, W, T); ctx.fillRect(0, 0, T, H); ctx.fillRect(W - T, 0, T, H); ctx.fillRect(0, H - T, 224, T); ctx.fillRect(256, H - T, 224, T); // 壁
+    ctx.fillStyle = '#3a2a1b'; ctx.fillRect(0, T - 3, W, 3);
+    ctx.fillStyle = '#1b130c'; ctx.fillRect(224, H - T, 32, T); ctx.fillStyle = '#6a5238'; ctx.fillRect(222, H - T, 2, T); ctx.fillRect(256, H - T, 2, T); ctx.fillStyle = '#d8c48a'; ctx.fillRect(244, H - 14, 3, 3); // 扉
+    shelves.forEach((sh, i) => shelfDraw(sh, i, t));
+    ctx.fillStyle = '#6b4a2b'; ctx.fillRect(desk.x, desk.y, desk.w, desk.h); ctx.fillStyle = '#7d5a37'; ctx.fillRect(desk.x + 2, desk.y + 2, desk.w - 4, desk.h - 8); // 机
+    ctx.fillStyle = '#d9cfae'; ctx.fillRect(238, desk.y + 14, 4, 10); ctx.fillStyle = '#ffc861'; ctx.beginPath(); ctx.arc(240, desk.y + 11, 2.5 + Math.sin(t * 9) * 0.5, 0, 6.3); ctx.fill(); // 蝋燭
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(pl.x, pl.y, T * 0.32, 0, 6.3); ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 2; ctx.stroke(); // 自分（外と同じ：半径 TILE*0.32・白い縁）
+    ctx.save(); ctx.translate(pl.x + Math.cos(pl.a) * 20, pl.y + Math.sin(pl.a) * 20); ctx.rotate(pl.a); ctx.fillStyle = '#fff'; ctx.fillRect(-7, -1.5, 14, 3); ctx.restore(); // 向きの棒（外と同じ：14x3・20px先）
+    if (accIcon) { ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff'; ctx.fillText(accIcon, pl.x, pl.y - 13); } // 頭上の装飾品（新芽・王冠）
+    const open = Math.min(1, (t - t0) / 3.2), e = open * open * (3 - 2 * open); // 暗闇の層：自分の周りと蝋燭の周りだけ明るい。最初は光が小さく、だんだん広がる
+    dctx.globalCompositeOperation = 'source-over'; dctx.clearRect(0, 0, W, H); dctx.fillStyle = 'rgba(0,0,0,0.9)'; dctx.fillRect(0, 0, W, H);
+    dctx.globalCompositeOperation = 'destination-out';
+    const light = (x, y, r) => { const g = dctx.createRadialGradient(x, y, r * 0.2, x, y, r); g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)'); dctx.fillStyle = g; dctx.fillRect(x - r, y - r, r * 2, r * 2); };
+    light(pl.x, pl.y, (60 + 90 * e)); light(240, desk.y + 11, (30 + 100 * e) * (0.95 + 0.05 * Math.sin(t * 9)));
+    ctx.drawImage(dk, 0, 0);
+  };
+
+  // ----- 毎フレーム -----
+  const frame = (ms) => {
+    if (closed) return;
+    const t = ms / 1000; if (!t0) t0 = t; const dt = Math.min(0.05, last ? t - last : 0.016); last = t;
+    let mx = (keys.r ? 1 : 0) - (keys.l ? 1 : 0), my = (keys.d ? 1 : 0) - (keys.u ? 1 : 0);
+    if (!mx && !my) { mx = tv.x; my = tv.y; } else if (mx && my) { mx *= 0.7071; my *= 0.7071; }
+    if (readerOpen) { mx = 0; my = 0; }
+    if (mx || my) {
+      pl.a = Math.atan2(my, mx);
+      const nx = pl.x + mx * SPEED * dt; if (!hit(nx, pl.y, PR)) pl.x = nx;
+      const ny = pl.y + my * SPEED * dt; if (!hit(pl.x, ny, PR)) pl.y = ny;
+      pl.x = Math.max(PR, Math.min(W - PR, pl.x)); pl.y = Math.max(PR, Math.min(H - PR, pl.y));
+    }
+    if (pl.y > H - T + 6 && pl.x > 224 && pl.x < 256) { finish(); return; } // 扉に入った
+    target = null; let bd = PR + 18;
+    if (!readerOpen) readable.forEach(sh => { if (!sh.unlocked) return; const d = distTo(sh); if (d < bd) { bd = d; target = sh; } });
+    prompt.style.display = (target || readerOpen) ? 'flex' : 'none';
+    if (readerOpen) { if (prompt.textContent !== '✕') { prompt.textContent = '✕'; prompt.title = '本を閉じる'; } }
+    else if (target) { if (prompt.textContent !== '🔍') prompt.textContent = '🔍'; prompt.title = '本棚を調べる'; }
+    draw(t);
+    raf = requestAnimationFrame(frame);
+  };
+
+  closeReader();
+  ov.style.transition = ''; ov.style.opacity = '1'; ov.style.display = 'flex';
+  room.classList.remove('show'); stickZone.classList.remove('show'); void room.offsetWidth; room.classList.add('show'); stickZone.classList.add('show'); // 暗闇から、ゆっくり開ける（スティックも同じ速さで現れる）
+  raf = requestAnimationFrame(frame);
+}
 function carveExit(grid, room, width, height, rand) {
   const cx = Math.floor(room.x + room.w / 2);
   const cy = Math.floor(room.y + room.h / 2);
@@ -1005,7 +1197,7 @@ const PVP = {
   // hopTime＝横線で隣の線へ移る時間(秒。移る人だけが止まるので、右端へ着く時間は人それぞれ)／warpWait＝最後の人が着いてから、それぞれのモンスターの部屋へワープするまで(秒)／fightMax＝ワープしてから、戦いが終わっていなくても締め切るまで(秒)／returnStay＝全員の戦いが終わってから結果に進むまで(秒)／rows＝横線を引ける段数／rungChance＝横線が入る確率／
   // マップの大きさ：maxLanes＝線の本数の上限／gap＝線と線の間隔(タイル。偶数)／spawnW＝左端のスポーン部屋の幅／boxW＝ボックスの一辺／lineLen＝ボックスの右から右端の出口までの線の長さ／endW＝右端の出口の幅／monRoom＝モンスターの部屋（cols＝横に並べる数／w・h＝部屋の大きさ／gap＝部屋の間隔。タイル。マップの右の遠くに作る）
   // 🎁 景品：ラウンドごとに prizeChance の確率で、出口のうち1つが「景品の出口」になる（今は1＝毎回出る。景品の出口以外はモンスターの出口なので、毎回、景品とモンスターの両方がある）。入った人は戦わずに勝ち扱いで、景品をもらう。
-  //   prizeWeaponShare＝景品が「今の武器Lv+1（緑の宝箱と同じ）」になる割合／prizeWeapon2Share＝「武器Lv+2」になる割合／prizeHealShare＝景品が「HP全回復」になる割合（武器と合わせた残りが装飾品）。HP全回復は、生き残りの誰かのHPが healBelowHp 以下の時だけ景品に出る（出ない時は、その割合を残りの3種に均等に上乗せする＝武器Lv+1／武器Lv+2／装飾品に +prizeHealShare/3 ずつ）／prizeAccs＝景品になる装飾品（次のラウンドの間だけ付く）
+  //   prizeWeaponShare＝景品が「今の武器Lv+1（緑の宝箱と同じ）」になる割合／prizeWeapon2Share＝「武器Lv+2」になる割合／prizeHealShare＝景品が「HP全回復」になる割合（武器と合わせた残りが装飾品）。HP全回復は、生き残りの誰かのHPが healBelowHp 以下の時だけ景品に出る（出ない時は、武器Lv+1／武器Lv+2の割合はそのままで、残りの60%が装飾品。出る時は、prizeHealShare/3 ずつを武器Lv+1／武器Lv+2／装飾品から引く）／prizeAccs＝景品になる装飾品（次のラウンドの間だけ付く）
   // 👹 出口のモンスター：雑魚(mobs)とボス(bosses)は別々に管理する（どちらも弱い順）。雑魚は mobsEnabled が true の間だけ出る（false なら全部ボス）。ラウンドが進むほど、①ボスの出口の割合が bossShareStart から1ラウンドごとに bossShareStep ずつ増える（bossShareMax まで）、②雑魚の出口では、一度に戦う雑魚の数が mobCountStart 体から1ラウンドごとに1体ずつ増える（mobCountMax 体まで。同じ種類がまとめて出る）。出口がN個なら、「雑魚→ボス」とつなげた並びをN個の区画に分けて、各区画から1体ずつ選ぶ＝どの出口も必ず強さが違い、弱い出口から強い出口まで均等にばらける（スライムとゴーストのような似た強さが並ばない）。
   //   special＝別枠：天使は雑魚・ボスの並びには入れず（シマハルはボスの並びの最後＝最強に入っている）、ラウンドごとに chance の確率で、出口のうち1つ（まだ別枠になっていない出口）を置き換えて出る。確率を変えたい時は chance、足したい時はここに { key, chance } を足す。steadyRounds＝人数が変わらない（誰もやられない）ラウンドがこの回数続くと、次のラウンドに必ず出る／steadyExact＝ちょうどその回数の時だけ出る（シマハル：3回続いたらまずシマハル）／steadyReset＝出たら連続回数を0に戻す（天使：シマハルでも人数が変わらなかった＝4回続いたら天使。天使は chance:0.05 で、ふだんもわずかな確率で出る）
   amida: { mobsEnabled: true, mobCountStart: 1, mobCountMax: 6, bossShareStart: 0.2, bossShareStep: 0.1, bossShareMax: 0.8, mobs: ['bat', 'slime', 'spore', 'charger', 'shooter', 'brute', 'ghost'], bosses: ['quartet', 'snake', 'zoetrope', 'detonator', 'overlord', 'simahar'], special: [{ key: 'simahar', chance: 0, steadyRounds: 3, steadyExact: true }, { key: 'arms4', chance: 0.05, steadyRounds: 4, steadyReset: true }], prizeChance: 1, prizeWeaponShare: 0.25, prizeWeapon2Share: 0.15, prizeHealShare: 0.3, healBelowHp: 70, prizeAccs: ['serialkiller', 'skull', 'clock', 'armor', 'crown', 'angelhalo', 'snow'], countdown: 5, pickTime: 20, graceTime: 1, speed: 8, hopTime: 0.2, warpWait: 3, fightMax: 120, monFloor: 10, returnStay: 5, rows: 24, rungChance: 0.5, maxLanes: 12, gap: 4, spawnW: 6, boxW: 3, lineLen: 26, endW: 3, monRoom: { cols: 4, w: 36, h: 24, gap: 40 } },
@@ -1212,7 +1404,7 @@ function generatePvpMap() {
   };
 }
 
-function generateDungeon(seed, floor) {
+function generateDungeon(seed, floor, opts) {
   const rand = mulberry32(seed);
   const width = Math.min(40 + floor * 3, 90);
   const height = Math.min(28 + floor * 2, 60);
@@ -1310,8 +1502,31 @@ function generateDungeon(seed, floor) {
     exit = carveExit(grid, farRoom, width, height, rand);
   }
 
+  // 🚪 隠し書庫の扉：次の階への出口と同じ carveExit で、別の部屋からマップの端まで通路を掘って、端に扉を作る。
+  // 専用の乱数（seed から別に作る）を使うので、扉が出ない階のマップは、これまでと全く同じになる。
+  // 通路の終わり3マスは carveExit が出口と同じ印(3)を付けるので、床(1)に戻す（本物の出口と重なったマスは触らない）。
+  let secretDoor = null;
+  if (opts && opts.secretLibrary && others.length > 1) {
+    const srand = mulberry32(seed * 31 + 424243);
+    if (SECRET_LIBRARY_FORCE || srand() < SECRET_LIBRARY_CHANCE) {
+      const cand = others.filter(r => r !== exitRoom);
+      const sroom = cand[Math.floor(srand() * cand.length)];
+      if (sroom) {
+        const keep = new Set();
+        for (let yy = 0; yy < height; yy++) for (let xx = 0; xx < width; xx++) if (grid[yy][xx] === 3) keep.add(yy * width + xx);
+        const sx2 = carveExit(grid, sroom, width, height, srand), sp = sx2.path;
+        for (const t of sp.slice(-3)) if (!keep.has(t.y * width + t.x)) grid[t.y][t.x] = 1;
+        const last = sp[sp.length - 1];
+        if (last && sp.length >= 4 && !keep.has(last.y * width + last.x)) {
+          const back = sp[sp.length - 4]; // 戻ってきた時に立つ、扉の少し手前のマス
+          secretDoor = { x: last.x, y: last.y, inX: back.x, inY: back.y };
+        }
+      }
+    }
+  }
+
   return {
-    grid, width, height, rooms, exitPos: exit.exitPos,
+    grid, width, height, rooms, exitPos: exit.exitPos, secretDoor,
     exitRoom, // 出口のある部屋（部屋の中に出口がある場合はその部屋、端の出口の場合は通路がつながっている部屋）。ボスはここに出す
     playerStart: { x: Math.floor(sx), y: Math.floor(sy) },
     // フロアが広くなるほど敵も比例して増やす（広いのに敵が少なくて簡単すぎる、を防ぐ）。
@@ -2260,6 +2475,7 @@ const DEFAULT_SAVE = {
   armorFloor10Fast: 0,   // ダンジョン（ソロ）を始めてから ARMOR_UNLOCK.sec 秒以内に10階層のボスを倒したか（0/1）。1で装飾品「鎧」を入手（デベロッパーモード・協力プレイを除く）
   arms4RitualPlayed: false, // 四つ腕の調伏の儀を一度でも始めたか（デベロッパーモードを除く）。trueで、ロビーの「四つ腕の調伏の儀」ボタンが解放される
   arms4RitualClears: 0, // ダンジョン（ソロ）またはロビーの【期間限定】天使・調伏の儀で天使の調伏の儀に成功した回数（デベロッパーモード・協力プレイを除く）。1回で装飾品「エンジェルヘイロー」を入手
+  libraryVisits: 0,     // 隠し書庫に来た回数（書庫に入るたびに+1。同じシードでも数える）。N回目のとき、N冊目までの本が読める
   soloClears: 0,        // ダンジョン（ソロ）を全クリア（25階オールクリア）した回数（デベロッパーモード・協力プレイ・ボスラッシュを除く）。1回で装飾品「時計」を入手
 };
 function loadSave() {
@@ -2272,6 +2488,7 @@ function normalizeSave(s) {
   s.accUnlocked = (s.accUnlocked && typeof s.accUnlocked === 'object') ? Object.assign({}, s.accUnlocked) : {};
   if (typeof s.accEquipped !== 'string') s.accEquipped = '';
   s.arms4RitualPlayed = !!s.arms4RitualPlayed;
+  s.libraryVisits = Math.max(0, Math.floor(Number(s.libraryVisits) || 0));
   return s;
 }
 function writeSave(obj) {
@@ -3721,7 +3938,7 @@ class GameScene extends Phaser.Scene {
     this.hideClearTime(); // 前の階のクリア時間表示を消す
     const seed = this.baseSeed + this.floor * 7919;
     this.bossFloor = !this.bossRush && !this.frontline && !this.pvp && this.isBossFloor(this.floor); // ダンジョンの5階ごと（10・15・20…）はボス階
-    const dungeon = (this.bossRush || this.bossFloor) ? generateBossArena() : (this.pvp ? generatePvpMap() : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor)));
+    const dungeon = (this.bossRush || this.bossFloor) ? generateBossArena() : (this.pvp ? generatePvpMap() : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor, { secretLibrary: !this.mp })));
     if (this.mp && !this.bossRush && !this.pvp && !this.frontline) addRitualRoom(dungeon); // 協力プレイ：調伏の儀の部屋を遠くに足す
     this.rt = null; if (this._rtGfx && this._rtGfx.scene) this._rtGfx.clear(); // 前の階の調伏の儀の進行は持ち越さない
     this.dungeon = dungeon;
@@ -5348,7 +5565,7 @@ class GameScene extends Phaser.Scene {
     // 🎁 景品の抽選（全員が同じシード → 同じ結果）。乱数は常に4つ使う。別枠より先に決める（景品の出口を別枠で潰さないため）
     let prize = null;
     { const rPz = rand(), rKind = rand(), rAcc = rand(), rExit = rand();
-      if (rPz < A.prizeChance) { const hs = heal ? A.prizeHealShare : 0, bn = heal ? 0 : A.prizeHealShare / 3, x = rKind, s1 = A.prizeWeaponShare + bn, s2 = s1 + A.prizeWeapon2Share + bn, s3 = s2 + hs; // 武器Lv+1／武器Lv+2／HP全回復／残りは装飾品。HP全回復を出さない時(hs=0)は、その分を武器Lv+1／武器Lv+2／装飾品に均等(bn)に上乗せする
+      if (rPz < A.prizeChance) { const hs = heal ? A.prizeHealShare : 0, cut = hs / 3, x = rKind, s1 = A.prizeWeaponShare - cut, s2 = s1 + A.prizeWeapon2Share - cut, s3 = s2 + hs; // 武器Lv+1／武器Lv+2／HP全回復／残りは装飾品。残りは装飾品。HP全回復を出さない時(hs=0)は、武器Lv+1 25%／武器Lv+2 15%／装飾品 60%。HP全回復を出す時は、HP全回復の割合を、武器Lv+1／武器Lv+2／装飾品から均等（hs/3 ずつ）に引く＝15%／5%／HP全回復30%／装飾品50%
         prize = { exit: Math.floor(rExit * N), kind: x < s1 ? 'weapon' : x < s2 ? 'weapon2' : x < s3 ? 'heal' : 'acc', acc: A.prizeAccs[Math.floor(rAcc * A.prizeAccs.length)] }; } }
     { const free = mons.map((_, k) => k).filter(k => !prize || k !== prize.exit); // 別枠（天使）：当たったら、景品でも別枠でもない出口を1つ置き換える。乱数は別枠1つにつき常に2つ使う（全員同じシードなので全員同じ結果）
       const rolls = A.special.map(sp => ({ sp, rS: rand(), rI: rand(), force: !!(sp.steadyRounds && (sp.steadyExact ? (pv.amidaStale || 0) === sp.steadyRounds : (pv.amidaStale || 0) >= sp.steadyRounds)) }));
@@ -8313,6 +8530,7 @@ class GameScene extends Phaser.Scene {
     const C = ACC_ANGELHALO;
     if (this._ahCd == null) { this._ahCd = C.first; this._ahFirst = true; } // ゲーム開始から C.first 秒後に、最初の1回は必ず発動する
     if (this.isGhost || this.isDowned || !this.player || this.transitioning || (this.pv && this.pv.dead)) return;
+    if (this.pv && this.pv.mode === 'amida' && !this.amidaFighting()) return; // あみだくじ：カウントは、自分のモンスターの部屋で戦っている間だけ進む（線を選んでいる間・移動中・戦闘が終わったあとは止まる）
     this._ahCd -= dt;
     if (this._ahCd > 0) return;
     const sure = !!this._ahFirst; // 最初の1回は確定。以降は、そこから数えて C.cooldown 秒ごとに chance の確率で抽選
@@ -20227,8 +20445,17 @@ class GameScene extends Phaser.Scene {
       this.exitGlow.strokeCircle(cx, cy, TILE * 0.62 + pulse);
     }
 
+    // 🚪 隠し書庫の扉：光らせず、床に近い暗い色で小さく描くだけ（目立たない）
+    const sdr = this.dungeon.secretDoor;
+    if (sdr) {
+      const dx = sdr.x * TILE, dy = sdr.y * TILE;
+      this.exitGlow.fillStyle(0x2b2520, 1); this.exitGlow.fillRect(dx + 5, dy + 2, TILE - 10, TILE - 4);
+      this.exitGlow.lineStyle(1, 0x403629, 1); this.exitGlow.strokeRect(dx + 5, dy + 2, TILE - 10, TILE - 4);
+      this.exitGlow.fillStyle(0x5e5038, 0.8); this.exitGlow.fillCircle(dx + TILE - 10, dy + TILE / 2, 1.5);
+    }
     // 出口判定（協力プレイでは全員が出口に揃うまで次の階層へは進まない）。ゴーストは対象外。
     const tx = Math.floor(this.player.x / TILE), ty = Math.floor(this.player.y / TILE);
+    if (sdr && !this.mp && !this.isGhost && !this.isDowned && !this._astral && !this._inLibrary && !(this._libLockUntil && this.time.now < this._libLockUntil) && tx === sdr.x && ty === sdr.y) this.enterLibrary();
     const onExit = !this.isGhost && !this.isDowned && !this._astral && !(this._exitLockUntil && this.time.now < this._exitLockUntil) && !!(this.dungeon.grid[ty] && this.dungeon.grid[ty][tx] === 3);
     if (onExit !== this.atExit) {
       this.atExit = onExit;
@@ -20489,6 +20716,30 @@ class GameScene extends Phaser.Scene {
       this.transitioning = false;
       this.cameras.main.fadeIn(250, 0, 0, 0);
     });
+  }
+
+  // 🚪 隠し書庫：暗転して書庫の画面を開く。この間は transitioning を立てて、ゲームの進行（敵・弾など）を止める。戻ると、扉の少し手前に出る
+  enterLibrary() {
+    if (this.transitioning || this._inLibrary) return;
+    this.interruptChargeBomb();
+    this.transitioning = true; this._inLibrary = true; this._libT0 = performance.now();
+    // 来た回数：書庫に入るたびに+1（同じ扉・同じシードでも、入った回数が違えば別の回として数える）
+    let visits = 1;
+    try { const sv = loadSave(); sv.libraryVisits++; writeSave(sv); visits = sv.libraryVisits; } catch (e) {}
+    this.cameras.main.fadeOut(700, 0, 0, 0);
+    this.cameras.main.once('camerafadeoutcomplete', () => {
+      try { openLibrary(() => this.leaveLibrary(), this.playerColor, accHeadIcon(this.accKey), visits); } catch (err) { console.error('書庫を開けませんでした:', err); this.leaveLibrary(); }
+    });
+  }
+  leaveLibrary() {
+    const sd = this.dungeon && this.dungeon.secretDoor;
+    if (sd) { this.player.x = sd.inX * TILE + TILE / 2; this.player.y = sd.inY * TILE + TILE / 2; }
+    if (this.runStats && this._libT0) this.runStats.time = Math.max(0, this.runStats.time - (performance.now() - this._libT0) / 1000); // 書庫にいた時間は、クリアタイムに数えない
+    this._libT0 = 0;
+    this._libLockUntil = this.time.now + 1500; // 戻った直後に、また入ってしまわないように
+    this._inLibrary = false;
+    this.transitioning = false;
+    this.cameras.main.fadeIn(500, 0, 0, 0);
   }
 
   goNextFloorTo(newFloor) {
