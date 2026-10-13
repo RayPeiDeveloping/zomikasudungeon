@@ -2751,7 +2751,7 @@ class GameScene extends Phaser.Scene {
     this._warpCd = 0; // ワープのクールダウン残り秒（SUMMON_BALANCE.warpCooldown）
     this.remoteAllies = {}; // マルチ：他のプレイヤーの味方の表示（キーは 持ち主uid_味方id）
     this._aimCursor = null; this._aimArmed = false;
-    this.s2Gfx = this.add.graphics().setDepth(10); // 降魔術の魔法陣メニュー
+    this.s2Gfx = this.add.graphics().setDepth(13); // 降魔術の魔法陣メニュー（ナイトメアの壁の影＝depth 12 より上に出す）
     this._s2Open = false; this._s2Sel = -1; this._s2Label = null; this._s2Cursor = null; this.s2Quartet = null; this.s2Snake = null; this.s2Rush = []; this.s2Beam = null; this.s2RushAim = null;
     this._s2GCd = 0; this._s2SkCd = {}; // 降魔術のクールダウン残り秒（全体 / 技のkeyごと）
     this.s2Unlocked = this.s2InitUnlocked(); this.s2Trial = null; this.rt = null; this._rtGfx = null; this._rtTxt = null; this._rtSeq = 0; this._s2TrialGfx = null; this._s2TrialTxt = null; // 調伏の儀：このゲームで解放済みの技 / 進行中の儀
@@ -5553,10 +5553,10 @@ class GameScene extends Phaser.Scene {
 
   // 🎁 景品の装飾品：前のラウンドでもらった分を次のラウンドの間だけ付け、そのまた次のラウンドが始まる時に元へ戻す
   amidaPrizeAccStep(pv) {
-    if (pv.amidaAccTemp) { const prev = pv.amidaAccTemp.prev; pv.amidaAccTemp = null; this.equipAmidaAcc(prev); } // 前の景品の期限切れ
-    if (pv.amidaNextAcc) {
-      const key = pv.amidaNextAcc; pv.amidaNextAcc = null;
-      pv.amidaAccTemp = { prev: this.accKey || '' };
+    const key = pv.amidaNextAcc || ''; pv.amidaNextAcc = null; // 毎ラウンドの始めに「このラウンドに付ける景品の装飾品」を決め直す（2ラウンド連続でもらっても、前のものは必ず外れて新しいものに替わる）
+    pv.amidaAccTemp = null; this.equipAmidaAcc(''); // 前の景品の期限切れ（あみだくじの間、参加者の素の状態は「なし」。元の装飾品は accStash に預けてある）
+    if (key) {
+      pv.amidaAccTemp = { prev: '' };
       this.equipAmidaAcc(key);
       const a = accessoryByKey(key);
       this.time.delayedCall(1900, () => this.showBanner('🎁 景品の ' + (a ? a.icon + a.name : '') + ' が付きました（このラウンドだけ）', 2500));
@@ -12836,7 +12836,7 @@ class GameScene extends Phaser.Scene {
 
   s2EnsureLabel() {
     if (!this._s2Label) {
-      this._s2Label = this.add.text(0, 0, '', { fontSize: '16px', color: '#ffffff', fontStyle: 'bold', fontFamily: 'sans-serif', stroke: '#000000', strokeThickness: 4 }).setOrigin(0.5).setDepth(11);
+      this._s2Label = this.add.text(0, 0, '', { fontSize: '16px', color: '#ffffff', fontStyle: 'bold', fontFamily: 'sans-serif', stroke: '#000000', strokeThickness: 4 }).setOrigin(0.5).setDepth(13);
     }
     return this._s2Label;
   }
