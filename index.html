@@ -1003,10 +1003,11 @@ const PVP = {
   // あみだくじ：countdown＝始まる前のカウントダウン(秒。この間はボックスに入れない)／pickTime＝ボックスを選べる制限時間(秒)／graceTime＝時間切れから横線が見えて体が動き出すまで(秒。この間は3→1のカウントダウン。選んでいない人の割り当て待ちも兼ねる)／speed＝線の上を進む速さ(タイル/秒)／
   // hopTime＝横線で隣の線へ移る時間(秒。移る人だけが止まるので、右端へ着く時間は人それぞれ)／warpWait＝最後の人が着いてから、それぞれのモンスターの部屋へワープするまで(秒)／fightMax＝ワープしてから、戦いが終わっていなくても締め切るまで(秒)／returnStay＝全員の戦いが終わってから結果に進むまで(秒)／rows＝横線を引ける段数／rungChance＝横線が入る確率／
   // マップの大きさ：maxLanes＝線の本数の上限／gap＝線と線の間隔(タイル。偶数)／spawnW＝左端のスポーン部屋の幅／boxW＝ボックスの一辺／lineLen＝ボックスの右から右端の出口までの線の長さ／endW＝右端の出口の幅／monRoom＝モンスターの部屋（cols＝横に並べる数／w・h＝部屋の大きさ／gap＝部屋の間隔。タイル。マップの右の遠くに作る）
-  // 🎁 景品：ラウンドごとに prizeChance の確率で、モンスターの出口のうち1つが「景品の出口」になる（毎回は出ない）。入った人は戦わずに勝ち扱いで、景品をもらう。
-  //   prizeWeaponShare＝景品が「今の武器Lv+1（緑の宝箱と同じ）」になる割合（残りは装飾品）／prizeAccs＝景品になる装飾品（次のラウンドの間だけ付く）
-  // 👹 出口のモンスター：monOrder＝弱い順の並び。出口がN個なら、この並びをN個の区画に分けて、各区画から1体ずつ選ぶ＝どの出口も必ず強さが違い、弱い出口から強い出口まで均等にばらける（スライムとゴーストのような似た強さが並ばない）。強さの感覚を変えたい時はこの並びを入れ替える
-  amida: { monOrder: ['bat', 'slime', 'spore', 'charger', 'shooter', 'brute', 'ghost', 'quartet', 'snake', 'zoetrope', 'detonator', 'overlord', 'arms4'], prizeChance: 0.2, prizeWeaponShare: 0.6, prizeAccs: ['serialkiller', 'skull', 'clock', 'armor', 'crown', 'angelhalo', 'snow'], countdown: 5, pickTime: 20, graceTime: 1, speed: 8, hopTime: 0.2, warpWait: 3, fightMax: 120, monFloor: 10, returnStay: 5, rows: 24, rungChance: 0.5, maxLanes: 12, gap: 4, spawnW: 6, boxW: 3, lineLen: 26, endW: 3, monRoom: { cols: 4, w: 36, h: 24, gap: 40 } },
+  // 🎁 景品：ラウンドごとに prizeChance の確率で、出口のうち1つが「景品の出口」になる（今は1＝毎回出る。景品の出口以外はモンスターの出口なので、毎回、景品とモンスターの両方がある）。入った人は戦わずに勝ち扱いで、景品をもらう。
+  //   prizeWeaponShare＝景品が「今の武器Lv+1（緑の宝箱と同じ）」になる割合／prizeWeapon2Share＝「武器Lv+2」になる割合／prizeHealShare＝景品が「HP全回復」になる割合（武器と合わせた残りが装飾品）。HP全回復は、生き残りの誰かのHPが healBelowHp 以下の時だけ景品に出る（出ない時は、その割合を残りの3種に均等に上乗せする＝武器Lv+1／武器Lv+2／装飾品に +prizeHealShare/3 ずつ）／prizeAccs＝景品になる装飾品（次のラウンドの間だけ付く）
+  // 👹 出口のモンスター：雑魚(mobs)とボス(bosses)は別々に管理する（どちらも弱い順）。雑魚は mobsEnabled が false の間は出ない（一旦出さない。戻す時は true）。出口がN個なら、「雑魚→ボス」とつなげた並びをN個の区画に分けて、各区画から1体ずつ選ぶ＝どの出口も必ず強さが違い、弱い出口から強い出口まで均等にばらける（スライムとゴーストのような似た強さが並ばない）。
+  //   special＝別枠：天使は雑魚・ボスの並びには入れず（シマハルはボスの並びの最後＝最強に入っている）、ラウンドごとに chance の確率で、出口のうち1つ（まだ別枠になっていない出口）を置き換えて出る。確率を変えたい時は chance、足したい時はここに { key, chance } を足す。steadyRounds＝人数が変わらない（誰もやられない）ラウンドがこの回数続くと、次のラウンドに必ず出る（天使はふだんは chance:0 で出ない）
+  amida: { mobsEnabled: false, mobs: ['bat', 'slime', 'spore', 'charger', 'shooter', 'brute', 'ghost'], bosses: ['quartet', 'snake', 'zoetrope', 'detonator', 'overlord', 'simahar'], special: [{ key: 'arms4', chance: 0, steadyRounds: 3 }], prizeChance: 1, prizeWeaponShare: 0.25, prizeWeapon2Share: 0.15, prizeHealShare: 0.3, healBelowHp: 70, prizeAccs: ['serialkiller', 'skull', 'clock', 'armor', 'crown', 'angelhalo', 'snow'], countdown: 5, pickTime: 20, graceTime: 1, speed: 8, hopTime: 0.2, warpWait: 3, fightMax: 120, monFloor: 10, returnStay: 5, rows: 24, rungChance: 0.5, maxLanes: 12, gap: 4, spawnW: 6, boxW: 3, lineLen: 26, endW: 3, monRoom: { cols: 4, w: 36, h: 24, gap: 40 } },
   weaponZone: { cx: 10, cy: 4.5, size: 4, holdTime: 3 }, // 武器変更ゾーン（準備室の上側の正方形。中心タイル座標・一辺のタイル数）。holdTime：武器固定の時、全員が入ってからホストが選び直すまでの秒数
   // 人狼ゲームのマップ（バトルフィールドの右隣に作る）。中心に円形の広場、そこから放射状に道が伸びて、道の先に家（円形・入口が1つ）がある。それ以外は岩（壁）。
   werewolf: { wolves: 1, wolvesMany: 2, manyFrom: 8, bloodyTime: 20, roleLot: { villager: 1, watchman: 1, seer: 1, detective: 1, dupMul: 0.05 }, detectiveTime: 5, detectiveR: 2.2, trailTiles: 30, trailStep: 0.5, seerTime: 15, seerR: 2.5, seerPerNight: 1, quotaHold: 15, watchOilMul: 2, watchViewMul: 3, wolfViewMul: 2, wolfSwordLv: 5, houses: 10, mapVersion: 2, size2: 96, houseDist2: 38, mapSeed2: 20261010, plazaR: 9, houseDist: 30, houseIn: 4.5, houseOut: 6.5, roadW: 3, size: 80, gap: 4, rays: 600, viewR: 20, time: 900, dayTime: 60, dayTime2: 170, voteTime: 30, resultTime: 12, nightTime: 90, nightViewR: 6, nightHole: 0.94, oilMax: 100, oilBurn: 2, oilRegen: 4, oilLow: 0.3, oilMinR: 1.2, oilStartMin: 0.3, oilStartMax: 0.7 },
@@ -5310,21 +5311,21 @@ class GameScene extends Phaser.Scene {
     return Object.keys(am.laneOf).filter(id => am.fight[id] === true).sort();
   }
 
-  amidaNextRound(seed, ids) { // 全員：次のあみだくじを始める。参加するのは生き残った人（ids）だけ。やられた人はゴーストのまま戻らず、観戦する
+  amidaNextRound(seed, ids, heal) { // 全員：次のあみだくじを始める。参加するのは生き残った人（ids）だけ。やられた人はゴーストのまま戻らず、観戦する
     const pv = this.pv, my = this.net.uid;
     if (!pv || pv.mode !== 'amida' || pv.phase !== 'battle' || !pv.amida) return;
     const part = Array.isArray(ids) && ids.length ? ids.slice() : pv.ids.filter(id => pv.alive.has(id));
-    this.amidaStart(seed, part);
+    this.amidaStart(seed, part, heal);
     const i = part.indexOf(my);
-    if (i >= 0 && !pv.dead) { // 生き残った人：左端のスポーン部屋へ（HPは全回復）
-      this.amidaPrizeAccStep(pv); // 🎁 景品の装飾品（HPの全回復の前に付け替える＝鎧の最大HPも反映される）
+    if (i >= 0 && !pv.dead) { // 生き残った人：左端のスポーン部屋へ（HPはそのまま）
+      this.amidaPrizeAccStep(pv); // 🎁 景品の装飾品（付け替える時に鎧の最大HPも合わせる）
       const sp = this.pvpSpawn(i, part.length); this.player.x = sp.x; this.player.y = sp.y;
-      this.playerHp = this.playerMaxHp; this.updateHud();
+      this.updateHud(); // HPは回復しない（次のラウンドへ持ち越し。回復は景品のHP全回復だけ）
       this.showBanner('次のあみだくじ！ 残り' + part.length + '人\nまもなく開始します', 1800);
     } else this.showBanner('次のあみだくじ（観戦中） 残り' + part.length + '人', 1800);
   }
 
-  amidaStart(seed, part) { // part：このラウンドに参加する人（省略すると全員）。線の本数は参加者の数
+  amidaStart(seed, part, heal) { // heal：景品のHP全回復を出していいか（誰かのHPが healBelowHp 以下の時だけ true。最初のラウンドはHPが満タンなので出ない）／part：このラウンドに参加する人（省略すると全員）。線の本数は参加者の数
     this.amidaClear();
     const pv = this.pv, A = PVP.amida, ids = (part || pv.ids).slice();
     const N = Math.min(A.maxLanes, Math.max(2, ids.length)); // 一人テストでも線は2本
@@ -5337,14 +5338,22 @@ class GameScene extends Phaser.Scene {
     }
     if (!part) { this.pv.amidaHist = {}; this.pv.amidaPrizes = {}; } // 最初のラウンドなら、「当たったモンスター」「景品」の記録をリセット
     this.pv.amidaRounds = (part ? (this.pv.amidaRounds || 0) : 0) + 1; // あみだくじをした回数（ラウンド数）。最初のラウンドで1に戻し、始まるたびに+1
-    const order = A.monOrder, picked = []; // 出口ごとに別々の飾りモンスター（動かない・当たり判定なし）。弱い順の並びをN個の区画に分け、各区画から1体ずつ選ぶ（どの出口も強さが違う）。全員同じシードなので全員同じ結果
+    // 人数が変わらないラウンドの連続数（天使の出現条件）。最初のラウンドは0から数え、次のラウンドからは「前のラウンドと参加人数が同じなら+1、変わったら0」。全員が同じ参加者リスト(ids)で数えるので、全員同じ結果
+    if (!part) pv.amidaStale = 0; else pv.amidaStale = (pv.amidaPrevN === ids.length) ? (pv.amidaStale || 0) + 1 : 0;
+    pv.amidaPrevN = ids.length;
+    const order = (A.mobsEnabled ? A.mobs : []).concat(A.bosses), picked = []; // 出口ごとに別々の飾りモンスター（雑魚→ボスの弱い順の並び。シマハルはボスの最後（最強）に入っている。天使は別枠なので入っていない）（動かない・当たり判定なし）。弱い順の並びをN個の区画に分け、各区画から1体ずつ選ぶ（どの出口も強さが違う）。全員同じシードなので全員同じ結果
     for (let k = 0; k < N; k++) { const lo = Math.floor(k * order.length / N), hi = Math.max(lo + 1, Math.floor((k + 1) * order.length / N)); picked.push(order[lo + Math.floor(rand() * (hi - lo))]); }
     const mons = picked; // 出口の並び順は混ぜる（どの出口が弱いか強いかは、線を引くまで分からない）
     for (let i = mons.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); const t = mons[i]; mons[i] = mons[j]; mons[j] = t; }
-    // 🎁 景品の抽選（全員が同じシード → 同じ結果）。乱数は常に4つ使う
+    // 🎁 景品の抽選（全員が同じシード → 同じ結果）。乱数は常に4つ使う。別枠より先に決める（景品の出口を別枠で潰さないため）
     let prize = null;
     { const rPz = rand(), rKind = rand(), rAcc = rand(), rExit = rand();
-      if (rPz < A.prizeChance) prize = { exit: Math.floor(rExit * N), kind: rKind < A.prizeWeaponShare ? 'weapon' : 'acc', acc: A.prizeAccs[Math.floor(rAcc * A.prizeAccs.length)] }; }
+      if (rPz < A.prizeChance) { const hs = heal ? A.prizeHealShare : 0, bn = heal ? 0 : A.prizeHealShare / 3, x = rKind, s1 = A.prizeWeaponShare + bn, s2 = s1 + A.prizeWeapon2Share + bn, s3 = s2 + hs; // 武器Lv+1／武器Lv+2／HP全回復／残りは装飾品。HP全回復を出さない時(hs=0)は、その分を武器Lv+1／武器Lv+2／装飾品に均等(bn)に上乗せする
+        prize = { exit: Math.floor(rExit * N), kind: x < s1 ? 'weapon' : x < s2 ? 'weapon2' : x < s3 ? 'heal' : 'acc', acc: A.prizeAccs[Math.floor(rAcc * A.prizeAccs.length)] }; } }
+    { const free = mons.map((_, k) => k).filter(k => !prize || k !== prize.exit); // 別枠（天使）：当たったら、景品でも別枠でもない出口を1つ置き換える。乱数は別枠1つにつき常に2つ使う（全員同じシードなので全員同じ結果）
+      const rolls = A.special.map(sp => ({ sp, rS: rand(), rI: rand(), force: !!(sp.steadyRounds && (pv.amidaStale || 0) >= sp.steadyRounds) }));
+      rolls.sort((a, b) => (b.force ? 1 : 0) - (a.force ? 1 : 0)); // 必ず出る別枠（天使）を先に置く（出口が足りない時に、そちらを優先）
+      for (const r of rolls) { if ((r.force || r.rS < r.sp.chance) && free.length) { const f = Math.floor(r.rI * free.length); mons[free[f]] = r.sp.key; free.splice(f, 1); if (r.force) pv.amidaStale = 0; } } } // 天使が出たら、数え直す
     const now = performance.now();
     const am = { part: ids, N, rungs, geo: this.amidaGeo(N), laneOf: {}, owner: {}, resv: {}, boxes: [], slots: [], tiles: [], objs: [], startAt: now + A.countdown * 1000, pickEndAt: now + (A.countdown + A.pickTime) * 1000, traceAt: now + (A.countdown + A.pickTime + A.graceTime) * 1000, cdShown: -1, cd2Shown: -1, rungsShown: false, mons, started: false, autoDone: false, sentAt: 0, shown: false, myPath: null, maxT: null, warpSent: false, warped: false, roomsOpen: false, warpedAt: 0, fight: {}, endSet: false, myRoom: null, myFin: null, mon: null, fighting: false, fightDone: false, noneSince: 0 };
     am.prize = prize;
@@ -5494,6 +5503,8 @@ class GameScene extends Phaser.Scene {
   // 🎁 景品の中身の名前（結果画面に出す文字）
   amidaPrizeText(pz) {
     if (pz.kind === 'weapon') return '武器Lv+1';
+    if (pz.kind === 'weapon2') return '武器Lv+2';
+    if (pz.kind === 'heal') return 'HP全回復';
     const a = accessoryByKey(pz.acc);
     return a ? a.icon + a.name : '装飾品';
   }
@@ -5501,11 +5512,13 @@ class GameScene extends Phaser.Scene {
   // 🎁 景品の名前（出口に出す文字）
   amidaPrizeLabel(pz) {
     if (pz.kind === 'weapon') return '景品\n武器Lv+1';
+    if (pz.kind === 'weapon2') return '景品\n武器Lv+2';
+    if (pz.kind === 'heal') return '景品\nHP全回復';
     const a = accessoryByKey(pz.acc);
     return '景品\n' + (a ? a.icon + a.name : '装飾品') + '\n（次のラウンドだけ）';
   }
 
-  // 🎁 景品の出口に着いた：戦わずに勝ち扱い。武器Lv+1はすぐ、装飾品は次のラウンドの間だけ付く。結果は全員へ知らせる
+  // 🎁 景品の出口に着いた：戦わずに勝ち扱い。武器Lv+1／+2とHP全回復はすぐ、装飾品は次のラウンドの間だけ付く。結果は全員へ知らせる
   amidaPrizeGet(am) {
     const pv = this.pv, pz = am.prize, my = this.net.uid;
     am.fighting = false; am.fightDone = true; am.myRoom = null; am.mon = null;
@@ -5515,6 +5528,13 @@ class GameScene extends Phaser.Scene {
       const base = WEAPON_TYPES.find(w => w.key === this.weapon.key) || this.weapon;
       this.grantWeaponLevel(base, { silent: true }); // 緑の宝箱と同じ：今の武器がLv+1
       this.showBanner('🎁 景品！ ' + base.name + ' がLv.' + (this.weaponLevels[base.key] || '?') + 'に強化された！\n戦わずに勝ち抜けです', 3500);
+    } else if (pz.kind === 'weapon2') {
+      const base = WEAPON_TYPES.find(w => w.key === this.weapon.key) || this.weapon;
+      this.grantWeaponLevel(base, { silent: true }); this.grantWeaponLevel(base, { silent: true }); // 今の武器がLv+2
+      this.showBanner('🎁 景品！ ' + base.name + ' がLv.' + (this.weaponLevels[base.key] || '?') + 'に強化された！（+2）\n戦わずに勝ち抜けです', 3500);
+    } else if (pz.kind === 'heal') {
+      this.playerHp = this.playerMaxHp; this.updateHud(); // HP全回復（ラウンドごとの自動回復はなくしたので、景品でだけ回復する）
+      this.showBanner('🎁 景品！ HPが全回復した！\n戦わずに勝ち抜けです', 3500);
     } else {
       const a = accessoryByKey(pz.acc);
       pv.amidaNextAcc = pz.acc; // 次のラウンドが始まる時に付ける（amidaNextRound）
@@ -5636,7 +5656,9 @@ class GameScene extends Phaser.Scene {
     const zoom = window.GAME_VIEW_ZOOM || 1;
     if (am.myRoom || am.specRoom) { // 戦っている間／ゴーストで観戦している間：ふだんと同じ倍率で、自分を中心にカメラが動く
       if (!am.camFollow) { am.camFollow = true; cam.setZoom(zoom); cam.centerOn(this.player.x, this.player.y); cam.startFollow(this.player, true, 0.15, 0.15); }
+      this.amidaHud(false); // 戦っている間・観戦中は、左上と右上の表示を出す
     } else {
+      this.amidaHud(true); // あみだ全体を映している間は、左上（階層・武器・HP）と右上（ルーム・参加者）の表示を隠す（あみだに重なって邪魔なため）
       if (am.camFollow) { am.camFollow = false; cam.stopFollow(); } // 戦いが終わったら、あみだ全体が映る固定カメラへ戻る
       cam.setZoom(Math.min(cam.width / wT, cam.height / hT));
       cam.centerOn((g.ax + (g.ex + A.endW - g.ax) / 2) * TILE, ((g.top + g.bottom + 1) / 2 + 0.6) * TILE);
@@ -5716,7 +5738,7 @@ class GameScene extends Phaser.Scene {
       }
     }
     // ホストだけ：全員が戻ってから returnStay 秒たったら、次のあみだくじ（新しいシード）を全員に合図する
-    if (this.isHost && am.endSet && !am.nextSent && now >= am.nextAt) { am.nextSent = true; this.net.sendPvp({ a: 'anext', seed: Math.floor(Math.random() * 2147483646) + 1, ids: am.survivors }); }
+    if (this.isHost && am.endSet && !am.nextSent && now >= am.nextAt) { am.nextSent = true; const myId = this.net.uid, hpOf = id => id === myId ? this.playerHp : ((this.latestPlayers || {})[id] || {}).hp; this.net.sendPvp({ a: 'anext', seed: Math.floor(Math.random() * 2147483646) + 1, ids: am.survivors, heal: am.survivors.some(id => { const h = hpOf(id); return typeof h === 'number' && h <= PVP.amida.healBelowHp; }) }); } // heal＝生き残りの中にHPが healBelowHp 以下の人がいるか（景品のHP全回復を出していいか。ホストが決めて全員に配る）
     // ホストだけ：最後の人が着いてから warpWait 秒たったら、全員にワープの合図を送る（受け取った全員が自分の部屋へ移る）
     if (this.isHost && !am.warpSent && now >= arriveAt + A.warpWait * 1000) { am.warpSent = true; this.net.sendPvp({ a: 'awarp' }); }
   }
@@ -5973,6 +5995,10 @@ class GameScene extends Phaser.Scene {
     if (R) { const mg = TILE * 0.6; this.player.x = Phaser.Math.Clamp(this.player.x, R.tx * TILE + mg, (R.tx + R.w) * TILE - mg); this.player.y = Phaser.Math.Clamp(this.player.y, R.ty * TILE + mg, (R.ty + R.h) * TILE - mg); }
   }
 
+  amidaHud(hide) { // あみだ全体を映している間だけ、左上(#ui)と右上(#mpPanel)の表示を隠す。display ではなく visibility を使う（ほかの処理が display を出し入れしているので、ぶつからないように）
+    for (const id of ['ui', 'mpPanel']) { const el = document.getElementById(id); if (el) el.style.visibility = hide ? 'hidden' : ''; }
+  }
+
   amidaClear() { // 作った物を片づけて、床を壁に戻し、カメラをもとに戻す
     const pv = this.pv, am = pv && pv.amida;
     try { this.amidaSpecStop(); } catch (err) { /* 観戦していなければ何もない */ }
@@ -5988,6 +6014,7 @@ class GameScene extends Phaser.Scene {
       this._amidaCam = false; this._amidaSnap = true;
       const cam = this.cameras.main; cam.setZoom(window.GAME_VIEW_ZOOM || 1); cam.startFollow(this.player, true, 0.15, 0.15);
     }
+    this.amidaHud(false); // あみだくじが終わったら、左上と右上の表示を元に戻す
     const old = document.getElementById('amidaOv'); if (old) old.remove(); // 前の版のオーバーレイが残っていたら消す（保険）
   }
 
@@ -6084,6 +6111,7 @@ class GameScene extends Phaser.Scene {
       if (pv.mode === 'werewolf') this.wwStartRoles(); else { pv.roles = null; pv.myRole = null; } // 人狼ゲーム：役職を決めて、武器を剣Lv.1に固定
       this.updateHud(); // 人狼ゲームの開始・終了で、左上の表示（1行目の出し入れ）を更新する
       if (pv.mode === 'werewolf' && pv.accStash === undefined) { pv.accStash = this.accKey || ''; this.equipRunAccessory(''); } // 人狼ゲームでは装飾品なし（付けていたものは覚えておき、準備室に戻ったら戻す）
+      if (pv.mode === 'amida' && pv.accStash === undefined && pv.ids.includes(my)) { pv.accStash = this.accKey || ''; this.equipAmidaAcc(''); } // あみだくじに参加した時点で、参加者の装飾品を1回なしにする（付けていたものは覚えておき、準備室に戻ったら戻す。鎧の最大HPも元に戻る）
       if (pv.mode !== 'werewolf' && pv.mode !== 'amida') this.pvpSpawnPotions(pv.round); // 回復アイテムを配置（全員が同じ位置）。人狼ゲームには置かない
       const i = pv.ids.indexOf(my);
       if (i >= 0) {
@@ -6112,7 +6140,7 @@ class GameScene extends Phaser.Scene {
     } else if (m.a === 'awarp') { // あみだくじ：ホストが「全員ワープ」と合図した
       this.amidaOnWarp(m);
     } else if (m.a === 'anext') { // あみだくじ：全員が戻って5秒たった。次のあみだくじを始める
-      this.amidaNextRound(m.seed, m.ids);
+      this.amidaNextRound(m.seed, m.ids, m.heal);
     } else if (m.a === 'awatch') { // あみだくじ：誰かが自分の戦いを観戦している
       this.amidaOnWatch(m);
     } else if (m.a === 'aroom') { // あみだくじ：観戦している相手の部屋の敵の状態（ダンジョンと同じ形のスナップショット）
@@ -6962,8 +6990,8 @@ class GameScene extends Phaser.Scene {
     clearTimeout(this._pvpFadeTimer);
     const fdEl = document.getElementById('pvpFade'); if (fdEl) fdEl.style.display = 'none';
     const ov = document.getElementById('pvpResult'); if (ov) ov.style.display = 'none';
-    if (pv.accStash !== undefined) { const a = pv.accStash; pv.accStash = undefined; this.equipRunAccessory(a); } // 人狼ゲーム中に外した装飾品を戻す
-    if (pv.amidaAccTemp) { const a = pv.amidaAccTemp.prev; pv.amidaAccTemp = null; this.equipAmidaAcc(a); } pv.amidaNextAcc = null; // あみだくじの景品の装飾品を外して、元の装飾品に戻す
+    if (pv.amidaAccTemp) { const a = pv.amidaAccTemp.prev; pv.amidaAccTemp = null; this.equipAmidaAcc(a); } pv.amidaNextAcc = null; // あみだくじの景品の装飾品を先に外す（ここで戻るのは「なし」。元の装飾品は次の行で戻す）
+    if (pv.accStash !== undefined) { const a = pv.accStash; pv.accStash = undefined; this.equipAmidaAcc(a); this.playerHp = this.playerMaxHp; this.updateHud(); } // 人狼ゲーム／あみだくじの間に外した装飾品を戻す（鎧なら最大HPも戻す）
     this.showBanner('準備室に戻りました。全員が同じ円に入ると次のバトルです', 3000);
   }
 
@@ -19800,6 +19828,14 @@ class GameScene extends Phaser.Scene {
       const ny = this.player.y + dy * moveSpeed * dt;
       this.player.x = nx;
       this.player.y = ny;
+      { // あみだくじ：やられた人（ゴースト）が画面の外へ行ってしまわないよう、あみだ全体の枠を通り抜けられない壁にする（観戦で部屋にいる間は amidaSpecUpdate が部屋の中に収める）
+        const pvG = this.pv, amG = pvG && pvG.mode === 'amida' && pvG.amida;
+        if (amG && !amG.specRoom && !amG.myRoom && amG.geo) {
+          const gG = amG.geo, mg = TILE * 0.5;
+          this.player.x = Phaser.Math.Clamp(this.player.x, gG.ax * TILE + mg, (gG.ex + PVP.amida.endW) * TILE - mg);
+          this.player.y = Phaser.Math.Clamp(this.player.y, gG.top * TILE + mg, (gG.bottom + 1) * TILE - mg);
+        }
+      }
     } else if (this._jet && this._jet.on && this.weapon && this.weapon.type === 'jet') {
       this.jetMove(dx, dy, moveSpeed, dt, r); // ロケット：細かく刻んで進み、何かに触れた瞬間に爆発する（速すぎて壁や敵をすり抜けないように）
     } else {
