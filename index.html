@@ -489,6 +489,7 @@
       <button id="soloBtn">ダンジョン</button>
     </div>
     <div class="lobbyBox lobbySide lobbyRight">
+      <div id="arms4RitualCount" style="display:none; text-align:center; font-size:1.7vh; font-weight:bold; color:#ffe58a; margin-bottom:-0.8vh;"></div>
       <button id="arms4RitualBtn" class="challengeBtn" style="background:#ffe58a;">【期間限定】天使・調伏の儀</button>
       <button id="bossRushBtn" class="challengeBtn" style="background:#ff8a5b;">ボスラッシュ</button>
       <button id="frontlineBtn" class="challengeBtn" style="background:#4fd67a;">最北戦線</button>
@@ -1006,8 +1007,8 @@ const PVP = {
   // 🎁 景品：ラウンドごとに prizeChance の確率で、出口のうち1つが「景品の出口」になる（今は1＝毎回出る。景品の出口以外はモンスターの出口なので、毎回、景品とモンスターの両方がある）。入った人は戦わずに勝ち扱いで、景品をもらう。
   //   prizeWeaponShare＝景品が「今の武器Lv+1（緑の宝箱と同じ）」になる割合／prizeWeapon2Share＝「武器Lv+2」になる割合／prizeHealShare＝景品が「HP全回復」になる割合（武器と合わせた残りが装飾品）。HP全回復は、生き残りの誰かのHPが healBelowHp 以下の時だけ景品に出る（出ない時は、その割合を残りの3種に均等に上乗せする＝武器Lv+1／武器Lv+2／装飾品に +prizeHealShare/3 ずつ）／prizeAccs＝景品になる装飾品（次のラウンドの間だけ付く）
   // 👹 出口のモンスター：雑魚(mobs)とボス(bosses)は別々に管理する（どちらも弱い順）。雑魚は mobsEnabled が true の間だけ出る（false なら全部ボス）。ラウンドが進むほど、①ボスの出口の割合が bossShareStart から1ラウンドごとに bossShareStep ずつ増える（bossShareMax まで）、②雑魚の出口では、一度に戦う雑魚の数が mobCountStart 体から1ラウンドごとに1体ずつ増える（mobCountMax 体まで。同じ種類がまとめて出る）。出口がN個なら、「雑魚→ボス」とつなげた並びをN個の区画に分けて、各区画から1体ずつ選ぶ＝どの出口も必ず強さが違い、弱い出口から強い出口まで均等にばらける（スライムとゴーストのような似た強さが並ばない）。
-  //   special＝別枠：天使は雑魚・ボスの並びには入れず（シマハルはボスの並びの最後＝最強に入っている）、ラウンドごとに chance の確率で、出口のうち1つ（まだ別枠になっていない出口）を置き換えて出る。確率を変えたい時は chance、足したい時はここに { key, chance } を足す。steadyRounds＝人数が変わらない（誰もやられない）ラウンドがこの回数続くと、次のラウンドに必ず出る（天使はふだんは chance:0 で出ない）
-  amida: { mobsEnabled: true, mobCountStart: 1, mobCountMax: 6, bossShareStart: 0.2, bossShareStep: 0.1, bossShareMax: 0.8, mobs: ['bat', 'slime', 'spore', 'charger', 'shooter', 'brute', 'ghost'], bosses: ['quartet', 'snake', 'zoetrope', 'detonator', 'overlord', 'simahar'], special: [{ key: 'arms4', chance: 0, steadyRounds: 3 }], prizeChance: 1, prizeWeaponShare: 0.25, prizeWeapon2Share: 0.15, prizeHealShare: 0.3, healBelowHp: 70, prizeAccs: ['serialkiller', 'skull', 'clock', 'armor', 'crown', 'angelhalo', 'snow'], countdown: 5, pickTime: 20, graceTime: 1, speed: 8, hopTime: 0.2, warpWait: 3, fightMax: 120, monFloor: 10, returnStay: 5, rows: 24, rungChance: 0.5, maxLanes: 12, gap: 4, spawnW: 6, boxW: 3, lineLen: 26, endW: 3, monRoom: { cols: 4, w: 36, h: 24, gap: 40 } },
+  //   special＝別枠：天使は雑魚・ボスの並びには入れず（シマハルはボスの並びの最後＝最強に入っている）、ラウンドごとに chance の確率で、出口のうち1つ（まだ別枠になっていない出口）を置き換えて出る。確率を変えたい時は chance、足したい時はここに { key, chance } を足す。steadyRounds＝人数が変わらない（誰もやられない）ラウンドがこの回数続くと、次のラウンドに必ず出る／steadyExact＝ちょうどその回数の時だけ出る（シマハル：3回続いたらまずシマハル）／steadyReset＝出たら連続回数を0に戻す（天使：シマハルでも人数が変わらなかった＝4回続いたら天使。天使は chance:0.05 で、ふだんもわずかな確率で出る）
+  amida: { mobsEnabled: true, mobCountStart: 1, mobCountMax: 6, bossShareStart: 0.2, bossShareStep: 0.1, bossShareMax: 0.8, mobs: ['bat', 'slime', 'spore', 'charger', 'shooter', 'brute', 'ghost'], bosses: ['quartet', 'snake', 'zoetrope', 'detonator', 'overlord', 'simahar'], special: [{ key: 'simahar', chance: 0, steadyRounds: 3, steadyExact: true }, { key: 'arms4', chance: 0.05, steadyRounds: 4, steadyReset: true }], prizeChance: 1, prizeWeaponShare: 0.25, prizeWeapon2Share: 0.15, prizeHealShare: 0.3, healBelowHp: 70, prizeAccs: ['serialkiller', 'skull', 'clock', 'armor', 'crown', 'angelhalo', 'snow'], countdown: 5, pickTime: 20, graceTime: 1, speed: 8, hopTime: 0.2, warpWait: 3, fightMax: 120, monFloor: 10, returnStay: 5, rows: 24, rungChance: 0.5, maxLanes: 12, gap: 4, spawnW: 6, boxW: 3, lineLen: 26, endW: 3, monRoom: { cols: 4, w: 36, h: 24, gap: 40 } },
   weaponZone: { cx: 10, cy: 4.5, size: 4, holdTime: 3 }, // 武器変更ゾーン（準備室の上側の正方形。中心タイル座標・一辺のタイル数）。holdTime：武器固定の時、全員が入ってからホストが選び直すまでの秒数
   // 人狼ゲームのマップ（バトルフィールドの右隣に作る）。中心に円形の広場、そこから放射状に道が伸びて、道の先に家（円形・入口が1つ）がある。それ以外は岩（壁）。
   werewolf: { wolves: 1, wolvesMany: 2, manyFrom: 8, bloodyTime: 20, roleLot: { villager: 1, watchman: 1, seer: 1, detective: 1, dupMul: 0.05 }, detectiveTime: 5, detectiveR: 2.2, trailTiles: 30, trailStep: 0.5, seerTime: 15, seerR: 2.5, seerPerNight: 1, quotaHold: 15, watchOilMul: 2, watchViewMul: 3, wolfViewMul: 2, wolfSwordLv: 5, houses: 10, mapVersion: 2, size2: 96, houseDist2: 38, mapSeed2: 20261010, plazaR: 9, houseDist: 30, houseIn: 4.5, houseOut: 6.5, roadW: 3, size: 80, gap: 4, rays: 600, viewR: 20, time: 900, dayTime: 60, dayTime2: 170, voteTime: 30, resultTime: 12, nightTime: 90, nightViewR: 6, nightHole: 0.94, oilMax: 100, oilBurn: 2, oilRegen: 4, oilLow: 0.3, oilMinR: 1.2, oilStartMin: 0.3, oilStartMax: 0.7 },
@@ -5350,9 +5351,9 @@ class GameScene extends Phaser.Scene {
       if (rPz < A.prizeChance) { const hs = heal ? A.prizeHealShare : 0, bn = heal ? 0 : A.prizeHealShare / 3, x = rKind, s1 = A.prizeWeaponShare + bn, s2 = s1 + A.prizeWeapon2Share + bn, s3 = s2 + hs; // 武器Lv+1／武器Lv+2／HP全回復／残りは装飾品。HP全回復を出さない時(hs=0)は、その分を武器Lv+1／武器Lv+2／装飾品に均等(bn)に上乗せする
         prize = { exit: Math.floor(rExit * N), kind: x < s1 ? 'weapon' : x < s2 ? 'weapon2' : x < s3 ? 'heal' : 'acc', acc: A.prizeAccs[Math.floor(rAcc * A.prizeAccs.length)] }; } }
     { const free = mons.map((_, k) => k).filter(k => !prize || k !== prize.exit); // 別枠（天使）：当たったら、景品でも別枠でもない出口を1つ置き換える。乱数は別枠1つにつき常に2つ使う（全員同じシードなので全員同じ結果）
-      const rolls = A.special.map(sp => ({ sp, rS: rand(), rI: rand(), force: !!(sp.steadyRounds && (pv.amidaStale || 0) >= sp.steadyRounds) }));
+      const rolls = A.special.map(sp => ({ sp, rS: rand(), rI: rand(), force: !!(sp.steadyRounds && (sp.steadyExact ? (pv.amidaStale || 0) === sp.steadyRounds : (pv.amidaStale || 0) >= sp.steadyRounds)) }));
       rolls.sort((a, b) => (b.force ? 1 : 0) - (a.force ? 1 : 0)); // 必ず出る別枠（天使）を先に置く（出口が足りない時に、そちらを優先）
-      for (const r of rolls) { if ((r.force || r.rS < r.sp.chance) && free.length) { const f = Math.floor(r.rI * free.length); mons[free[f]] = r.sp.key; free.splice(f, 1); if (r.force) pv.amidaStale = 0; } } } // 天使が出たら、数え直す
+      for (const r of rolls) { if ((r.force || r.rS < r.sp.chance) && free.length) { const f = Math.floor(r.rI * free.length); mons[free[f]] = r.sp.key; free.splice(f, 1); if (r.force && r.sp.steadyReset) pv.amidaStale = 0; } } } // 天使が出たら、数え直す（シマハルの時は数え直さない＝次も変わらなければ天使）
     const now = performance.now();
     const am = { part: ids, N, rungs, geo: this.amidaGeo(N), laneOf: {}, owner: {}, resv: {}, boxes: [], slots: [], tiles: [], objs: [], startAt: now + A.countdown * 1000, pickEndAt: now + (A.countdown + A.pickTime) * 1000, traceAt: now + (A.countdown + A.pickTime + A.graceTime) * 1000, cdShown: -1, cd2Shown: -1, rungsShown: false, mons, started: false, autoDone: false, sentAt: 0, shown: false, myPath: null, maxT: null, warpSent: false, warped: false, roomsOpen: false, warpedAt: 0, fight: {}, endSet: false, myRoom: null, myFin: null, mon: null, fighting: false, fightDone: false, noneSince: 0 };
     am.prize = prize;
@@ -14338,6 +14339,7 @@ class GameScene extends Phaser.Scene {
           const sv = loadSave(); sv.arms4RitualClears = (sv.arms4RitualClears || 0) + 1;
           const got = unlockAccessories(sv); writeSave(sv);
           if (got.length) { this._ritualNewAcc = (this._ritualNewAcc || []).concat(got); this.time.delayedCall(2100, () => this.showBanner('🪽 ' + got[0].name + 'を入手！', 2500)); }
+          refreshArms4RitualCount(); // 調伏成功者数（全プレイヤー共通）に自分を1人として加える（初めて成功した時だけ）
         }
       }
     } else if (tr.phase === 'clear') {
@@ -22362,6 +22364,27 @@ function updateArms4RitualBtn() {
   b.style.opacity = ok ? '' : '0.6';
   b.title = '';
 }
+// 天使・調伏の儀の成功者数（全プレイヤー共通）：Firebaseの stats/arms4Ritual/winnerCount に「成功した人」を1人1回だけ数える。
+// 同じ端末は何度成功しても1人（セーブの arms4RitualCounted で判定）。この更新前に成功済みの人も、次にロビーを開いた時に1人として加わる。
+// Firebaseに繋がらない・データベースのルールで読み書きできない時は、表示を出さないだけでゲームには影響しない。
+async function refreshArms4RitualCount() {
+  const el = document.getElementById('arms4RitualCount'); if (!el) return;
+  try {
+    if (typeof netInstance === 'undefined' || !netInstance.enabled) { el.textContent = '調伏成功者：Firebase未接続'; el.style.display = ''; return; }
+    await netInstance.signIn();
+    const ref = netInstance.db.ref('stats/arms4Ritual/winnerCount');
+    const sv = loadSave();
+    if ((sv.arms4RitualClears || 0) > 0 && !sv.arms4RitualCounted) {
+      await ref.transaction(v => (v || 0) + 1);
+      const sv2 = loadSave(); sv2.arms4RitualCounted = true; writeSave(sv2);
+    }
+    const n = (await ref.once('value')).val() || 0;
+    el.textContent = '調伏成功者 ' + n + '人'; el.style.display = '';
+  } catch (e) { // 原因が分かるように、いったん画面にエラーを出す（直ったら el.style.display = 'none' に戻してよい）
+    console.warn('調伏成功者数の取得に失敗', e);
+    el.textContent = '調伏成功者：取得失敗（' + ((e && (e.code || e.message)) || 'unknown') + '）'; el.style.display = '';
+  }
+}
 function setLobbyBusy(busy) {
   LOBBY_CONTROL_IDS.forEach(id => { document.getElementById(id).disabled = busy; });
   updateArms4RitualBtn();
@@ -22481,6 +22504,7 @@ let askWeapon = null;
   });
   // 【期間限定】天使・調伏の儀：武器選択なしで、降魔術（四つ腕の調伏の儀に挑めるLv）で始まり、すぐ四つ腕との調伏の儀に入る
   updateArms4RitualBtn(); // 起動時：未解放なら灰色にする
+  refreshArms4RitualCount(); // 起動時：調伏成功者数をボタンの上に出す
   document.getElementById('arms4RitualBtn').addEventListener('click', () => {
     if (!ARMS4_RITUAL_ALWAYS_OPEN && !loadSave().arms4RitualPlayed) { showLobbyBanner('天使の調伏の儀を一度でも開始したら解放'); return; } // 未解放
     startGame('solo', { weaponKey: 'summon2', arms4Ritual: true });
