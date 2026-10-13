@@ -5511,11 +5511,11 @@ class GameScene extends Phaser.Scene {
 
   // 🎁 景品の名前（出口に出す文字）
   amidaPrizeLabel(pz) {
-    if (pz.kind === 'weapon') return '景品\n武器Lv+1';
-    if (pz.kind === 'weapon2') return '景品\n武器Lv+2';
-    if (pz.kind === 'heal') return '景品\nHP全回復';
+    if (pz.kind === 'weapon') return '武器Lv+1';
+    if (pz.kind === 'weapon2') return '武器Lv+2';
+    if (pz.kind === 'heal') return 'HP全回復';
     const a = accessoryByKey(pz.acc);
-    return '景品\n' + (a ? a.icon + a.name : '装飾品') + '\n（次のラウンドだけ）';
+    return (a ? a.icon + a.name : '装飾品') + '\n（次のラウンドだけ）';
   }
 
   // 🎁 景品の出口に着いた：戦わずに勝ち扱い。武器Lv+1／+2とHP全回復はすぐ、装飾品は次のラウンドの間だけ付く。結果は全員へ知らせる
