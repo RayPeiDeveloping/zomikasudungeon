@@ -370,6 +370,7 @@
   }
   .accItem.accList { background: rgba(179,136,255,0.28); }
   .accItem.sel { border-color: #fff; }
+  .accItem.special.sel { border-color: #b26bff; } /* 悪魔の装飾品（特別なもの）は、選んでいる時の枠が白ではなく紫 */
   .accItem.locked { filter: grayscale(1); opacity: 0.45; }
   /* 装飾品の一覧ウィンドウ */
   #accModal {
@@ -5054,7 +5055,7 @@ class GameScene extends Phaser.Scene {
       if (sp.weapon) SPECIAL_ACCS.forEach(o => { if (o !== sp && o.weapon) delete sv.specialOn[o.key]; }); // 限定武器の装飾品は、同時に1つだけ
       writeSave(sv);
     }
-    this.showBanner('🎁 ' + sp.icon + sp.name + 'を手に入れた！', 2800, '#ffd54c');
+    this.showBanner('🎁 ' + sp.icon + sp.name + 'を手に入れた！', 3500, '#ffd54c', true);
     if (sp.key === 'demoncollar') this._spWings = true;
     const base = limitedWeaponBase(sp.key);
     if (base) { this.limitedKey = sp.key; this.weaponLevels = this.weaponLevels || {}; const lv = this.weaponLevels[base.key] || 1; this.weaponLevels[base.key] = lv; this.weapon = applyWeaponLevel(base, lv); this.reloading = false; this.reloadTimer = 0; this.resetAmmoForWeapon(this.weapon); this.updateHud(); } // それまでの武器のレベルは引き継がない（限定武器は、その武器自身のレベル。最初はLv.1）
@@ -5068,7 +5069,7 @@ class GameScene extends Phaser.Scene {
       if (!sv.accUnlocked[key]) { sv.accUnlocked[key] = true; writeSave(sv); this._ritualNewAcc = (this._ritualNewAcc || []).concat([a]); } // リザルトにも「新しく入手した装飾品」として出す
     }
     this.equipAmidaAcc(key); // 付ける（鎧なら最大HPも合わせる）
-    this.showBanner('🎁 ' + a.icon + a.name + 'を手に入れた！', 2800, '#ffd54c');
+    this.showBanner('🎁 ' + a.icon + a.name + 'を手に入れた！', 3500, '#ffd54c', true);
   }
   _demonEnding() { // 質問が終わった（result を持つ選択肢が無かった）：outro のあと、普通に悪魔と戦う
     const d = this._demonTalk; if (!d) return;
@@ -10005,7 +10006,7 @@ class GameScene extends Phaser.Scene {
     hpFillEl.style.width = pct + '%';
     if (this._spUndead == null) this._spUndead = this.hasSpecial('undeadcrest');
     hpFillEl.style.background = this._spUndead ? 'linear-gradient(90deg,#8a4dff,#c58bff)' : ''; // ♾️ 不死の紋章を付けている間は、HPバーが紫（外すと元の色）
-    document.getElementById('enemyNum').textContent = this.enemies ? this.enemies.length : 0;
+    document.getElementById('enemyNum').textContent = this.enemies ? this.enemies.filter(e => !(e.type && e.type.key === 'ghost') && !isChargeGhostId(e.id)).length : 0; // 敵残り：ゴースト（種類がゴースト／チャージゴーストのID）は数えない
     const row1 = document.getElementById('uiRow1'); if (row1) row1.style.display = (this.pv && this.pv.mode === 'werewolf') ? 'none' : ''; // 人狼ゲームでは「階層／PvP・敵残り」の1行目はいらない
     // 人狼ゲーム中は、武器の代わりに自分の役職を出す（人狼＝赤／村人＝緑）
     const wwRole = this.pv && this.pv.mode === 'werewolf' && this.pv.myRole, wlEl = document.getElementById('weaponLabel'), wnEl = document.getElementById('weaponName');
@@ -10068,9 +10069,10 @@ class GameScene extends Phaser.Scene {
     this._centerNoticeTimeout = setTimeout(() => { el.style.display = 'none'; }, ms);
   }
 
-  showBanner(text, ms, color) {
+  showBanner(text, ms, color, front) { // front＝true：悪魔の問答の画面（セリフの箱）より手前の、画面の少し下に出す（セリフの箱に隠れないように）
     const b = document.getElementById('banner');
     b.textContent = text;
+    b.style.zIndex = front ? '30' : ''; b.style.top = front ? '40vh' : ''; // 指定がなければ、CSSの位置に戻す
     b.style.color = color || ''; // 色の指定がなければ、CSSの白に戻す
     b.style.display = 'block';
     clearTimeout(this._bannerTimeout);
@@ -15777,7 +15779,8 @@ class GameScene extends Phaser.Scene {
             name: document.getElementById('bossNameBanner').textContent, nameOp: document.getElementById('bossNameBanner').style.opacity,
             barOp: document.getElementById('bossHpBar').style.opacity },
     };
-    tr.accStash = this.accKey || ''; this.equipRunAccessory(''); // 調伏の儀の間は装飾品なし（付けていたものは覚えておき、ダンジョンへ戻ったら付け直す）
+    tr.accStash = this.accKey || ''; const hpBeforeAcc = this.playerHp; this.equipRunAccessory(''); // 調伏の儀の間は装飾品なし（付けていたものは覚えておき、ダンジョンへ戻ったら付け直す）
+    tr.accHpCut = Math.max(0, hpBeforeAcc - this.playerHp); // 🪖 鎧：外した時に最大HPが半分になって切られたHPの量（戻る時に足し戻す。これがないと、儀式が終わるたびにHPが半分になる）
     this.hideBossUi(); // ボスラッシュ／ボス階の本物のボスの名前・HPバーは、儀式の間だけ隠す
     hide(this.graphics); hide(this.exitGlow); hide(this.rushExitLabel);
     (this.enemies || []).forEach(e => { hide(e.gfx); hide(e.hpBar); hide(e.label); hide(e._doomText); }); // 道連れにした敵は含まれない（ここで残っているものだけ隠す）
@@ -18726,7 +18729,7 @@ class GameScene extends Phaser.Scene {
         cam.startFollow(this.player, true, 0.15, 0.15);
         this.cancelS2Trial();
         this.s2Trial = null;
-        if (tr.accStash !== undefined) { const acc = tr.accStash; tr.accStash = undefined; this.equipRunAccessory(acc); } // 儀式の間外していた装飾品を戻す
+        if (tr.accStash !== undefined) { const acc = tr.accStash, cut = tr.accHpCut || 0; tr.accStash = undefined; tr.accHpCut = 0; this.equipRunAccessory(acc); if (cut > 0 && acc === 'armor') this.playerHp = Math.min(this.playerMaxHp, this.playerHp + cut); } // 儀式の間外していた装飾品を戻す（鎧は、外した時に切られたHPも足し戻す）
         this.transitioning = false;
         this.updateHud();
         (tr.bossDefeats || []).forEach(d => this.onBossDefeated(d.pos, d.gid)); // 儀式の中で倒した本物のボスを、ここで撃破として扱う（出口・報酬）
@@ -20040,7 +20043,7 @@ class GameScene extends Phaser.Scene {
   demonRootGrow(e, key, aim, angOverride, side, org, ex) { // ex＝{ head: 生え始めの頭の向き, cfg: この1本だけ設定を上書き } // org＝{x, y}：悪魔の体ではなく、ここから生やす（種の解放） // key＝'roots'（ランダム）／'rootsChase'（プレイヤーへ向かう）／'rootsBurst'（最初の一斉）／aim＝悪魔からプレイヤーへの向き／angOverride＝生える向きを決める時の向き
     const rt = e.type[key];
     this.demonShadows = this.demonShadows || [];
-    if (rt.max != null && this.demonShadows.filter(s => s.cfg === rt && s.owner === e && !s.dead).length >= rt.max) return;
+    if (rt.max != null && this.demonShadows.filter(s => (s.cfg === rt || s.base === rt) && s.owner === e && !s.dead).length >= rt.max) return;
     const ang = angOverride != null ? angOverride : rt.turnRate ? aim + (Math.random() * 2 - 1) * 0.35 : Math.random() * Math.PI * 2; // プレイヤーへ向かう根は、プレイヤーの方向から少しだけずらして生える
     const x = org ? org.x : e.gfx.x + Math.cos(ang) * e.type.radius * 0.8, y = org ? org.y : e.gfx.y + Math.sin(ang) * e.type.radius * 0.8;
     const cdir = rt.curve && side ? side : 0; // 曲がる向き（+1 / -1）。曲がる根（守りの根）だけ
@@ -20049,7 +20052,11 @@ class GameScene extends Phaser.Scene {
       hx: x, hy: y, ang: ex && ex.head != null ? ex.head : ang + cdir * (rt.startTurn || 0), cdir,
       S: 0, S0: 0, age: 0, alive: true, hit: false, hitCd: 0, dead: false, fade: 1, // fade＝太さの倍率（伸び終わると 1→0 になって消える）
       follow: ex && ex.follow ? ex.follow : null, // 天使に刺さった根：頭が天使に付いていく（天使が押される間、根は伸び続ける）
-      kind: 'root', cfg: ex && ex.cfg ? Object.assign({}, rt, ex.cfg) : rt, wv: 0, wvT: 0, wt: 0,   // wv＝今のゆらぎの速さ／wvT＝めざすゆらぎの速さ／wt＝次に選び直すまでの秒
+      kind: 'root', base: rt, cfg: (() => { // base＝元の設定（本数の上限を数える用）
+        const c = ex && ex.cfg ? Object.assign({}, rt, ex.cfg) : rt;
+        // 😈 悪魔のHPが半分以下になってから生える、ダメージのある根（ふつうの根・速い根・最初の根・乱れ撃ち・種から出る根）は、天使を刺す根と同じ見た目（赤く光る縁・とげ付き）になり、ダメージが666になる。守りの根（ダメージ0）は変わらない
+        return (rt.damage > 0 && e.maxHp && e.hp <= e.maxHp * 0.5) ? Object.assign({}, c, { look: 'stab', damage: 666 }) : c;
+      })(), wv: 0, wvT: 0, wt: 0,   // wv＝今のゆらぎの速さ／wvT＝めざすゆらぎの速さ／wt＝次に選び直すまでの秒
       pts: [{ x, y, s: 0 }],
     });
   }
@@ -24999,7 +25006,7 @@ function renderAccPicker() {
   SPECIAL_ACCS.filter(a => save.specialAccs[a.key]).forEach(a => { // 🔒 特別な装飾品：装備中の装飾品の隣に、いつも出る（一覧には出ない）。押すと付け外し（付けている時だけ明るく、枠が付く）
     const on = !!save.specialOn[a.key];
     const sp = document.createElement('div');
-    sp.className = 'accItem' + (on ? ' sel' : '');
+    sp.className = 'accItem special' + (on ? ' sel' : '');
     if (!on) sp.style.opacity = '0.45';
     sp.textContent = a.icon;
     sp.title = a.name + '：' + a.effect + (on ? '（付けています。押すと外します）' : '（外しています。押すと付けます）');
