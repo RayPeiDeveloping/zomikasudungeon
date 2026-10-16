@@ -28,6 +28,9 @@
   #ui b { color: #f6c945; }
   #hpBarBg { width: 40vh; height: 3vh; background: #2a2a33; border-radius: 1.5vh; overflow: hidden; margin-top: 1vh; }
   #hpBarFill { height: 100%; background: linear-gradient(90deg,#ff5b5b,#ff9b5b); width: 100%; transition: width 0.15s; }
+  /* 🪖 鎧の追加HPバー：通常のHPバー（最大100）の下に、鎧で増えた分（最大HPの100を超える分）を別バーで出す。被ダメージは鎧のバーから先に減る見た目 */
+  #armorBarBg { display: none; width: 40vh; height: 3vh; background: #2a2a33; border-radius: 1.5vh; overflow: hidden; margin-top: 0.8vh; }
+  #armorBarFill { height: 100%; background: linear-gradient(90deg,#8fa3ba,#d6e0ec); width: 100%; transition: width 0.15s; }
   #ammoRow { margin-top: 1vh; display: none; align-items: center; gap: 2vh; }
   /* ❄ 雪原の吹雪：画面のまわりほど白くかすみ（視界がせまくなる）、細かい雪が斜めに流れる。
      動きはCSSのtransformだけ（GPUまかせ）なので、JSは毎フレーム何もしない。HUD(z-index:10)より後ろに置く。 */
@@ -624,6 +627,7 @@
   <div id="uiRow1"><span id="floorLabel">階層</span>: <b id="floorNum">1</b> <span id="seedWrap">/ 番号: <span id="seedNum">-</span> </span>/ 敵残り: <span id="enemyNum">-</span></div>
   <div><span id="weaponLabel">武器</span>: <b id="weaponName">剣</b></div>
   <div id="hpBarBg"><div id="hpBarFill"></div></div>
+  <div id="armorBarBg"><div id="armorBarFill"></div></div>
   <div id="ammoRow">
     弾: <b id="ammoNum">-</b>
   </div>
@@ -10001,9 +10005,16 @@ class GameScene extends Phaser.Scene {
   }
 
   updateHud() {
-    const pct = Math.max(0, this.playerHp / this.playerMaxHp) * 100;
+    const BASE_HP = 100, armorMax = Math.max(0, this.playerMaxHp - BASE_HP); // 🪖 鎧：最大HPのうち100を超える分が、下の追加バーになる
+    const hp = Math.max(0, this.playerHp);
+    const pct = Math.min(1, hp / Math.min(this.playerMaxHp, BASE_HP)) * 100; // 通常バー：HPの下側100まで
     const hpFillEl = document.getElementById('hpBarFill');
     hpFillEl.style.width = pct + '%';
+    const arBg = document.getElementById('armorBarBg'), arFill = document.getElementById('armorBarFill');
+    if (arBg && arFill) { // 鎧を外した（調伏の儀・あみだくじ・人狼ゲームなど）時は、追加バーごと消す
+      arBg.style.display = armorMax > 0 ? 'block' : 'none';
+      if (armorMax > 0) arFill.style.width = Math.max(0, Math.min(1, (hp - BASE_HP) / armorMax)) * 100 + '%';
+    }
     if (this._spUndead == null) this._spUndead = this.hasSpecial('undeadcrest');
     hpFillEl.style.background = this._spUndead ? 'linear-gradient(90deg,#8a4dff,#c58bff)' : ''; // ♾️ 不死の紋章を付けている間は、HPバーが紫（外すと元の色）
     document.getElementById('enemyNum').textContent = this.enemies ? this.enemies.filter(e => !(e.type && e.type.key === 'ghost') && !isChargeGhostId(e.id)).length : 0; // 敵残り：ゴースト（種類がゴースト／チャージゴーストのID）は数えない
@@ -18729,7 +18740,7 @@ class GameScene extends Phaser.Scene {
         cam.startFollow(this.player, true, 0.15, 0.15);
         this.cancelS2Trial();
         this.s2Trial = null;
-        if (tr.accStash !== undefined) { const acc = tr.accStash, cut = tr.accHpCut || 0; tr.accStash = undefined; tr.accHpCut = 0; this.equipRunAccessory(acc); if (cut > 0 && acc === 'armor') this.playerHp = Math.min(this.playerMaxHp, this.playerHp + cut); } // 儀式の間外していた装飾品を戻す（鎧は、外した時に切られたHPも足し戻す）
+        if (tr.accStash !== undefined) { const acc = tr.accStash, cut = tr.accHpCut || 0; tr.accStash = undefined; tr.accHpCut = 0; this.equipRunAccessory(acc); if (cut > 0 && acc === 'armor') this.playerHp = Math.min(this.playerMaxHp, this.playerHp + cut); this.updateHud(); } // 儀式の間外していた装飾品を戻す（鎧は、外した時に切られたHPも足し戻す）
         this.transitioning = false;
         this.updateHud();
         (tr.bossDefeats || []).forEach(d => this.onBossDefeated(d.pos, d.gid)); // 儀式の中で倒した本物のボスを、ここで撃破として扱う（出口・報酬）
