@@ -333,7 +333,7 @@
   /* 横向きスマホでも縦に長くならないよう、武器ボタンは2列に並べる */
   #weaponSelectList { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
   #weaponSelectList button { margin-top: 0; padding: 8px; }
-  /* 宝箱（黄色）の三択：ゲームは止めず、画面上部に小さく出す（ジョイスティックは隠さない） */
+  /* 宝箱の選択UI（※今は三択ではなく、黄色は武器が1つ決まっている一択、もう1種は緑。このUIは使われていない）：ゲームは止めず、画面上部に小さく出す（ジョイスティックは隠さない） */
   /* 🚪 隠し書庫（歩き回れる小部屋） */
   #libraryOverlay { display: none; position: fixed; inset: 0; z-index: 300; background: #000; align-items: center; justify-content: center; touch-action: none; user-select: none; -webkit-user-select: none; }
   #libraryRoom { position: relative; opacity: 0; text-align: center; color: #e8d9bd; font-family: sans-serif; }
@@ -717,7 +717,7 @@ const IS_TOUCH_DEVICE = ('ontouchstart' in window) || navigator.maxTouchPoints >
   // ※ ジョイスティック側のtouchstart/touchendはstopPropagation()しているため、
   //    バブリングフェーズで document に付けるとジョイスティック付近のタップを検知できない。
   //    そのためキャプチャフェーズ（true）で先に検知する。
-  // ※ ボタンなど（宝箱の三択・武器選択・ロビー画面など、.lobbyBox配下やbutton要素）へのタップは
+  // ※ ボタンなど（宝箱の選択UI・武器選択・ロビー画面など、.lobbyBox配下やbutton要素）へのタップは
   //    ここでの判定から除外する。除外しないと「直前にジョイスティック等をタップした400ms以内」に
   //    ボタンを押した場合、preventDefault()でclickイベントの発火自体がキャンセルされてしまい、
   //    ボタンが反応しない（押しても無反応に見える）不具合になっていたため。
@@ -1060,6 +1060,17 @@ async function fetchDemonTalk(meet) {
   })();
   return Promise.race([run, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))]);
 }
+// 📝 管理用の記録（作者がFirebaseのコンソールで見るためだけのもの。ゲームからは読まない）。書き込みに失敗しても、ゲームには何も影響しない。
+//   analytics/demonLog/meetCount … 正規の方法で悪魔に会った延べ回数（全プレイヤーの合計）
+//   analytics/demonLog/wishes/<自動ID> … 悪魔に願ったこと（選んだ選択肢）の記録：{ meet（そのプレイヤーが何回目に会ったか）, q（質問の番号）, question（質問のセリフ）, choice（選んだ選択肢。時間切れは空）, timeout（時間切れならtrue）, item（もらった装飾品のkey）, result（fight／clear）, t（時刻） }
+function demonLogWrite(fn) {
+  try {
+    if (typeof netInstance === 'undefined' || !netInstance || !netInstance.enabled) return;
+    Promise.resolve(netInstance.signIn()).then(fn).catch(() => {});
+  } catch (e) { /* 記録はおまけ。失敗しても何もしない */ }
+}
+function logDemonMeet() { demonLogWrite(() => netInstance.db.ref('analytics/demonLog/meetCount').set(firebase.database.ServerValue.increment(1))); }
+function logDemonWish(rec) { demonLogWrite(() => { rec.t = firebase.database.ServerValue.TIMESTAMP; return netInstance.db.ref('analytics/demonLog/wishes').push(rec); }); }
 // 🎬 エンディングの悪魔のセリフと、主人公の名前は、Firebase Realtime Database の library/endingTalk から読み込む（HTMLには持たない）。
 //   形式：library/endingTalk = { name: '名前欄に入力される主人公の名前', intro: 'セリフ' または {0:'1つ目', 1:'2つ目', …}（順番に話す）, charsPerSec: 10, hold: 3 }
 //   ・セリフの中の {name} は、name の文字に置き換わる。改行は \n・¥n・￥n が使える。charsPerSec・hold は省略可（省略すると、charsPerSec は ENDING_TALK_CPS、hold は悪魔の問答と同じ既定値）。
@@ -2031,7 +2042,7 @@ function generateDungeon(seed, floor, opts) {
     }
   }
 
-  // ⬜ 白い扉（ロビーで指定した番号が496の、7階だけ）：いちばん上にある部屋（出口の部屋は避ける）から真上へまっすぐ通路を掘り、マップの上の端に白い扉を作る。
+  // ⬜ 白い扉（ロビーで指定した番号が496の、6階だけ）：いちばん上にある部屋（出口の部屋は避ける）から真上へまっすぐ通路を掘り、マップの上の端に白い扉を作る。
   // 専用の処理で、乱数は使わない（扉が出ない階・番号のマップは、これまでと全く同じ）。出口(3)や書庫の扉と重なる列は避ける。
   let whiteDoor = null;
   if (opts && opts.whiteDoor && others.length > 0) {
@@ -2064,7 +2075,7 @@ function generateDungeon(seed, floor, opts) {
 // プレイヤーの移動速度(px/秒)。「プレイヤーと同じ速さ」で動く敵（ゾートロープ）がこの値を参照する。
 const PLAYER_BASE_SPEED = 168;
 // 宝箱：見た目上のチェストは「一定ダメージを与える」か「十字架の魔法陣・味方に触れる」ことで壊れ、
-// 壊れた跡に黄色（3択）か緑（今の武器がLv+1）のどちらかが残る。
+// 壊れた跡に黄色（中身の武器が1つ決まっている一択）か緑（今の武器がLv+1）のどちらかが残る。
 const CHEST_HP = 30;
 const CHEST_HIT_RADIUS = 14;      // 攻撃の当たり判定に使う宝箱の半径
 const CHEST_TOUCH_RADIUS = 18;    // 味方が触れた判定に使う宝箱の半径
@@ -2527,7 +2538,7 @@ function pickWeightedEnemyType(list, rand) {
   return list[list.length - 1];
 }
 
-// 黄色い宝箱の3択用：候補からcount個（重複なし。候補がcount未満ならその数だけ）をランダムに選ぶ。
+// （昔の黄色い宝箱の3択用。今は一択なので呼ばれていない）候補からcount個（重複なし。候補がcount未満ならその数だけ）をランダムに選ぶ。
 // フロア生成と同じシード付き乱数(rand)を渡すことで、全クライアントで同じ3択になる。
 function pickChestWeaponChoices(eligible, count, rand) {
   const pool = eligible.slice();
@@ -4652,7 +4663,7 @@ class GameScene extends Phaser.Scene {
     this.hideClearTime(); // 前の階のクリア時間表示を消す
     const seed = this.baseSeed + this.floor * 7919;
     this.bossFloor = !this.snowfield && !this.hell && !this.sanctuary && !this.bossRush && !this.frontline && !this.pvp && this.isBossFloor(this.floor); // ダンジョンの5階ごと（10・15・20…）はボス階
-    const dungeon = this._snowRestore ? this._snowRestore.dungeon : this.sanctuary ? generateSanctuaryMap() : this.hell ? generateHellMap() : this.snowfield ? generateSnowfieldMap(this._godExiled) : (this.bossRush || this.bossFloor) ? generateBossArena() : (this.pvp ? generatePvpMap() : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor, { secretLibrary: !this.mp, whiteDoor: !this.mp && !this.isDevMode && this.baseSeed === 496 && this.floor === 7 })));
+    const dungeon = this._snowRestore ? this._snowRestore.dungeon : this.sanctuary ? generateSanctuaryMap() : this.hell ? generateHellMap() : this.snowfield ? generateSnowfieldMap(this._godExiled) : (this.bossRush || this.bossFloor) ? generateBossArena() : (this.pvp ? generatePvpMap() : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor, { secretLibrary: !this.mp, whiteDoor: !this.mp && !this.isDevMode && this.baseSeed === 496 && this.floor === 6 })));
     if (this.mp && !this.bossRush && !this.pvp && !this.frontline) addRitualRoom(dungeon); // 協力プレイ：調伏の儀の部屋を遠くに足す
     this.rt = null; if (this._rtGfx && this._rtGfx.scene) this._rtGfx.clear(); // 前の階の調伏の儀の進行は持ち越さない
     this.dungeon = dungeon;
@@ -5265,6 +5276,12 @@ class GameScene extends Phaser.Scene {
   _countDemonMeet() { // 悪魔に会った：会った回数を1つ増やす（1回の挑戦で1回だけ。ロビーのテストボタンは数えない）。台本は、この回数で切り替わる
     if (this._demonMetCounted || this._demonTest) return; this._demonMetCounted = true;
     const sv = loadSave(); sv.demonMeets = (sv.demonMeets || 0) + 1; writeSave(sv);
+    this._demonMeetNo = sv.demonMeets; // 📝 このプレイヤーが何回目に会ったか（願いの記録に付ける）
+    if (this._demonLogOk()) logDemonMeet(); // 📝 管理用：Firebaseの analytics/demonLog/meetCount を1増やす
+  }
+  _demonLogOk() { // 📝 正規の方法（ソロの通常プレイで、条件を満たして25階に来た）の悪魔だけを記録する。テストボタン・デベロッパーモード・?demon=1・エンディングの続きの悪魔・協力プレイは記録しない
+    const d = this._demonTalk;
+    return !!d && !d.custom && !this._demonTest && !this.isDevMode && !DEBUG_URL.demon && !this.mp && DEMON_ENABLED && !!this._demonRun;
   }
   _demonAppear() {
     this._countDemonMeet();
@@ -5327,6 +5344,7 @@ class GameScene extends Phaser.Scene {
     const d = this._demonTalk; if (!d || d.state !== 'ask') return;
     const i = d.qi, q = d.cfg.questions[i], ch = idx >= 0 ? q.choices[idx] : (q.timeout || d.cfg.defaultTimeout); // 時間切れ（-1）も、選択肢と同じように扱う
     d.state = 'picked';
+    if (this._demonLogOk()) logDemonWish({ meet: this._demonMeetNo || null, q: i, question: (q.text || []).join(' / '), choice: idx >= 0 ? ch.text : '', timeout: idx < 0, item: ch.item || null, result: ch.result || null }); // 📝 管理用：何を願ったか
     setTimeout(() => { const a = document.getElementById('demonAnswer'); if (a && this._demonTalk === d) a.style.display = 'none'; }, idx >= 0 ? 250 : 0); // 選んだボタンを一瞬だけ見せる
     if (ch.item) this._demonGiveItem(ch.item);
     d.asked = (d.asked || 0) + 1;
@@ -8989,7 +9007,7 @@ class GameScene extends Phaser.Scene {
     if (chest.hp <= 0) this.breakChest(chest);
   }
 
-  // 宝箱を壊して中身（黄色＝3択／緑＝今の武器がLv+1）を出す。ダメージでも、
+  // 宝箱を壊して中身（黄色＝武器1つの一択／緑＝今の武器がLv+1）を出す。ダメージでも、
   // 十字架の魔法陣・味方との接触でも、ここに来る。マルチプレイでは壊した本人が
   // 全員に通知して同じ見た目にする（中身の抽選自体は設置時に確定済みなので送る必要はない）。
   breakChest(chest, fromNetwork) {
@@ -9108,7 +9126,7 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  // 黄色い宝箱：3択のUIを小さく出す（ゲームは止めない。ジョイスティック操作もそのまま使える）。
+  // （昔の黄色い宝箱用。今は一択なので呼ばれていない）3択のUIを小さく出す（ゲームは止めない。ジョイスティック操作もそのまま使える）。
   openChestChoice(choices) {
     const listEl = document.getElementById('chestChoiceList');
     listEl.innerHTML = '';
@@ -22648,7 +22666,7 @@ class GameScene extends Phaser.Scene {
       this.exitGlow.lineStyle(1, 0x403629, 1); this.exitGlow.strokeRect(dx + 5, dy + 2, TILE - 10, TILE - 4);
       this.exitGlow.fillStyle(0x5e5038, 0.8); this.exitGlow.fillCircle(dx + TILE - 10, dy + TILE / 2, 1.5);
     }
-    // ⬜ 白い扉（番号496の7階）：目立つ白い扉。入ると雪原へ
+    // ⬜ 白い扉（番号496の6階）：目立つ白い扉。入ると雪原へ
     const wdr = this.dungeon.whiteDoor;
     if (wdr) {
       const wdx = wdr.x * TILE, wdy = wdr.y * TILE, wp = 0.5 + 0.5 * Math.sin(this.time.now / 600);
