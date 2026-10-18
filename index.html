@@ -3720,7 +3720,10 @@ class GameScene extends Phaser.Scene {
     this.skullRevives = this.accKey === 'skull' ? SKULL_WISPS : 0; // ドクロ：残りの鬼火の数＝あと何回生き返れるか（1回の挑戦ごとに SKULL_WISPS 個）
     this._initAccKey = this.accKey; // 「もう一度」でやり直す時に、この状態（ロビーで付けていた装飾品）へ戻すために覚えておく
     this.fixYellow = false; // 📌 武器の「固定」：オンの間は、今持っているのと違う武器の黄色の宝箱を取らない（「もう一度」では保つ。ロビーへ戻ると切れる）
-    { const fb = document.getElementById('weaponFixBtn'); if (fb) { fb.classList.remove('on'); fb.setAttribute('aria-pressed', 'false'); fb.onclick = () => { this.fixYellow = !this.fixYellow; fb.classList.toggle('on', this.fixYellow); fb.setAttribute('aria-pressed', this.fixYellow ? 'true' : 'false'); fb.blur(); }; } }
+    { const fb = document.getElementById('weaponFixBtn'); if (fb) { fb.classList.remove('on'); fb.setAttribute('aria-pressed', 'false'); const fixToggle = () => { this.fixYellow = !this.fixYellow; fb.classList.toggle('on', this.fixYellow); fb.setAttribute('aria-pressed', this.fixYellow ? 'true' : 'false'); fb.blur(); };
+      let fixTouchAt = 0; // スティックを押さえたまま別の指で押すと、スマホでは click が発火しないことがある。touchstart で切り替える（時計ボタンと同じ）。touchstart で処理した時は、続けて来る click を無視する
+      fb.ontouchstart = (ev) => { ev.preventDefault(); ev.stopPropagation(); fixTouchAt = Date.now(); fixToggle(); };
+      fb.onclick = () => { if (Date.now() - fixTouchAt < 700) return; fixToggle(); }; } }
 
     this.fixedSeed = (!this.mp && app.soloSeed != null) ? app.soloSeed : null; // ロビーで指定したシード値（ソロのダンジョンのみ。nullならランダム）
     this.baseSeed = this.mp ? app.baseSeed : (this.fixedSeed != null ? this.fixedSeed : ((Math.random() * 1e9) | 0));
