@@ -577,7 +577,7 @@
       </label>
       <button id="soloBtn">ダンジョン</button>
       <button id="hutWarpBtn" style="background:#6b8fa8; margin-top:0.8vh; display:none !important;">🛠 テスト：小屋の入り口へワープ</button>
-      <button id="endingTestBtn" style="background:#ffd77a; color:#222; margin-top:0.8vh; display:none !important;">🛠 テスト：エンディング（神の最後の台詞から）</button>
+      <button id="endingTestBtn" style="display:none; background:#ffd77a; color:#222; margin-top:0.8vh;">🛠 テスト：エンディング（宇宙が壊れて聖域に戻ったところから）</button>
       <button id="demonTestBtn" style="background:#3a2450; color:#fff; margin-top:0.8vh; display:none !important;">🛠 テスト：悪魔（25階）</button>
       <button id="hellTestBtn" style="background:#8a2a1a; color:#fff; margin-top:0.8vh; display:none !important;">🛠 テスト：地獄（扉から出ると1階）</button> <!-- テスト用：最初から地獄で始める。奥の扉に入ると1階に出る --> <!-- テスト用：ソロで25階から始めて、悪魔の問答を必ず出す --> <!-- テスト用：雪原の小屋の入り口から始める（表示中。デベロッパーモードでも使える） -->
     </div>
@@ -1018,6 +1018,7 @@ const DEBUG_URL = (function () {
 //   }
 //   最後の質問まで答えて、result を持つ選択肢が無かった時は、outro のあと、普通に悪魔との戦いになる。
 //   文章は改行が使える（コンソールでは \n・¥n・￥n と打つ）。入れる元データは demon_talk.json。
+//   セリフの中の {count} は、悪魔に会った回数（今回で何回目か。4回目以降の台本なら 4、5、…）に置き換わる。
 //   Firebaseが使えない・読み込めない時は、問答なしで、そのまま悪魔との戦いになる（代わりのセリフは持たない）。
 //   セキュリティルールは書庫と同じく library 以下を「読み取りのみ許可」にしておけば、そのまま読める。
 const DEMON_TALK_DEFAULTS = {
@@ -1036,7 +1037,8 @@ async function fetchDemonTalk(meet) {
     let v = (await netInstance.db.ref(path).once('value')).val();
     if ((!v || typeof v !== 'object') && path !== 'library/demonTalk') v = (await netInstance.db.ref('library/demonTalk').once('value')).val(); // 回数別の台本がまだ無い時は、1回目の台本
     if (!v || typeof v !== 'object') throw new Error(path + ' is empty');
-    const nl = x => String(x == null ? '' : x).replace(/[\\¥￥]n/g, '\n'); // 「\n」「¥n」「￥n」と打った文字を改行にする
+    const cnt = String(meet || 1); // 今回で何回目に会うか（{count} に入る数字）
+    const nl = x => String(x == null ? '' : x).replace(/[\\¥￥]n/g, '\n').split('{count}').join(cnt); // 「\n」「¥n」「￥n」と打った文字を改行にする／{count} は、悪魔に会った回数（今回で何回目か）に置き換える
     const list = x => Array.isArray(x) ? x : (x && typeof x === 'object') ? Object.keys(x).sort((a, b) => a - b).map(k => x[k]) : []; // Firebaseは配列を {0:…,1:…} で返すことがある
     const lines = x => typeof x === 'string' ? (nl(x) ? [nl(x)] : []) : list(x).map(nl).filter(Boolean); // セリフ：文字列1つでも、リスト（順番に話す）でもOK。→ セリフのリストにそろえる
     const num = (x, d) => (typeof x === 'number' && isFinite(x) && x > 0) ? x : d; // 正の数だけ
@@ -1126,6 +1128,11 @@ async function fetchLibraryBooks() {
   return Promise.race([run, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))]);
 }
 // 📜 机の上の紙「案内書き」。内容はここに書く（{books}＝今読める本の数、{reachers}＝書庫への到達者数。自動で数字が入る）。
+// 📕 最後の本（8冊目）は、ゲームのエンディングを見るまで読めない。読めない間、その棚を調べると、この文章が出る
+const LIBRARY_LAST_LOCKED = {
+  title: '？？？',
+  text: 'ゲームのエンディングを見ると解放されます\n\nエンディングのヒント：\n①雪原の小屋を訪れる（一冊目の本）\n②悪魔に３つの願いを叶えてもらう（五冊目の本）',
+};
 const LIBRARY_GUIDE = {
   title: '案内書き',
   text: 'ここは隠し書庫です。二十五階層に一回の確率でその階層の端に現れます。\n新しく書庫を見つけるたびに一冊ずつ読める本が増えていきます。\n本には、この世界の歴史や希少な生き物たち、そして通常では見つけ得ない隠し要素への到達方法などが書いてあります。\n今読める本：{books}冊\n書庫への到達者数：{reachers}人',
@@ -1133,7 +1140,7 @@ const LIBRARY_GUIDE = {
 // 書庫の画面を開く（HTML の #libraryOverlay）。小さな部屋の中を歩き回れる（キー：WASD／矢印、スマホ：画面をドラッグ）。
 // 棚の一部（readable:true の棚）に近づくと「調べる」が出て、E／スペース／Enter（スマホはボタン）で本が読める。下の扉に入る（またはEsc）と、onClose が呼ばれる。
 // 部屋は暗闇から、ゆっくり明るくなる。playerColor は自分の体の色（Phaser の色の数値）、accIcon は頭上に出す装飾品の絵文字（無ければ null）。自分の見た目は、外（buildFloor の this.player / this.facing / this.accText）と同じ
-function openLibrary(onClose, playerColor, accIcon, visits) {
+function openLibrary(onClose, playerColor, accIcon, visits, countReach) { // countReach＝true の時だけ、書庫への到達者数（library/reachers）に数える（ダンジョンで確率で出た扉から入った時だけ true。?library=1・コンプリート画面・ロビーのボタンからは数えない）
   const ov = document.getElementById('libraryOverlay'), room = document.getElementById('libraryRoom');
   const cv = document.getElementById('libCanvas'), ctx = cv.getContext('2d');
   const reader = document.getElementById('libReader'), prompt = document.getElementById('libPrompt');
@@ -1150,7 +1157,9 @@ function openLibrary(onClose, playerColor, accIcon, visits) {
   const readable = [6, 4, 0, 1, 2, 3, 5, 7].map(i => shelves[i]).filter(sh => sh && sh.readable);
   // 1つの棚に1冊。i冊目の棚は、書庫に来た回数が i+1 回以上になってから調べられる（まだの棚は光らず、調べられない）。本の中身はFirebaseから読む（下の loadBooks）
   const nVisits = Math.max(1, Math.floor(Number(visits) || 1));
-  readable.forEach((sh, i) => { sh.idx = i; sh.unlocked = i < nVisits; });
+  // 最後の本（8冊目）だけは、書庫に来た回数ではなく、エンディングを見終えたか（endingDone）で解放する。見るまでは、棚を調べると、ヒントの文章が出る
+  const endingSeen = !!loadSave().endingDone;
+  readable.forEach((sh, i) => { const isLast = i === readable.length - 1; sh.idx = i; sh.unlocked = isLast ? true : i < nVisits; sh.endingLocked = isLast && !endingSeen; });
   const desk = { x: 192, y: 150, w: 96, h: 48, paper: true, unlocked: true }; // 机の上の紙（案内書き）を調べられる
   const solids = shelves.concat([desk,
     { x: 0, y: 0, w: W, h: T }, { x: 0, y: 0, w: T, h: H }, { x: W - T, y: 0, w: T, h: H }, // 上・左・右の壁
@@ -1185,7 +1194,7 @@ function openLibrary(onClose, playerColor, accIcon, visits) {
       const run = (async () => {
         await netInstance.signIn();
         const ref = netInstance.db.ref('library/reachers');
-        if (!loadSave().libraryReported) {
+        if (countReach && !loadSave().libraryReported) { // 確率で見つけた扉から入った時だけ数える
           // 通信が遅れてあとで確定しても、数え済みの印は必ず付く（二重に数えない）
           await ref.transaction(v => (Number(v) || 0) + 1).then(res => { if (res && res.committed) { const s2 = loadSave(); s2.libraryReported = true; writeSave(s2); } });
         }
@@ -1202,9 +1211,15 @@ function openLibrary(onClose, playerColor, accIcon, visits) {
     if (!sh) return;
     if (sh.paper) { // 机の上の紙：Firebaseが使えなくても読める。数字だけ、取れていなければ「？」
       if (reachers == null) loadReachers();
-      const n = readable.filter(s => s.unlocked).length;
+      const n = readable.filter(s => s.unlocked && !s.endingLocked).length;
       showBook({ title: LIBRARY_GUIDE.title, text: LIBRARY_GUIDE.text.replace('{books}', String(n)).replace('{reachers}', reachers == null ? '？' : String(reachers)) });
       document.getElementById('libPick').style.display = 'none';
+      readerOpen = true; reader.style.display = 'flex'; stickShow(false);
+      return;
+    }
+    if (sh.endingLocked) { // エンディングを見る前の最後の本：本の中身は読まず（通信も使わず）、ヒントの文章を出す
+      document.getElementById('libPick').style.display = 'none';
+      showBook(LIBRARY_LAST_LOCKED);
       readerOpen = true; reader.style.display = 'flex'; stickShow(false);
       return;
     }
@@ -1489,10 +1504,10 @@ const SANCTUARY = { w: 37, h: 29, border: 2 };
 // ✨ 聖域の「神」：目に見える実体はなく、位置データ（祭壇の中心）だけがある。その近く（nearRadius px 以内）のランダムな点を通る、
 // ランダムな向きの黒い線が、interval 秒ごとに1本ずつ生まれる。線は growTime 秒かけて太くなり、生まれてから holdTime 秒たつと
 // 細くなっていき（fadeTime 秒）、消える。length は線の中心から片側の長さ（部屋をまたぐ長さ）。orbR＝中心の水色の玉の大きさ（px）。
-const GOD_ACT = { left: 'demon', dist: 360, appearDelay: 0.5, pause: 1.8, rootCount: 8, rootSpread: 0.5, beamWarn: 0.8, beamLen: 3000, beamWidth: 30, rootSpeed: 330, rootLife: 4, rootWidth: 30, aimTime: 0.9, beamEnd: 14, hitPad: 14 }; // 🎬 神が話し終えたあとの演出（悪魔と天使）の設定：dist＝アルベドから左右に出す距離(px)／left＝左に出す方('demon'＝悪魔が左・天使が右。'angel'にすると逆)／appearDelay＝台詞が終わってから出るまで(秒)／pause＝出きってから攻撃までの間(秒)／rootSpread＝根が神の方向からばらける角度(rad)／beamLen＝ビームの長さ(px。神を貫いてその先まで届く)／beamWarn・beamWidth＝天使の黒ビーム（黒星と同じ見た目）の予告の秒・太さ（撃ち始めたら、ずっと撃ち続ける）／rootCount・rootSpeed・rootLife・rootWidth＝悪魔の根の本数・伸びる速さ(px/秒)・伸びる秒・太さ／aimTime＝天使が神に腕を向けてから放つまで(秒)
+const GOD_ACT = { left: 'demon', dist: 360, appearDelay: 0.5, spreadLead: 1.2, pause: 1.8, rootCount: 8, rootSpread: 0.5, beamWarn: 0.8, beamLen: 3000, beamWidth: 30, rootSpeed: 330, rootLife: 4, rootWidth: 30, aimTime: 0.9, beamEnd: 14, hitPad: 14 }; // 🎬 神が話し終えたあとの演出（悪魔と天使）の設定：dist＝主人公から左右に出す距離(px)／left＝左に出す方('demon'＝悪魔が左・天使が右。'angel'にすると逆)／appearDelay＝台詞が終わってから出るまで(秒)／spreadLead＝主人公の根が左右に広がり始めてから、天使と悪魔が出るまでの余裕(秒。根が先に広がる)／pause＝出きってから攻撃までの間(秒)／rootSpread＝根が神の方向からばらける角度(rad)／beamLen＝ビームの長さ(px。神を貫いてその先まで届く)／beamWarn・beamWidth＝天使の黒ビーム（黒星と同じ見た目）の予告の秒・太さ（撃ち始めたら、ずっと撃ち続ける）／rootCount・rootSpeed・rootLife・rootWidth＝悪魔の根の本数・伸びる速さ(px/秒)・伸びる秒・太さ／aimTime＝天使が神に腕を向けてから放つまで(秒)
 // 🌌 天使と悪魔が神を攻撃し始めたあとの演出：delay＝攻撃開始から、カメラが神へ向かい始めるまで(秒)／camTime＝カメラが神へ寄る時間(秒)／zoom＝その間のズーム倍率（1より小さいと引く）／expandDelay＝カメラが動き始めてから、神の体（宇宙）が広がり始めるまで(秒)／expandTime＝宇宙が画面いっぱい（マップ全体）に広がりきるまで(秒)
 const GOD_SPACE = { freezeFade: 1.2, accFade: 1.5, nextDelay: 1.0, fadeTime: 1.8, demonDelay: 0.8, chargeTime: 0.9, blastTime: 0.9, blastHold: 1.0, blastFade: 1.4, spinTime: 9, spinMax: 22, crossDelay: 1.2, delay: 4.5, camTime: 2.4, zoom: 0.8, expandDelay: 1.2, expandTime: 3.7 };
-// 🌀 天使と悪魔が爆発したあと、宇宙に現れる3本のドリル（円錐）：delay＝天使の爆発が終わってから現れるまで(秒)／appear＝現れる(ふくらんで濃くなる)時間(秒)／spinTime＝回転が最高速になるまで(秒)／spinMax＝三角錐1本ずつが、自分の軸で回る最高の速さ(rad/秒)／radius＝正三角形の外接円の半径／dist＝主人公から正三角形の面までの距離（3つの円錐は、主人公から等しい距離になる）／axisZ＝正三角形の軸を傾ける量（マイナス＝画面の奥。正三角形が奥に置かれ、3本とも奥からこちらを向く／大きいほど、正三角形の面が画面と平行に近づく）／length・width＝円錐の長さ・根もとの半径（3D空間の単位。画面の高さ＝約15）／launchDelay＝現れてから、1本目が飛び始めるまで(秒。それまでは、その場で回って待つ)／launchInterval＝次の1本が飛び始めるまでの間隔(秒)／flightTime＝飛び始めてから、斬られる直前の位置に着くまで(秒)／cutGap＝斬られる時の、先端と主人公の距離／gravity・fallTime＝斬られた半分が落ちる強さ・消え始めるまでの秒／【3本が斬られたあとの続き＝大量の三角錐】swarmCount＝本数／swarmDelay＝3本が片付いてから出始めるまで(秒)／swarmX・swarmY・swarmZ0・swarmZ1＝主人公のまわりの、出る範囲（3D単位。Zは奥がマイナス）／swarmMinDist＝主人公からこれ以上離れた所に出る／swarmGap＝三角錐どうしの最小の間隔／swarmAppearGap＝1本ずつ出る間隔(秒)／swarmLaunchSpread＝飛び始めるタイミングのばらつき(秒)／swarmFlightMin・Max＝飛んで斬られるまでの秒／swarmShake・swarmShakeTime＝大量の三角錐を斬る時の画面揺れの強さ・秒（赤い光は出さない）
+// 🌀 天使と悪魔が爆発したあと、宇宙に現れる3本のドリル（円錐）：delay＝天使の爆発が終わってから現れるまで(秒)／appear＝現れる(ふくらんで濃くなる)時間(秒)／spinTime＝回転が最高速になるまで(秒)／spinMax＝三角錐1本ずつが、自分の軸で回る最高の速さ(rad/秒)／radius＝正三角形の外接円の半径／dist＝主人公から正三角形の面までの距離（3つの円錐は、主人公から等しい距離になる）／axisZ＝正三角形の軸を傾ける量（マイナス＝画面の奥。正三角形が奥に置かれ、3本とも奥からこちらを向く／大きいほど、正三角形の面が画面と平行に近づく）／length・width＝円錐の長さ・根もとの半径（3D空間の単位。画面の高さ＝約15）／launchDelay＝現れてから、1本目が飛び始めるまで(秒。それまでは、その場で回って待つ)／launchInterval＝次の1本が飛び始めるまでの間隔(秒)／flightTime＝飛び始めてから、斬られる直前の位置に着くまで(秒)／cutGap＝斬られる時の、先端と主人公の距離／gravity・fallTime＝斬られた半分が落ちる強さ・消え始めるまでの秒／【3本が斬られたあとの続き＝大量の三角錐】swarmCount＝本数／swarmDelay＝3本が片付いてから出始めるまで(秒)／swarmX・swarmY・swarmZ0・swarmZ1＝主人公のまわりの、出る範囲（3D単位。Zは奥がマイナス）／swarmMinDist＝主人公からこれ以上離れた所に出る／swarmGap＝三角錐どうしの最小の間隔／swarmAppearGap＝1本ずつ出る間隔(秒)／swarmLaunchSpread＝飛び始めるタイミングのばらつき(秒)／swarmFlightMin・Max＝飛んで斬られるまでの秒／swarmShake・swarmShakeTime＝（今は使わない。大量の三角錐も、最初の3本と同じ斬撃・赤い光・画面揺れ）
 const GOD_DRILL = { delay: 1.0, appear: 1.6, spinTime: 4, spinMax: 24, radius: 4.2, dist: 9, axisZ: -8, length: 4.4, width: 1.0, launchDelay: 2, launchInterval: 1.4, flightTime: 2.4, cutGap: 1.0, gravity: 14, fallTime: 1.0, swarmCount: 30, swarmDelay: 1.0, swarmX: 12, swarmY: 6.5, swarmZ0: -14, swarmZ1: 4, swarmMinDist: 8, swarmGap: 2.4, swarmAppearGap: 0.07, swarmLaunchSpread: 3.5, swarmFlightMin: 1.1, swarmFlightMax: 1.9, swarmShakeTime: 140, swarmShake: 0.004 };
 // ⚔ ドリル（大量の三角錐）が全部斬られたあとの続き＝画面を縦に切り裂く斬撃 → 最後の1本で宇宙が割れて、もとの聖域に戻る：delay＝ドリルが片付いてから始まるまで(秒)／count＝斬撃の本数／gapStart・gapEnd＝1本目→最後の本までの、斬撃と斬撃の間隔(秒。だんだん速くなる)／tiltStart・tiltEnd＝縦からの傾きの最大のズレ(度。最初は大きく、後ろほど小さく)／spreadX・spreadY＝画面の真ん中からの、ばらつき(画面の幅・高さに対する割合)／widthStart・widthEnd＝斬撃の太さ(画面の短い辺に対する割合)／sweep＝斬撃が上から下へ走る秒／fade＝そのあと消える秒／色は、赤(最初)→白(最後)に近づく
 //   【最後の1本】最後の斬撃だけは消えずに残り、breakDelay秒後に、そこからひび(crackCount本)が走り(crackTime秒)、宇宙が砕けて破片が散り(shatDur秒)、その向こうにもとの聖域が見える
@@ -1503,8 +1518,13 @@ const GOD_SLASH = { delay: 1.2, count: 18, gapStart: 0.9, gapEnd: 0.09, tiltStar
 // 🏃 orbitMin・orbitMax＝主人公が動き回る、赤い目からの距離(px)／moveSpeed＝動き回る速さ(px/秒)。armDelay＝赤い目が点滅し始めてから最初の腕が出るまで(秒。0＝点滅と同時)
 // 👁 closeDur＝腕が全部出終わってから赤い目が閉じる秒／blueDelay＝閉じてから左の目が水色に光り始めるまで(秒)／blueRamp＝水色が強くなる秒／blockDelay＝光り始めてから最初のブロックが飛ぶまで(秒)
 //   blockGapStart・blockGapEnd＝ブロックの間隔(秒。だんだん短く)／blockRamp＝間隔が最短になるまでに飛ばす個数／blockTotal＝飛ばすブロックの総数（飛ばし終えて全部砕けたら、左の目が閉じて斬撃も終わる）／blockSpeed＝ブロックの速さ(px/秒)／walkSpeed＝主人公が左目の前へ進む速さ(px/秒)／eyeStopDist＝止まる位置の、左の目からの手前の距離(px。目に向かって歩き、この距離で止まる)。ブロックは主人公のまわり全方位の画面の外から飛んで来る
-const GOD_FINALE = { redSide: 1, redDelay: 1.6, flicker: 2.2, armDelay: 0, armCount: 7, armGapStart: 1.1, armGapEnd: 0.5, armReach: 380, warn: 0.55, lunge: 0.18, hold: 0.3, retract: 0.35, dodgeDist: 150, dodgeTime: 0.16, eyeSlashR: 60, orbitMin: 110, orbitMax: 250, moveSpeed: 190, closeDur: 0.7, blueDelay: 0.8, blueRamp: 1.0, blockDelay: 1.4, blockGapStart: 0.9, blockGapEnd: 0.06, blockRamp: 40, blockTotal: 120, blockSpeed: 640, walkSpeed: 60, eyeStopDist: 130 };
-const GOD_END = { hold: 1.5, fade: 2.5 }; // 🎬 エンディングの最後：両目が閉じてから暗転が始まるまでの間(秒)／暗くなっていく時間(秒)。暗転のあと、オールクリア画面（GAME CLEAR）へ
+const GOD_FINALE = { redSide: 1, redDelay: 1.6, flicker: 2.2, armDelay: 0, armCount: 7, armGapStart: 1.1, armGapEnd: 0.5, armReach: 380, warn: 0.55, lunge: 0.18, hold: 0.3, retract: 0.35, dodgeDist: 150, dodgeTime: 0.16, eyeSlashR: 60, orbitMin: 110, orbitMax: 250, moveSpeed: 190, closeDur: 0.7, blueDelay: 0.8, blueRamp: 1.0, blockDelay: 1.4, blockGapStart: 0.9, blockGapEnd: 0.06, blockRamp: 40, blockTotal: 120, blockSpeed: 640, walkSpeed: 27, eyeStopDist: 130 };
+const GOD_END = { hold: 1.5, fade: 2.5 };
+// 🌹 エンディングの最後の追加演出（両目が閉じたあと）：主人公が右へ歩いて聖域の真ん中の列へ → 下へ歩いて聖域の真ん中辺りへ → 根が復活して全体が赤く輝く → 根が全方位へ伸びて外周の壁に刺さる（柱・祭壇には刺さらない）→ 刺さった瞬間に大きく揺れ、そのあと揺れが高まりながら、赤い亀裂が主人公を中心に広がって画面が徐々に赤くなる → 真っ赤になって少し経つと暗転して、コンプリート画面へ
+//   startWait＝両目が閉じてから歩き出すまで(秒)／walkSpeed＝歩く速さ(px/秒)／holdTime＝真ん中に着いてから根が復活し始めるまで(秒)／reviveTime＝根が浮かび上がる秒／redTime・redHold＝根全体が赤く輝いていく秒・輝いたまま待つ秒
+//   thrustTime＝根が一斉に壁へ伸びて、刺さるまでの秒（距離が違っても、全部が同時に刺さる）／extendStagger＝根ごとの伸び始めのばらつき(秒。0＝一斉)／extendMax＝全部が刺さらなくても、この秒で先へ進む／stabDepth＝壁の中へ食い込む深さ(px)／rootsFallback＝根が出ていない時に使う本数
+//   crackTime＝根が刺さってから、赤い亀裂が画面の外から真ん中近くまで伸びてくる秒／crackCount＝画面の外のまわりから伸びてくる亀裂の本数（枝分かれは別）／redDelay・redTime＝根が刺さってから画面が赤くなり始めるまでの秒・そこから真っ赤になるまでの秒／crimson＝画面の赤の色／stabShake・stabShakeTime＝根が刺さった瞬間の、大きめの揺れの強さ・秒／shakeStart・shakeEnd＝そのあと真っ赤になるまでに、揺れが高まっていく強さ（始まり・最後）／blastHold＝真っ赤になってから、暗転が始まるまでの秒／darkTime＝そこから、ゆっくり暗転していく秒（真っ暗になりきったら、コンプリート画面へ）／redShake・redShakeTime＝根が赤く輝き始める瞬間の、画面の揺れの強さ・秒（一瞬だけ揺れる。根を伸ばしている間は揺れない）
+const GOD_ROOTFIN = { startWait: 0.6, walkSpeed: 92.4, redFlash: 0.22, holdTime: 0.5, reviveTime: 1.2, redTime: 1.5, redHold: 0.6, thrustTime: 0.35, extendStagger: 0, extendMax: 2.4, stabDepth: 14, rootsFallback: 18, stabShake: 0.06, stabShakeTime: 0.5, shakeStart: 0.008, crackTime: 3.5, crackCount: 16, redDelay: 1, redTime: 3.5, crimson: 0xff0000, shakeEnd: 0.03, blastHold: 1.2, darkTime: 6, redShake: 0.007, redShakeTime: 0.25 }; // 🎬 エンディングの最後：両目が閉じてから暗転が始まるまでの間(秒)／暗くなっていく時間(秒)。暗転のあと、オールクリア画面（GAME CLEAR）へ
 const SANCTUARY_GOD = { nearRadius: 120, interval: 0.5, growTime: 0.35, holdTime: 2, fadeTime: 0.6, maxWidth: 56, length: 1400, color: 0x000000, orbR: 14, scale: 2, speed: 45, pauseMin: 0.6, pauseMax: 2.2, bodyR: 22, lines: false, punishHits: 3, hitGap: 0.45 };
 // ✨ 神には当たり判定がないが、狙って攻撃した回数を数える：punishHits＝この回数に達すると罰（目の演出）／hitGap＝同じ攻撃を連続で数えない間隔（秒）。罰＝HPは減らさず、装飾品を剥いで（このゲーム中だけ）、雪原のランダムな点へテレポート。
 // ✨ scale＝神全体の大きさの倍率（体・輪・目・光・攻撃の判定・歩く時の壁との距離がぜんぶこれで変わる）。bodyR＝神の体（宇宙への窓）の基本の半径（px）。 lines＝黒い線（宇宙への窓）を出すか（false で一時的に消す／true で戻る）。
@@ -2005,7 +2025,7 @@ function generateDungeon(seed, floor, opts) {
         const last = sp[sp.length - 1];
         if (last && sp.length >= 4 && !keep.has(last.y * width + last.x)) {
           const back = sp[sp.length - 4]; // 戻ってきた時に立つ、扉の少し手前のマス
-          secretDoor = { x: last.x, y: last.y, inX: back.x, inY: back.y };
+          secretDoor = { x: last.x, y: last.y, inX: back.x, inY: back.y, natural: !DEBUG_URL.library && libRoll < SECRET_LIBRARY_CHANCE }; // natural＝確率で出た扉（?library=1 で出した扉は false）。到達者数に数えるのは、この扉から入った時だけ
         }
       }
     }
@@ -3030,7 +3050,8 @@ const DEFAULT_SAVE = {
   libraryVisits: 0,     // 隠し書庫に来た回数（シード＝扉の出たフロアが別々のものだけ数える。同じシードの扉に入り直しても増えない）。N回目のとき、N冊目までの本が読める
   demonMeets: 0,        // 25階の悪魔に会った回数（ロビーのテストボタンは数えない）。台本は、この回数で切り替わる（library/demonTalk〜demonTalk4）
   libraryReported: false, // 書庫への到達者数(Firebaseの library/reachers)に、自分を1人として数え済みか
-  endingReady: false,   // 悪魔の装飾品（SPECIAL_ACCS）を全部集めた印。trueの間、ホーム画面（ロビー）を開くたびに特別演出から始まる（演出の途中で閉じても、次はまた最初から）
+  hutVisited: false,    // 雪原の小屋の中に入ったことがあるか（エンディングが始まる条件の1つ。🛠 テスト起動では記録しない）
+  endingReady: false,   // 悪魔の装飾品（SPECIAL_ACCS）を全部集め、かつ雪原の小屋を訪れた印。trueの間、ホーム画面（ロビー）を開くたびに特別演出から始まる（演出の途中で閉じても、次はまた最初から）
   endingGodReady: false, // エンディングの調伏の儀に成功した印。trueで、まだ続きの演出（496のダンジョンへ自動で入る）を流していなければ、次にロビーを開いた時に流れる
   endingNextShown: false, // 調伏の儀のあとの続き（496のダンジョンへ自動で入る演出）を流した印。次に調伏の儀を終えるまで、二度と自動では始まらない
   endingDone: false,    // 特別演出が終わり、GAME COMPLETE を出した印（一度trueになったら、演出は二度と始まらない）
@@ -3047,7 +3068,7 @@ function normalizeSave(s) {
   if (typeof s.accEquipped !== 'string') s.accEquipped = '';
   s.specialAccs = (s.specialAccs && typeof s.specialAccs === 'object') ? Object.assign({}, s.specialAccs) : {};
   s.specialOn = (s.specialOn && typeof s.specialOn === 'object') ? Object.assign({}, s.specialOn) : {};
-  s.arms4RitualPlayed = !!s.arms4RitualPlayed;
+  s.arms4RitualPlayed = !!s.arms4RitualPlayed; s.hutVisited = !!s.hutVisited;
   s.endingReady = !!s.endingReady; s.endingDone = !!s.endingDone; s.endingGodReady = !!s.endingGodReady; s.endingNextShown = !!s.endingNextShown;
   s.libraryVisits = Math.max(0, Math.floor(Number(s.libraryVisits) || 0));
   s.libraryReported = !!s.libraryReported;
@@ -3093,15 +3114,16 @@ const ACC_DEMONWINGS = { count: 9, range: 300, dmg: 7, tick: 0.2, stabSpeed: 110
 const ACC_UNDEAD = { delay: 0.2 }; // 不死の紋章：ダメージを受けてから、何秒後に受けたぶんを回復するか（1回ごとに数える）
 const ACC_GOLDSILVER = { count: 6, radius: 70 }; // 金銀のネックレス：階層を移動した時に、回復と宝箱を合わせて何個／自分からの距離（px。円形に並ぶ）
 function specialAccByKey(key) { return SPECIAL_ACCS.find(a => a.key === key) || null; }
-// 悪魔の装飾品（SPECIAL_ACCS）を全部持っていて、まだ演出が終わっていなければ、sv.endingReady を立てる（保存は呼んだ側が行う）。立てたら true
+// 悪魔の装飾品（SPECIAL_ACCS）を全部持っていて、かつ雪原の小屋を訪れていて（hutVisited）、まだ演出が終わっていなければ、sv.endingReady を立てる（保存は呼んだ側が行う）。立てたら true
 // エンディングの演出中だけ true：悪魔の装飾（SPECIAL_ACCS）が全部オンになり、普通の装飾はシリアルキラーになる（入手済みかどうかは関係なし）。セーブには一切書かない（閉じる・読み込み直すと元に戻る）
 const ENDING_NEXT_FACE_SEC = 2; // 496のダンジョン（エンディングの続き）が始まってから、右下を向いたままにする秒数（そのあとは普通の向きの操作に戻る）
 // 496の1階：全滅させたあと、悪魔が話すセリフは、Firebase の library/endingTalk から読み込む（fetchEndingTalk）
-const ENDING_RESULT_WAIT = 3500; // エンディングの調伏の儀のリザルト画面が出てから、自動で「ロビーへ」を押すまで(ms)
+const ENDING_RESULT_WAIT = 1500; // エンディングの調伏の儀のリザルト画面が出てから、自動で「ロビーへ」を押すまで(ms)
 const ENDING_STATE = { run: false, unlock: null, next: false }; // next：エンディングの続き（496のダンジョンへ自動で入る演出）から始まった印（読み込み直すまで残る） // unlock：演出の操作ロックを外す関数（リザルト画面で自動の「ロビーへ」が押されなかった時の保険にだけ使う）
 function endingUpdateFlag(sv) {
   if (sv.endingDone || sv.endingReady) return false;
   if (!SPECIAL_ACCS.every(a => sv.specialAccs && sv.specialAccs[a.key])) return false;
+  if (!sv.hutVisited) return false; // 雪原の小屋を訪れていないと、エンディングは始まらない
   sv.endingReady = true; return true;
 }
 // 付けている限定武器の装飾品のkey（無ければ''）と、その武器。付けている間は、武器がその限定武器で固定される
@@ -3468,7 +3490,7 @@ class GameScene extends Phaser.Scene {
     this._clkOn = false; this._clkMine = false; this._clkCd = 0; this._clkLeft = 0; // 🕒 時計：発動中か／次に使えるまでの秒数（最初は使える）
     try { if (this.time) this.time.timeScale = 1; if (this.tweens) this.tweens.timeScale = 1; } catch (e) { /* 初回起動前 */ }
     { const o = document.getElementById('clockOverlay'); if (o) o.style.display = 'none'; const cb = document.getElementById('clockBtn'); if (cb) cb.style.display = 'none'; }
-    this._spUndead = undefined; this._spWings = false; this._godAccGone = false; this._neckFloor = null; this._spT = 0; // 特別な装飾品を付けているかの記録（1回の挑戦ごとに取り直す）
+    this._spUndead = undefined; this._spWings = false; this._godAccGone = false; this._rootReviveOn = false; this._rootRevive = 0; this._rootRed = 0; this._godRF = null; this._neckFloor = null; this._spT = 0; // 特別な装飾品を付けているかの記録（1回の挑戦ごとに取り直す）
     this.limitedKey = limitedEquippedKey(); // 限定武器の装飾品を付けていれば、その装飾品のkey（付けている間、武器はその限定武器で固定される）
     this.skullRevives = this.accKey === 'skull' ? SKULL_WISPS : 0; // ドクロ：残りの鬼火の数＝あと何回生き返れるか（1回の挑戦ごとに SKULL_WISPS 個）
 
@@ -3486,9 +3508,9 @@ class GameScene extends Phaser.Scene {
     this.hell = false; this._hellDest = 0; this._hellT0 = 0; // 🔥 地獄にいる間だけ hell が true／_hellDest＝地獄の扉から出た時に着く階
     this.sanctuary = false; this._godExiled = false; this._snowSaved = null; this._snowRestore = null; // ✨ 聖域にいる間だけ true／雪原にいる間、預かっているダンジョンの状態
     this._coldT = 0; this._hutIn = false; setBlizzard(false);
-    this._endTest = false;
+    this._endTest = false; this._endTestFinale = false;
     if (app.endingTest) { // 🛠 テスト用：雪原で始めて、最初のフレームで聖域へ入り、神の最後の台詞から始める（_endingTestStart）
-      app.endingTest = false;
+      app.endingTest = false; this._endTestFinale = !!app.endingFinaleTest; app.endingFinaleTest = false;
       if (!this.mp && !this.pvp && !this.frontline) { this._endTest = true; this.snowfield = true; this._libT0 = performance.now(); setBlizzard(true); }
     }
     this._warpHut = false;
@@ -3517,7 +3539,7 @@ class GameScene extends Phaser.Scene {
     this.devStartFloor = !this.mp ? this.floor : 1;
     // 😈 25階の悪魔：1階から全階を全滅させて進んでいる間だけ true。ソロのダンジョン本編だけが対象（ボスラッシュ・最北戦線・PvP・四つ腕の儀式・開発者モードの階指定では対象外）
     this._demonEligible = !this.mp && !this.bossRush && !this.frontline && !this.pvp && !app.arms4Ritual && !app.devMode; // デベロッパーモードは、1階から始めても対象外
-    this._demonRun = this._demonEligible && this.floor === 1;
+    this._demonRun = this._demonEligible && this.floor === 1; this._demonRedOn = false; this._demonSeenEnemy = false; // 😈 赤表示は、1階で敵残りが0になった時から
     if (app.hellTest) { // 🛠 テスト用：最初から地獄で始める（扉から出ると、今の階に出る）
       app.hellTest = false;
       if (!this.mp && !this.pvp && !this.frontline && !this.bossRush) { this.hell = true; this._hellDest = this.floor; this._hellT0 = performance.now(); }
@@ -4229,6 +4251,7 @@ class GameScene extends Phaser.Scene {
         accFxUpdate(rp.accFx, p.acc, rp.gfx.x, rp.gfx.y, dt, rp.gfx.alpha);
       }
       this.updateRemoteWings(rp, p.wg, dt); // 😈 悪魔の翼（他プレイヤーの分・見た目だけ）
+      this.updateRemoteBodyFx(rp, p, dt, hideGhost || isGhost || isDowned); // 📿 金銀の輝き・♾️ 紫の炎（他プレイヤーの分・見た目だけ）
       this.updateRemoteBlackhole(rp, dt); // ブラックホールのビーム（他プレイヤーの分）
       const wantColor = (typeof p.color === 'number') ? p.color : 0xffffff;
       if (rp._fillColor !== wantColor) { rp._fillColor = wantColor; rp.gfx.setFillStyle(wantColor); }
@@ -4265,38 +4288,63 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  // 😈 他のプレイヤーの悪魔の翼：届いた根の先端（プレイヤーからの相対位置）へ滑らかに近づけて、自分の翼と同じ _drawWings で描く（見た目だけ。刺す・ダメージは、本人の画面で決まる）
+  // 😈 他のプレイヤーの悪魔の翼（見た目だけ）。根の先端の位置は送られてこない：届くのは、向き（f）・掴んでいる敵のID（h）だけ（根の本数は、見る側が9本に決めている）。
+  //   掴んでいる敵がいる根は、その敵の（こちらの画面での）今の位置まで伸ばして刺さっているように見せ、ほかの根は、背中でゆらゆらさせる（動きは適当な再現）。
+  //   敵ごとに、担当の根を決めておく（根が入れ替わらないように）。刺した直後の短い間だけ、まっすぐ素早く伸ばす。
   updateRemoteWings(rp, wg, dt) {
-    const ok = !!(wg && Array.isArray(wg.t) && wg.t.length >= 3);
+    const ok = !!(wg && typeof wg.f === 'number');
     if (!ok) { // 翼が出ていない
       if (rp._wingW) { if (rp._wingW.gfx && rp._wingW.gfx.scene) rp._wingW.gfx.destroy(); rp._wingW = null; }
       return;
     }
-    const n = Math.min(24, Math.floor(wg.t.length / 3)), C = ACC_DEMONWINGS;
+    const C = ACC_DEMONWINGS, n = C.count; // 根の本数は固定（9本）
     let W = rp._wingW;
     if (!W || W.roots.length !== n) {
       if (W && W.gfx && W.gfx.scene) W.gfx.destroy();
-      W = rp._wingW = { gfx: this.add.graphics().setDepth(4.8), face: (typeof wg.f === 'number') ? wg.f : 0, s: 0, roots: [] };
-      for (let i = 0; i < n; i++) W.roots.push({ i, st: 'idle', tx: rp.gfx.x + wg.t[i * 3], ty: rp.gfx.y + wg.t[i * 3 + 1], ph: i * 0.97, bend: (i % 2 ? 1 : -1), ox: wg.t[i * 3], oy: wg.t[i * 3 + 1] });
+      W = rp._wingW = { gfx: this.add.graphics().setDepth(4.8), face: (typeof wg.f === 'number') ? wg.f : 0, s: 0, roots: [], slot: new Map() };
+      for (let i = 0; i < n; i++) W.roots.push({ i, st: 'idle', tx: rp.gfx.x, ty: rp.gfx.y, ph: i * 0.97, bend: (i % 2 ? 1 : -1), age: 0 });
     }
     if (!W.gfx || !W.gfx.scene) W.gfx = this.add.graphics().setDepth(4.8);
     W.s += dt * C.calm;
     if (typeof wg.f === 'number') W.face += Phaser.Math.Angle.Wrap(wg.f - W.face) * Math.min(1, dt * 12);
-    const k = Math.min(1, dt * 18); // 先端は、届いた位置へ素早く近づく（刺す動きは速いので）
+    // いま掴まれている敵（こちらの画面にいる、生きている敵だけ）
+    const held = new Map(); // 敵ID（文字） → 敵
+    if (Array.isArray(wg.h)) for (const id of wg.h) {
+      const key = String(id); if (held.has(key)) continue;
+      const e = this.enemies.find(en => String(en.id) === key);
+      if (e && e.gfx && e.gfx.scene && e.hp > 0) held.set(key, e);
+    }
+    for (const key of Array.from(W.slot.keys())) { if (!held.has(key)) { W.roots[W.slot.get(key)].age = 0; W.slot.delete(key); } } // 放された
+    const used = new Set(W.slot.values());
+    for (const key of held.keys()) { // 新しく掴まれた：空いている根を1本あてる
+      if (W.slot.has(key)) continue;
+      let i = 0; while (i < n && used.has(i)) i++;
+      if (i >= n) break;
+      W.slot.set(key, i); used.add(i); W.roots[i].age = 0;
+    }
+    const heldBy = new Map(); for (const [key, i] of W.slot) heldBy.set(i, held.get(key));
+    const px = rp.gfx.x, py = rp.gfx.y, back = W.face + Math.PI, kIdle = Math.min(1, dt * 12), kHeld = Math.min(1, dt * 18);
     for (let i = 0; i < n; i++) {
-      const r = W.roots[i], dx = wg.t[i * 3], dy = wg.t[i * 3 + 1];
-      r.ox += (dx - r.ox) * k; r.oy += (dy - r.oy) * k;
-      r.tx = rp.gfx.x + r.ox; r.ty = rp.gfx.y + r.oy;
-      r.st = wg.t[i * 3 + 2] ? 'stab' : 'idle';
+      const r = W.roots[i], e = heldBy.get(i);
+      if (e) { // 敵に刺さっている：その敵の位置まで伸ばす
+        r.age += dt; r.st = r.age < 0.15 ? 'stab' : 'hold';
+        r.tx += (e.gfx.x - r.tx) * kHeld; r.ty += (e.gfx.y - r.ty) * kHeld;
+      } else { // 何も刺していない：背中でゆらゆら（自分の翼の待機と同じ形）
+        r.st = 'idle';
+        const sa = back + (n > 1 ? (i / (n - 1) - 0.5) * 2 * C.spread : 0), sway = Math.sin(W.s * 2.2 + r.ph), restLen = 88 + 22 * Math.sin(W.s * 1.7 + r.ph * 1.3);
+        const rx = px + Math.cos(sa + sway * 0.22) * restLen, ry = py + Math.sin(sa + sway * 0.22) * restLen;
+        r.tx += (rx - r.tx) * kIdle; r.ty += (ry - r.ty) * kIdle;
+      }
     }
     W.gfx.setVisible(rp.gfx.alpha > 0.05);
-    this._drawWings(W, rp.gfx.x, rp.gfx.y);
+    this._drawWings(W, px, py);
   }
 
   destroyRemotePlayer(uid) {
     const rp = this.remotePlayers[uid];
     if (!rp) return;
     if (rp._wingW && rp._wingW.gfx && rp._wingW.gfx.scene) rp._wingW.gfx.destroy();
+    if (rp._bfxG && rp._bfxG.scene) rp._bfxG.destroy();
     rp.gfx.destroy(); rp.facing.destroy(); rp.label.destroy(); rp.hpBarBg.destroy(); rp.hpBarFill.destroy(); rp.downedLabel.destroy(); rp.reviveRing.destroy();
     if (rp.winLabel) rp.winLabel.destroy();
     if (rp.oilTxt) rp.oilTxt.destroy();
@@ -4321,6 +4369,7 @@ class GameScene extends Phaser.Scene {
         if (e.bossGroupId != null) entry.bg = e.bossGroupId;
       }
       if (e._doomSec != null && e.hp > 0) entry.dm = Math.ceil(e._doomSec); // スネーク：先頭が倒された後のカウントダウンの残り秒数（一番前の個体だけ）
+      entry.wh = e._wingRemote || (e._wingBy && this.net ? this.net.uid : 0); // 悪魔の翼に掴まれている間は、掴んでいる人のID（外れたら 0）
       if (e.tpSeq) entry.tp = e.tpSeq; // テレポートした回数（ゲストが「飛んだ」瞬間を検知して、滑らせずに即座に移す）
       if (e.rushSpotsStr) { // 分身攻撃：予告中は ws、残像が現れてからは as に円の位置を載せる。rs は残像が現れた回数
         if (e.rushStruckAt == null) entry.ws = e.rushSpotsStr; else entry.as = e.rushSpotsStr;
@@ -5023,7 +5072,7 @@ class GameScene extends Phaser.Scene {
   _demonTalkEnd() {
     const d = this._demonTalk;
     this._demonTalk = null;
-    if (d && d.custom && this.player) this.cameras.main.startFollow(this.player, true, 0.15, 0.15); // エンディングの続きの悪魔：カメラをプレイヤーへ戻す
+    if (d && d.custom && this.player && this.cameras.main._follow !== this.player && !this.cameras.main.panEffect.isRunning) this._camReturnToPlayer(900); // エンディングの続きの悪魔：カメラをプレイヤーへ戻す（まだ戻っていなければ、スーッと動かして）
     const root = document.getElementById('demonTalk'); if (root) root.style.display = 'none';
     const ans = document.getElementById('demonAnswer'); if (ans) ans.style.display = 'none';
     const ch = document.getElementById('demonChoices'); if (ch) ch.innerHTML = '';
@@ -5057,12 +5106,17 @@ class GameScene extends Phaser.Scene {
       if (timeUp) go();
     }).catch(err => { if (this._demonTalk !== d) return; d.load = 'error'; console.error('エンディングの悪魔のセリフをFirebaseから読めませんでした:', err); if (timeUp) go(); });
   }
+  _camReturnToPlayer(ms) { // カメラを、いまの場所から主人公へ、ms ミリ秒かけてなめらかに動かす。着いたら、ふつうの追いかけに戻す
+    const cam = this.cameras.main, pl = this.player; if (!pl) return;
+    cam.stopFollow();
+    cam.pan(pl.x, pl.y, ms, 'Sine.easeInOut', true, (c, prog) => { if (prog >= 1 && this.player && this.player.scene) c.startFollow(this.player, true, 0.15, 0.15); });
+  }
   _demonTalkHide() { // セリフだけで終わる悪魔：話す枠を閉じ、カメラをプレイヤーへ戻す（悪魔はそのまま残る）
     const d = this._demonTalk; if (!d) return;
     d.state = 'done';
     const root = document.getElementById('demonTalk'); if (root) root.style.display = 'none';
-    if (this.player) this.cameras.main.startFollow(this.player, true, 0.15, 0.15);
-    if (d.custom) this.time.delayedCall(500, () => this._endingGoHut(d)); // エンディングの続き：話し終えたら、主人公の足もとに影が出て、雪原の小屋へ
+    if (this.player) this._camReturnToPlayer(900); // ぱっと切り替えず、悪魔の所から主人公まで、スーッと動いて戻る
+    if (d.custom) this.time.delayedCall(1100, () => this._endingGoHut(d)); // カメラが主人公に戻りきってから（0.9秒＋少し）影を出す // エンディングの続き：話し終えたら、主人公の足もとに影が出て、雪原の小屋へ
   }
   // ===== エンディングの続き（悪魔が話し終えたあと）：足もとに悪魔と同じ影 → 沈む → 雪原の小屋の前 → 自動で歩いて、小屋の中の聖域の扉へ =====
   _endingGoHut(d) {
@@ -5076,6 +5130,7 @@ class GameScene extends Phaser.Scene {
     this.time.delayedCall(1000, () => { // 影の中へ沈む
       const ts = [this.player, this.facing, this.accText].filter(Boolean);
       this.tweens.add({ targets: ts, alpha: 0, duration: 900, ease: 'Sine.easeIn' });
+      this._wingsFade(0, 900, 'Sine.easeIn'); // 背中の根も、身体と同時に薄れて消える
     });
     this.time.delayedCall(1900, () => {
       this.interruptChargeBomb();
@@ -5094,17 +5149,18 @@ class GameScene extends Phaser.Scene {
           { // 雪原にも、出発した時と同じ大きさの影が出て、その中から主人公が浮かび上がる（沈む時の逆）
             const pl2 = this.player, ts2 = [this.player, this.facing, this.accText].filter(Boolean);
             ts2.forEach(o => o.setAlpha(0));
+            this._wingA = 0; // 背中の根も、はじめは見えない（身体と同時に浮かび上がる）
             const sh2 = this.add.ellipse(pl2.x, pl2.y + r * 0.55 * k, demonR * 3.2, demonR * 1.2, 0x000000, 0.6).setDepth(3);
             sh2.setAlpha(0).setScale(0.2);
             this.tweens.add({ targets: sh2, alpha: 1, scale: 1, duration: 900, ease: 'Sine.easeOut' });
-            this.time.delayedCall(1000, () => this.tweens.add({ targets: ts2.filter(o => o && o.scene), alpha: 1, duration: 900, ease: 'Sine.easeOut' }));
+            this.time.delayedCall(1000, () => { this.tweens.add({ targets: ts2.filter(o => o && o.scene), alpha: 1, duration: 900, ease: 'Sine.easeOut' }); this._wingsFade(1, 900, 'Sine.easeOut'); });
             this.tweens.add({ targets: sh2, alpha: 0, scale: 0.15, duration: 450, delay: 1900, ease: 'Sine.easeIn', onComplete: () => { try { sh2.destroy(); } catch (e) {} } }); // 浮かび上がりきったら、すぐ小さくなって消える
           }
           this.time.delayedCall(2500, () => { // 入口 → 小屋の中を北へ → 暖炉の下を東へ → 右上の隅の扉（聖域への扉）まで歩く。扉に着くと、ふつうに聖域へ入る
             const T = (x, y) => [(x + 0.5) * TILE, (y + 0.5) * TILE], hd = hut.holyDoor;
             this._autoWalk = { pts: [T(hut.door.x, hut.door.y - 2), T(hut.door.x, hut.y + 2), T(hd.x - 3, hut.y + 2), T(hd.x - 3, hd.y), T(hd.x, hd.y)], i: 0, speed: 0.55 };
           });
-        } else this._autoWalk = null; // 小屋が無い時は、操作を戻す
+        } else { this._autoWalk = null; this._wingA = 1; } // 小屋が無い時は、操作を戻す
       });
     });
   }
@@ -9995,8 +10051,13 @@ class GameScene extends Phaser.Scene {
           any = true;
           const edge = x < 2 || y < 2 || x >= dungeon.width - 2 || y >= dungeon.height - 2;
           const al = dungeon.altar, isAltar = !edge && al && x >= al.x && x < al.x + al.w && y >= al.y && y < al.y + al.h; // 祭壇は紫、柱は藍色にして、クリーム色の床とはっきり区別する
-          g.fillStyle(edge ? 0xe2c978 : isAltar ? 0x4b2f7a : 0x33396b, 1); g.fillRect(x * TILE - ox, y * TILE - oy, TILE, TILE);
-          g.lineStyle(edge ? 1 : 2, edge ? 0xb89a3c : 0xe2c978, 1); g.strokeRect(x * TILE - ox, y * TILE - oy, TILE, TILE);
+          if (edge) { // 外周の壁は、これまでどおり金色
+            g.fillStyle(0xe2c978, 1); g.fillRect(x * TILE - ox, y * TILE - oy, TILE, TILE);
+            g.lineStyle(1, 0xb89a3c, 1); g.strokeRect(x * TILE - ox, y * TILE - oy, TILE, TILE);
+          } else { // 柱・祭壇：神の体と同じ宇宙が透けて見える。ここでは黒の下地とふちだけ描き、星は _drawSanctuary で、神の体と同じ星の画像を柱・祭壇の形に切り抜いて重ねる
+            g.fillStyle(0x000000, 1); g.fillRect(x * TILE - ox, y * TILE - oy, TILE, TILE);
+            g.lineStyle(isAltar ? 2 : 1, isAltar ? 0xe2c978 : 0x8fa6ff, isAltar ? 0.9 : 0.5); g.strokeRect(x * TILE - ox, y * TILE - oy, TILE, TILE); // ふちは、柱は淡い青・祭壇は金色の細い線
+          }
         } else if (dungeon.hell && t === 0) { // 🔥 地獄：岩と外周の壁を、焦げた赤黒いブロックで描く
           any = true;
           g.fillStyle(0x3a1812, 1); g.fillRect(x * TILE - ox, y * TILE - oy, TILE, TILE);
@@ -10248,6 +10309,10 @@ class GameScene extends Phaser.Scene {
     if (this._spUndead == null) this._spUndead = this.hasSpecial('undeadcrest');
     hpFillEl.style.background = this._spUndead ? 'linear-gradient(90deg,#8a4dff,#c58bff)' : ''; // ♾️ 不死の紋章を付けている間は、HPバーが紫（外すと元の色）
     document.getElementById('enemyNum').textContent = this.enemies ? this.enemies.filter(e => !(e.type && e.type.key === 'ghost') && !isChargeGhostId(e.id)).length : 0; // 敵残り：ゴースト（種類がゴースト／チャージゴーストのID）は数えない
+    { const enEl = document.getElementById('enemyNum'); if (enEl) {
+      const _n = this.enemies ? this.enemies.filter(e => !(e.type && e.type.key === 'ghost') && !isChargeGhostId(e.id)).length : 0;
+      if (this._demonRun && this.floor === 1) { if (_n > 0) this._demonSeenEnemy = true; else if (this._demonSeenEnemy) this._demonRedOn = true; } // 😈 1階で、敵を倒して残り0になった時から赤くする（開始直後の0は数えない）
+      enEl.style.color = (this._demonRedOn && this._demonRun && DEMON_ENABLED && !this._demonMetCounted && !this._endingNext) ? '#ff3b3b' : ''; } } // 😈 25階の悪魔に会う条件（1階からここまで、ゴースト以外の敵を残さず進んでいる）が満たされているうちは、敵残りの数字が赤い。悪魔に会ったあと／条件を外れたら、元の色（エンディングの続きは対象外）
     const row1 = document.getElementById('uiRow1'); if (row1) row1.style.display = (this.pv && this.pv.mode === 'werewolf') ? 'none' : ''; // 人狼ゲームでは「階層／PvP・敵残り」の1行目はいらない
     // 人狼ゲーム中は、武器の代わりに自分の役職を出す（人狼＝赤／村人＝緑）
     const wwRole = this.pv && this.pv.mode === 'werewolf' && this.pv.myRole, wlEl = document.getElementById('weaponLabel'), wnEl = document.getElementById('weaponName');
@@ -10542,6 +10607,35 @@ class GameScene extends Phaser.Scene {
   // 刺したまま背中側へ戻って、ゆらゆら揺れながらぶら下がる。刺している間は、その敵のHPを削り続ける。
   // 状態：idle（背中でゆらゆら）→ stab（敵へ伸びる）→ pull（刺したまま戻る）→ hold（ぶら下げて継続ダメージ）→ idle。
   // ボス・蛇は引き寄せられないので、その場で根が刺さったままダメージだけ入る（離れすぎると外れる）。
+  // 🪽 マルチ：ゲストの悪魔の翼が掴んでいる敵を、ホストの敵にも反映する。ゲストが送ってくる gr=[敵ID, x, y, ...] の位置に敵を置く。
+  //   掴まれている敵には e._wingRemote（掴んでいる人のID）を付け、スナップショットの wh で全員に伝える（他の人は、その敵を掴まない）。
+  //   同じ敵を複数人が掴もうとした時は、先に掴んだ人を優先する。ホスト自身の翼が掴んでいる敵は、ホストが優先。放された敵は、壁にめり込んでいたら外へ出す。
+  hostApplyWingHolds() {
+    const players = this.latestPlayers || {}, myUid = this.net && this.net.uid;
+    const held = new Set(); let map = null;
+    const getMap = () => { if (!map) { map = new Map(); for (const e of this.enemies) map.set(String(e.id), e); } return map; };
+    for (const uid of Object.keys(players)) {
+      if (uid === myUid) continue;
+      const p = players[uid]; if (!p || p.floor !== this.floor) continue;
+      // 掴まれた（刺しにいっている最中も含む）胞子は増殖しない：増殖の権威はホストだけなので、ホストの胞子にも「増えない」印を付ける（ゲストの画面にだけ付けても、ホストの増殖タイマーが動いてしまう）
+      const wgh = p.wg && p.wg.h;
+      if (Array.isArray(wgh)) for (const id of wgh) { const e = getMap().get(String(id)); if (e && e.type && e.type.multiplyCount) { e._noBrood = true; e._multiplyScheduled = true; } }
+      let gr = p.gr;
+      if (!gr) continue;
+      if (!Array.isArray(gr)) gr = Object.values(gr);
+      getMap();
+      for (let i = 0; i + 2 < gr.length; i += 3) {
+        const e = map.get(String(gr[i])), x = Number(gr[i + 1]), y = Number(gr[i + 2]);
+        if (!e || !e.gfx || !e.type || e.hp <= 0 || e._removed || e._pvp || e._wingBy || !isFinite(x) || !isFinite(y)) continue;
+        if (e._wingRemote && e._wingRemote !== uid) continue; // 先に掴んだ人が優先
+        e._wingRemote = uid; held.add(e);
+        e.gfx.x = x; e.gfx.y = y; e.kbX = 0; e.kbY = 0; e.hitCooldown = Math.max(e.hitCooldown || 0, 0.3); // 掴まれた雑魚敵は接触ダメージを出さない
+      }
+    }
+    for (const e of this.enemies) {
+      if (e._wingRemote && !held.has(e)) { e._wingRemote = null; if (!e._wingBy) this._wingRelease(e); }
+    }
+  }
   // 掴み（刺し）が外れた敵を放す。壁をすり抜けて運ばれていて、いま壁に埋まっているなら、いちばん近い壁の外へ出す（出さないと、壁の中から動けない敵になってしまう）。
   _wingRelease(e) {
     if (!e) return;
@@ -10551,6 +10645,10 @@ class GameScene extends Phaser.Scene {
     if (!this.circleHitsWall(e.gfx.x, e.gfx.y, r)) return;
     const p = this._dropOutOfWall(e.gfx.x, e.gfx.y, r, true);
     if (p) { e.gfx.x = p[0]; e.gfx.y = p[1]; e.kbX = 0; e.kbY = 0; }
+  }
+  _wingsFade(to, dur, ease) { // 背中の根の透明度を、身体と同じようにスーッと変える（影でワープする時用）。_wingA＝根の透明度（未設定なら1）
+    const o = { v: this._wingA == null ? 1 : this._wingA };
+    this.tweens.add({ targets: o, v: to, duration: dur, ease, onUpdate: () => { this._wingA = o.v; }, onComplete: () => { this._wingA = to; } });
   }
   _wingsClear() {
     const W = this._wings; if (!W) return;
@@ -10566,6 +10664,7 @@ class GameScene extends Phaser.Scene {
     if (!W) W = this._wings = { roots: [], gfx: null, face: this._endingNext ? Math.PI / 4 : Math.PI / 2, px, py, t: 0 }; // 続きの始まりは右下を向いている（背中＝根は左上側）
     const cnt = C.count * (this._wingDouble ? 2 : 1), unl = !!this._endingNext; // cnt＝根の本数／unl＝距離も壁も関係なく、すべての敵を掴む
     if (!W.gfx || !W.gfx.scene) W.gfx = this.add.graphics().setDepth(4.8); // 敵（4）より上、プレイヤー（5）より下
+    W.gfx.setAlpha(this._wingA == null ? 1 : this._wingA); // 影でワープする間は、根も身体と同じく薄れる
     if (W.roots.length !== cnt) { // 本数が変わった・初回：作り直す
       for (const r of W.roots) if (r.tgt) this._wingRelease(r.tgt);
       W.roots = [];
@@ -10577,11 +10676,15 @@ class GameScene extends Phaser.Scene {
     const mx = px - W.px, my = py - W.py; W.px = px; W.py = py;
     if (mx * mx + my * my > 0.25) { const na = Math.atan2(my, mx); W.face += Phaser.Math.Angle.Wrap(na - W.face) * Math.min(1, dt * 8); }
     const bigK = this._wingBigK(); // エンディング演出：翼が大きくなっている度合い
-    if (this._endingRun) W.face = -Math.PI / 2; // 上を向いている＝翼は背中（下）側に出る
+    if (this._endingRun && !this._rootReviveOn) W.face = -Math.PI / 2; // 上を向いている＝翼は背中（下）側に出る
     const back = W.face + Math.PI, n = W.roots.length, reach = C.range;
     const slotAng = (r) => back + (n > 1 ? (r.i / (n - 1) - 0.5) * 2 * C.spread : 0); // 背中側の、その根の持ち場
     const bossLike = (e) => !!(e.type.isBoss || e.type.behavior === 'boss_demon' || e.type.snake || e.type.key === 'arms4'); // 天使（arms4）もボスと同じく、引き寄せられない（その場で根が刺さったままダメージだけ入る）
 
+    if (this._endAct && this._endAct.grab) this._godGrabRoots(W, px, py);
+    else if (this._endAct && this._endAct.spread) this._godSpreadRoots(W, px, py); // 天使・悪魔が出る前：根を左右（悪魔と天使が出る側）へ広げて待つ
+     // エンディング：悪魔と天使が出たら、根は半分ずつそれぞれを掴むような動きを続ける
+    else for (const r of W.roots) if (r._grab) { r._grab = false; r.st = 'idle'; r.cd = 0; r._slow = true; } // 演出が終わったら、ゆっくり背中へ戻る
     const rootOrder = W.roots.slice().sort(() => Math.random() - 0.5); // 毎フレーム、根を調べる順番をランダムにする（同時に刺せる時、左の根ばかりが先に敵を取らない）
     for (const r of rootOrder) {
       if (r.st === 'end') { const k = Math.min(1, dt * (r.es || 14)); r.tx += (r.ex - r.tx) * k; r.ty += (r.ey - r.ty) * k; continue; } // エンディング演出の根：台本が決めた先端（ex, ey）へ向かう
@@ -10593,6 +10696,9 @@ class GameScene extends Phaser.Scene {
       if (r.tgt && (!this.enemies.includes(r.tgt) || r.tgt.hp <= 0 || r.tgt._removed || !r.tgt.gfx || !r.tgt.gfx.scene)) {
         if (r.tgt) this._wingRelease(r.tgt); r.tgt = null; r.st = 'idle'; r.cd = C.retake;
       }
+      if (r.tgt && this.mp && this.net && !this.isHost && r.tgt._wingRemote && r.tgt._wingRemote !== this.net.uid) { // 同時に掴んだ時は、先に掴んだ人（ホストが決める）が優先：こちらは放す
+        this._wingRelease(r.tgt); r.tgt = null; r.st = 'idle'; r.cd = C.retake; r.stuck = false;
+      }
       if (r.st === 'idle') {
         r.cd = Math.max(0, r.cd - dt);
         const lr = Math.min(1, dt * (r._slow ? ENDING.rootReturn : 12)); r.tx += (rx - r.tx) * lr; r.ty += (ry - r.ty) * lr; // エンディング：天使を倒したあとは、ゆっくり（スーッと）元の位置へ戻る
@@ -10600,7 +10706,7 @@ class GameScene extends Phaser.Scene {
         if (r.cd <= 0) { // 射程に入っている、いちばん近い敵を刺す（同じ敵は1本まで）
           let best = null, bd = Infinity;
           for (const e of this.enemies) {
-            if (!e.gfx || !e.type || e.hp <= 0 || e._removed || e._pvp || e._wingBy || this._endingRun || this._rootsOff) continue; // エンディング演出中は、翼は敵を刺さない／エンディングの続きで雪原へ行ったあとも、根は自動で敵を掴まない（_rootsOff）
+            if (!e.gfx || !e.type || e.hp <= 0 || e._removed || e._pvp || e._wingBy || (e._wingRemote && (!this.net || e._wingRemote !== this.net.uid)) || this._endingRun || this._rootsOff) continue; // エンディング演出中は、翼は敵を刺さない／エンディングの続きで雪原へ行ったあとも、根は自動で敵を掴まない（_rootsOff）
             const d = Math.hypot(e.gfx.x - px, e.gfx.y - py);
             if ((!unl && d > reach + e.type.radius) || d >= bd) continue;
             if (!unl && !this.meleeCanReach(e.gfx.x, e.gfx.y, e.type.radius)) continue; // 壁の向こうには届かない（エンディングの続きだけは、壁越しでも掴む）
@@ -10656,10 +10762,41 @@ class GameScene extends Phaser.Scene {
     }
     this._drawWings(W, px, py, bigK);
   }
+  // 🪽 エンディング：主人公の根が、半分は悪魔を、半分は天使を、掴むような動きをし続ける。
+  //   根の先端は、相手の体のまわり（主人公に近い側）を行き来する：体の外へ伸びる（ひらく）→ 体の中へ食い込む（にぎる）を、根ごとにずらしながら繰り返す
+  _godSpreadRoots(W, px, py) {
+    const C = GOD_ACT, demonSide = C.left === 'demon' ? -1 : 1, n = W.roots.length;
+    for (const r of W.roots) {
+      const gi = r.i % 2, side = gi === 0 ? demonSide : -demonSide; // 偶数番の根は悪魔が出る側、奇数番の根は天使が出る側（掴む時と同じ分け方）
+      const m = Math.max(1, Math.ceil((n - gi) / 2)), k = Math.floor(r.i / 2);
+      const base = side < 0 ? Math.PI : 0;
+      const a = base + (m > 1 ? (k / (m - 1) - 0.5) * 2 * 0.7 : 0) + Math.sin(W.t * 1.3 + r.ph) * 0.08; // 左右へ扇状にひらく
+      const len = C.dist * (0.8 + 0.08 * Math.sin(W.t * 2 + r.ph)); // 天使・悪魔が出る位置のすぐ手前まで
+      r.st = 'end'; r.es = 5; r.straight = false; r._grab = true; // es＝先端が向かう速さ（小さいほどゆっくり広がる）
+      r.ex = px + Math.cos(a) * len; r.ey = py + Math.sin(a) * len;
+    }
+  }
+  _godGrabRoots(W, px, py) {
+    const A = this._endAct, bodies = [A.demon && A.demon.gfx, A.angel && !A.angel.dead && A.angel.gfx];
+    const alive = bodies.map(b => (b && b.scene) ? b : null);
+    const n = W.roots.length;
+    for (const r of W.roots) {
+      let gi = r.i % 2, b = alive[gi] || alive[1 - gi]; // 偶数番の根は悪魔、奇数番の根は天使（どちらかが居なければ、居るほうへ）
+      if (!b) { if (r._grab) { r._grab = false; r.st = 'idle'; r.cd = 0; r._slow = true; } continue; }
+      const m = Math.max(1, Math.ceil((n - gi) / 2)), k = Math.floor(r.i / 2); // その相手を掴む根の数・何番目か
+      const R = (b.radius || 50) * (b.scaleX || 1);
+      const base = Math.atan2(py - b.y, px - b.x); // 相手から主人公へ向かう向き
+      const a = base + (m > 1 ? (k / (m - 1) - 0.5) * 2 * 1.2 : 0) + Math.sin(W.t * 1.3 + r.ph) * 0.12; // 相手の主人公側の面に、ばらけて取りつく
+      const grip = 0.5 + 0.5 * Math.sin(W.t * 2.6 + r.ph * 1.7); // 0＝ひらく／1＝にぎる
+      const rad = R * (1.3 - 0.75 * grip);
+      r.st = 'end'; r.es = 9; r.straight = false; r._grab = true;
+      r.ex = b.x + Math.cos(a) * rad; r.ey = b.y + Math.sin(a) * rad;
+    }
+  }
   // 根の描画：背中から先端まで、ゆるく曲がる先細りの線（根元は太く、先端は鋭く）
   _drawWings(W, px, py, bigK) {
     bigK = bigK || 0;
-    const g = W.gfx; g.clear(); g.setAlpha(this._godAccK()); // ✨ エンディング：悪魔の爆発のあと、薄くなって消える
+    const g = W.gfx; g.clear(); g.setAlpha(Math.max(this._godAccK(), this._rootReviveOn ? this._rootRevive : 0) * (this._wingA == null ? 1 : this._wingA)); /* 🌹 復活中は _rootRevive の分だけ見える */ // ✨ エンディング：悪魔の爆発のあと、薄くなって消える／影でワープする時は、身体と一緒に薄れる（_wingA）
     for (const r of W.roots) {
       const sx = px + Math.cos(W.face + Math.PI) * 8, sy = py + Math.sin(W.face + Math.PI) * 8; // 背中の付け根
       const tx = r.tx, ty = r.ty, dx = tx - sx, dy = ty - sy, dist = Math.hypot(dx, dy) || 1, nx = -dy / dist, ny = dx / dist;
@@ -10675,9 +10812,14 @@ class GameScene extends Phaser.Scene {
       // 悪魔の根と同じ色：ふちの暗い紫（太め）の上に、真っ黒な体を重ねる。先端は悪魔の根と同じく丸くする
       // 大きくなった翼：悪魔のHPが半分以下の根と同じ、赤く光る縁ととげ付きの見た目（光はどくどく脈打つ）
       const glowW = (0.25 + 0.1 * Math.sin(this.time.now / 90)) * Math.min(1, bigK);
-      const wingPasses = bigK > 0.02
+      let wingPasses = bigK > 0.02
         ? [{ col: 0xff2030, al: glowW, ex: 16 }, { col: 0xc01028, al: 0.9, ex: 7 }, { col: 0x000000, al: 1, ex: 0 }]
         : [{ col: 0x2a1038, al: 0.7, ex: 7 }, { col: 0x000000, al: 1, ex: 0 }];
+      const rr = this._rootRed || 0;
+      if (rr > 0) { // 🔴 エンディングの最後：根の全体が真っ赤に輝く（ぼんやりにじませず、はっきりした真っ赤な根。どくどく明るさが脈打つ）
+        const pu = 0.5 + 0.5 * Math.sin(this.time.now / 90);
+        wingPasses = [{ col: 0xff1428, al: (0.32 + 0.18 * pu) * rr, ex: 22 }, { col: 0xff0000, al: rr, ex: 11 }, { col: (Math.round(255 * rr) << 16) | (Math.round(rr * (24 + 56 * pu)) << 8) | Math.round(rr * (24 + 36 * pu)), al: 1, ex: 0 }];
+      }
       for (const pass of wingPasses) {
         g.fillStyle(pass.col, pass.al);
         const Lp = [], Rp = [];
@@ -10713,17 +10855,21 @@ class GameScene extends Phaser.Scene {
     const alive = !!(P && P.scene && P.active !== false && P.visible !== false && !this.isGhost && !this.isDowned && !this.transitioning);
     const neck = alive && !!this._spNeck, crest = alive && !!this._spUndead;
     if (!this._bodyFxG || !this._bodyFxG.scene) this._bodyFxG = this.add.graphics().setDepth(5.1).setBlendMode(Phaser.BlendModes.ADD);
+    const S = this._bodyFxS || (this._bodyFxS = { t: 0, n: 0, fl: 0 });
     const g = this._bodyFxG; g.clear();
-    const kk = this._godAccK(); g.setAlpha(kk); if (kk <= 0) { this._bodyFxT = 0; return; } // ✨ エンディング：悪魔の爆発のあと、薄くなって消える
-    if (!neck && !crest) { this._bodyFxT = 0; return; }
-    this._bodyFxT = (this._bodyFxT || 0) + dt;
-    const t = this._bodyFxT, px = P.x, py = P.y, R = (P.radius || TILE * 0.32) * (P.scaleX || 1);
-    this._bodyFxN = this._bodyFxN || 0;
+    const kk = this._godAccK(); g.setAlpha(kk); if (kk <= 0) { S.t = 0; return; } // ✨ エンディング：悪魔の爆発のあと、薄くなって消える
+    if (!neck && !crest) { S.t = 0; return; }
+    this._bodyFxDraw(S, g, dt, P.x, P.y, (P.radius || TILE * 0.32) * (P.scaleX || 1), neck, crest, kk, 60);
+  }
+  // 📿 金銀の輝き・♾️ 紫の炎を描く（自分の分と、他のプレイヤーの分で共通）。S＝その人ごとの時計と粒の数（{t, n, fl}）／kk＝濃さ／cap＝同時に出す粒の上限
+  _bodyFxDraw(S, g, dt, px, py, R, neck, crest, kk, cap) {
+    S.t = (S.t || 0) + dt; S.n = S.n || 0;
+    const t = S.t;
     const puff = (x, y, rad, color, a, dx, dy, dur, depth) => { // 小さな光の粒（上へ流れて消える）
-      if (this._bodyFxN > 60) return;
-      this._bodyFxN++;
+      if (S.n > cap) return;
+      S.n++;
       const c = this.add.circle(x, y, rad, color, a * kk).setDepth(depth).setBlendMode(Phaser.BlendModes.ADD);
-      this.tweens.add({ targets: c, x: x + dx, y: y + dy, scale: 0.15, alpha: 0, duration: dur, ease: 'Sine.easeOut', onComplete: () => { c.destroy(); this._bodyFxN--; } });
+      this.tweens.add({ targets: c, x: x + dx, y: y + dy, scale: 0.15, alpha: 0, duration: dur, ease: 'Sine.easeOut', onComplete: () => { c.destroy(); S.n--; } });
     };
     if (neck) { // 金色と銀色の十字が、身体の外でキラキラ光るだけ（身体そのものには何も重ねない）
       const N = 3, fr = (v) => v - Math.floor(v); // きらめきの数（元は6。半分の3）
@@ -10743,9 +10889,9 @@ class GameScene extends Phaser.Scene {
     if (crest) { // 紫色の炎：身体のまわりがぼんやり紫に光り、下から上へ紫の炎がゆらめいて立ちのぼる
       g.fillStyle(0x8a4dff, 0.18 + 0.08 * Math.sin(t * 7)); g.fillCircle(px, py, R * 1.35);
       g.fillStyle(0xc58bff, 0.14); g.fillCircle(px, py, R * 0.95);
-      this._bodyFlameT = (this._bodyFlameT || 0) - dt;
-      if (this._bodyFlameT <= 0) {
-        this._bodyFlameT = 0.04;
+      S.fl = (S.fl || 0) - dt;
+      if (S.fl <= 0) {
+        S.fl = 0.04;
         const cols = [0x5a1fc0, 0x8a4dff, 0xb36bff, 0xd9a8ff];
         for (let k = 0; k < 2; k++) {
           const a = Math.random() * 6.283, d = R * (0.4 + Math.random() * 0.7);
@@ -10753,6 +10899,16 @@ class GameScene extends Phaser.Scene {
         }
       }
     }
+  }
+  // 📿♾️ 他のプレイヤーの金銀の輝き・紫の炎（見た目だけ）。相手が送ってくる sx（1＝金銀のネックレス／2＝不死の紋章）を見て、自分の画面でも同じ演出を出す
+  updateRemoteBodyFx(rp, p, dt, off) {
+    const sx = (p && typeof p.sx === 'number') ? p.sx : 0;
+    const neck = !!(sx & 1) && !off, crest = !!(sx & 2) && !off;
+    if (!neck && !crest) { if (rp._bfxG && rp._bfxG.scene) rp._bfxG.clear(); if (rp._bfxS) rp._bfxS.t = 0; return; }
+    if (!rp._bfxG || !rp._bfxG.scene) rp._bfxG = this.add.graphics().setDepth(5.1).setBlendMode(Phaser.BlendModes.ADD);
+    const S = rp._bfxS || (rp._bfxS = { t: 0, n: 0, fl: 0 }), g = rp._bfxG; g.clear();
+    const kk = Math.min(1, (rp.gfx.alpha || 0.85) / 0.85); g.setAlpha(kk);
+    this._bodyFxDraw(S, g, dt, rp.gfx.x, rp.gfx.y, (rp.gfx.radius || TILE * 0.32) * (rp.gfx.scaleX || 1), neck, crest, kk, 30);
   }
   // 📿 金銀のネックレス：金銀財宝のキラキラ。自分のまわりへ、💎🪙✨がきらめきながら広がって消え、金と銀の粒が弾ける
   _neckSparkle(x, y) {
@@ -21775,19 +21931,27 @@ class GameScene extends Phaser.Scene {
           for (let i = 0; i < 4; i++) { const hp = handsOf(i); this.knifeBlood(hp.x, hp.y, Math.atan2(hp.y - pl.y, hp.x - pl.x), 14, false); this.spawnBurst(hp.x, hp.y, 0xff2030, 14); this.spawnBurst(hp.x, hp.y, 0xffffff, 6); } // 手首に刺さった所からも、血しぶき
         }
       }
-      if (t >= E.pinReach + E.pinHold) go(4);
+      if (t >= E.pinReach + E.pinHold) { this._stabSeq = null; go(4); }
     } else if (ph === 4) { // ⑤ 残りの根が、何度も天使を刺す（合計 stabTotal 回。最後の一突きで倒れる）
       for (let i = 0; i < 4; i++) { aimAt(i, POSE[i]); const r = roots[i]; if (r) { const hp = handsOf(i); r.ex = hp.x; r.ey = hp.y; } } // 手首の根は刺さったまま（腕が動いてもついていく）
       const R = (a4.type && a4.type.radius) || 40, P = E.stabPeriod, free = roots.slice(4);
+      // 刺すのは、ランダムに選んだ根が1本ずつ（前の1本が刺し終わって引くまで、次の根は動かない）
+      const S = this._stabSeq || (this._stabSeq = { cur: -1, last: -1, t0: 0 });
+      if (free.length && (S.cur < 0 || t - S.t0 >= P + (E.stabGap || 0))) {
+        let k = Math.floor(Math.random() * free.length);
+        if (free.length > 1 && k === S.last) k = (k + 1 + Math.floor(Math.random() * (free.length - 1))) % free.length; // 同じ根が続けて選ばれないように
+        S.cur = k; S.last = k; S.t0 = t;
+        const r0 = free[k], an = Math.random() * 6.283, d = R * (0.1 + 0.6 * Math.random());
+        r0._hit = false; r0._tx = a4.gfx.x + Math.cos(an) * d; r0._ty = a4.gfx.y + Math.sin(an) * d; // 今回の刺す場所（天使の体のどこか）
+      }
       free.forEach((r, j) => {
         r.st = 'end'; r.es = 14; r.straight = false;
-        const lt = t - j * E.stabStep, rx = pl.x + (j - (free.length - 1) / 2) * 55, ry = pl.y - 70; // 構えの位置（主人公のすぐ前）
-        if (lt < 0) { r.ex = rx; r.ey = ry; return; }
-        const cyc = Math.floor(lt / P), pp = lt - cyc * P;
-        if (r._cyc !== cyc) { r._cyc = cyc; r._hit = false; const an = Math.random() * 6.283, d = R * (0.1 + 0.6 * Math.random()); r._tx = a4.gfx.x + Math.cos(an) * d; r._ty = a4.gfx.y + Math.sin(an) * d; } // 今回の刺す場所（天使の体のどこか）
-        if (pp < 0.14) { r.ex = rx; r.ey = ry; r.straight = false; r.es = 14; } // 引く
-        else { r.ex = r._tx; r.ey = r._ty; r.straight = true; r.es = 34; } // 突く
-        if (pp >= 0.24 && !r._hit && a4.hp > 0 && (this._endStabs || 0) < E.stabTotal) { // 当たった
+        const rx = pl.x + (j - (free.length - 1) / 2) * 55, ry = pl.y - 70; // 構えの位置（主人公のすぐ前）
+        const pp = t - S.t0;
+        if (j !== S.cur || pp >= P) { r.ex = rx; r.ey = ry; return; } // 順番でない根・刺し終えた根は構えのまま
+        if (pp < P * 0.35) { r.ex = rx; r.ey = ry; r.straight = false; r.es = 28; } // 引く（stabPeriod の35%）
+        else { r.ex = r._tx; r.ey = r._ty; r.straight = true; r.es = 70; } // 突く（es は大きいほど速い。60を超えると、1フレームで届く）
+        if (pp >= P * 0.6 && !r._hit && a4.hp > 0 && (this._endStabs || 0) < E.stabTotal) { // 当たった
           r._hit = true; this._endStabs = (this._endStabs || 0) + 1;
           const last = this._endStabs >= E.stabTotal, dmg = last ? a4.hp + 1 : Math.ceil(a4.maxHp / E.stabTotal);
           this.knifeBlood(r._tx, r._ty, Math.atan2(r._ty - pl.y, r._tx - pl.x), R, last); // 普通に刺す時と同じ血しぶき（最後の一突きは、倒した時の大きな血しぶき）
@@ -21849,7 +22013,7 @@ class GameScene extends Phaser.Scene {
   }
   _specialAccUpdate(dt) {
     this._spT = (this._spT || 0) - dt;
-    if (this._spT <= 0) { this._spT = 0.5; const wasUndead = this._spUndead; this._spUndead = this.hasSpecial('undeadcrest'); this._spNeck = this.hasSpecial('goldsilvernecklace'); this._spWings = this.hasSpecial('demoncollar'); if (wasUndead !== this._spUndead) this.updateHud(); }
+    if (this._spT <= 0) { this._spT = 0.5; const wasUndead = this._spUndead; this._spUndead = this.hasSpecial('undeadcrest'); this._spNeck = this.hasSpecial('goldsilvernecklace'); this._spWings = this.hasSpecial('demoncollar') || !!this._rootReviveOn; /* 🌹 エンディングの最後：根が復活している間は消さない */ if (wasUndead !== this._spUndead) this.updateHud(); }
     if (this.isGhost || this.isDowned || !(this.playerHp > 0)) { this._crestQ = null; this._crestLast = null; return; } // 倒れた時は回復しない（復活したら、その時のHPから数え直す）
     if (!this._spUndead) { this._crestQ = null; this._crestLast = null; }
     else { // ♾️ 不死の紋章：ダメージを受けるたびに、そのぶんを0.2秒後に回復する（連続で受けても、1回ごとに0.2秒で戻る。待たされない）
@@ -22218,8 +22382,9 @@ class GameScene extends Phaser.Scene {
             // （ホスト側の減衰と同じ式なので、この時点で位置もほぼ収束しているはず）。
             if (Math.abs(e._predKbX) < 1 && Math.abs(e._predKbY) < 1) e._predicting = false;
           }
+          e._wingRemote = snap.wh || null; // 悪魔の翼に掴まれているか（掴んでいる人のID）
           const k = expSmooth(dt, 0.05);
-          if (!e._a4Held && !this.guestSnakeFollowing(e)) { // ウロボロスの胴体は、頭をなぞる位置を guestSnakeFollow が決める（天使に掴まれている間は演出が位置を決める）
+          if (!e._a4Held && !e._wingBy && !this.guestSnakeFollowing(e)) { // ウロボロスの胴体は、頭をなぞる位置を guestSnakeFollow が決める（天使に掴まれている間は演出が位置を決める）
             e.gfx.x = Phaser.Math.Linear(e.gfx.x, predX, k);
             e.gfx.y = Phaser.Math.Linear(e.gfx.y, predY, k);
           }
@@ -22446,6 +22611,7 @@ class GameScene extends Phaser.Scene {
     if (this.dungeon.hut) this._drawHut(this.exitGlow, time / 1000);
     else if (this._hutCover && this._hutCover.scene) this._hutCover.clear(); // 小屋のない所では目隠しを消しておく
     if (this.dungeon.holy) this._drawSanctuary(this.exitGlow, time / 1000); // ✨ 聖域の光
+    else if (this._holyStarImg) this._holyStarImg.setVisible(false); // 聖域を出たら、柱の宇宙は隠す
     if (this.dungeon.holy) this._drawGodEyes(time / 1000); else { this._hideGodEyes(); this._godTalkHide(); } // 👁 エンディングの続き：神の左右の大きな目
     if (this.dungeon.torches) { // ❄ 雪原の松明：ゆらめく炎と、まわりのほんのり暖かい光（画面の近くのものだけ描く）
       const wv = this.cameras.main.worldView, tt = time / 1000, g = this.exitGlow;
@@ -22547,22 +22713,40 @@ class GameScene extends Phaser.Scene {
           ownState.skw = null; ownState.skr = null;
           this._skullSent = false;
         }
-        // 😈 悪魔の翼（悪魔の腕輪）の見た目を他のプレイヤーの画面にも出すために送る：向きと、9本の根の先端（プレイヤーからの相対位置・刺しにいっている最中か）。
+        // 😈 悪魔の翼（悪魔の腕輪）の見た目を他のプレイヤーの画面にも出すために送る：向き（f）・掴んでいる敵のID（h）（根の本数や先端の位置は送らない。見る側は、根を9本として、掴まれた敵の位置に合わせて適当に再現する）。
         //   翼が出ている間だけ送り、出なくなった（外した・倒れた・階の移動）時に1回だけ null で消す。
         {
           const Wn = this._wings;
           if (Wn && Wn.roots.length && this._spWings && !this.isGhost && !this.isDowned && !this.transitioning) {
-            const tt = [];
-            for (const r of Wn.roots) tt.push(Math.round(r.tx - this.player.x), Math.round(r.ty - this.player.y), r.st === 'stab' ? 1 : 0);
-            ownState.wg = { f: Math.round(Wn.face * 100) / 100, t: tt };
+            const hh = []; // 掴んでいる（刺しにいっている最中も含む）敵のID。ボスなど、引き寄せない敵も含める
+            for (const r of Wn.roots) { const te = r.tgt; if (te && te.gfx && te.hp > 0 && !te._removed) hh.push(te.id); }
+            ownState.wg = { f: Math.round(Wn.face * 100) / 100, h: hh };
             this._wgSent = true;
           } else if (this._wgSent) { ownState.wg = null; this._wgSent = false; }
+        }
+        // 📿♾️ 金銀のネックレス・不死の紋章の見た目を他のプレイヤーの画面にも出すために送る：sx＝1（金銀のネックレス）＋2（不死の紋章）。付けている間だけ送り、外した・倒れた時に1回だけ null で消す。
+        {
+          const sxv = (!this.isGhost && !this.isDowned && !this.transitioning && this._godAccK() > 0) ? ((this._spNeck ? 1 : 0) | (this._spUndead ? 2 : 0)) : 0;
+          if (sxv) { ownState.sx = sxv; this._sxSent = true; } else if (this._sxSent) { ownState.sx = null; this._sxSent = false; }
+        }
+        // 🪽 自分の悪魔の翼が掴んでいる（引き寄せている）敵のIDと位置：gr=[敵ID, x, y, ...]。ホストの敵も、その位置に置いてもらう（ゲストのみ。ホストは自分の敵を直接動かす）。
+        //   ボスなど引き寄せない敵（刺さったままダメージだけ）は、位置が動かないので送らない。放したあとは少しの間 null を送る
+        {
+          let gr = null;
+          const Wg = this._wings;
+          if (!this.isHost && Wg && Wg.roots.length && this._spWings && !this.isGhost && !this.isDowned && !this.transitioning) {
+            const arr = [];
+            for (const r of Wg.roots) { const e = r.tgt; if (e && !r.stuck && (r.st === 'pull' || r.st === 'hold') && e.gfx && e.hp > 0 && !e._removed) arr.push(e.id, Math.round(e.gfx.x), Math.round(e.gfx.y)); }
+            if (arr.length) gr = arr;
+          }
+          if (gr) { ownState.gr = gr; this._grClear = 0.6; } else if (this._grClear > 0) { ownState.gr = null; this._grClear -= dt; } // 放したあとも0.6秒は null を送り続ける（1回だけだと、取りこぼした時に、ホストの敵が掴まれたまま固まる）
         }
         // 成績（リザルト用）は変化があった時だけ送る（毎回送ると通信量が増えるだけなので）
         if (this._statsDirty) ownState.stats = this.buildStatsPayload();
         this.net.updateOwnState(ownState);
       }
       if (this.isHost && !this.pvp) {
+        this.hostApplyWingHolds(); // ゲストの悪魔の翼が掴んでいる敵を、その位置に置いてから配信する
         this._enemyPubTimer -= dt;
         if (this._enemyPubTimer <= 0) {
           this._enemyPubTimer = 0.06;
@@ -22985,9 +23169,10 @@ class GameScene extends Phaser.Scene {
     const libSeed = this.baseSeed + this.floor * 7919; this._libSeeds = this._libSeeds || new Set();
     let visits = 1;
     try { const sv = loadSave(); if (!this._libSeeds.has(libSeed)) { this._libSeeds.add(libSeed); sv.libraryVisits++; writeSave(sv); } visits = sv.libraryVisits; } catch (e) {}
+    const countReach = !!(this.dungeon && this.dungeon.secretDoor && this.dungeon.secretDoor.natural) && !DEBUG_URL.library; // 確率で出た扉から入った時だけ、到達者数に数える
     this.cameras.main.fadeOut(700, 0, 0, 0);
     this.cameras.main.once('camerafadeoutcomplete', () => {
-      try { openLibrary(() => this.leaveLibrary(), this.playerColor, accHeadIcon(this.accKey), visits); } catch (err) { console.error('書庫を開けませんでした:', err); this.leaveLibrary(); }
+      try { openLibrary(() => this.leaveLibrary(), this.playerColor, accHeadIcon(this.accKey), visits, countReach); } catch (err) { console.error('書庫を開けませんでした:', err); this.leaveLibrary(); }
     });
   }
   leaveLibrary() {
@@ -23010,12 +23195,19 @@ class GameScene extends Phaser.Scene {
     this.cameras.main.fadeOut(700, 255, 255, 255);
     this.cameras.main.once('camerafadeoutcomplete', () => this._switchSnowfield(true));
   }
+  // 🛖 雪原の小屋の中に入った印を保存する（エンディングが始まる条件の1つ）。条件が揃ったら、次にホーム画面を開いた時からエンディングが始まる。
+  // 🛠 エンディングのテスト起動・小屋ワープ起動では記録しない
+  _markHutVisited() {
+    if (this._endTest || this._warpHut || this._hutMarked) return; this._hutMarked = true;
+    const sv = loadSave(); if (sv.hutVisited) return;
+    sv.hutVisited = true; endingUpdateFlag(sv); writeSave(sv);
+  }
   // ❄ 雪原の寒さ：1秒ごとに最大HPの一部をじわじわ減らす。被弾ではないので、無敵時間・赤い点滅・包帯の中断は起こさない
   _snowCold(dt) {
     if (this.isGhost || this.isDowned || this._astral || this.mp || this.playerHp <= 0 || !this.player) { this._coldT = 0; return; }
     const h = this.dungeon && this.dungeon.hut;
     const warm = !!h && this.player.x > (h.x + 1) * TILE && this.player.x < (h.x + h.w - 1) * TILE && this.player.y > (h.y + 1) * TILE && this.player.y < (h.y + h.h - 1) * TILE; // 小屋の中
-    if (warm !== !!this._hutIn) { this._hutIn = warm; const bz = document.getElementById('blizzard'); if (bz) bz.classList.toggle('indoors', warm); }
+    if (warm !== !!this._hutIn) { this._hutIn = warm; const bz = document.getElementById('blizzard'); if (bz) bz.classList.toggle('indoors', warm); if (warm) this._markHutVisited(); }
     if (warm) { // 小屋の中：寒さは止まり、HPがじわじわ回復する
       this._coldT = 0; this._coldAcc = 0;
       if (this.playerHp < this.playerMaxHp && SNOWFIELD.hutHeal > 0) {
@@ -23222,6 +23414,20 @@ class GameScene extends Phaser.Scene {
   // ✨ 聖域の光：祭壇から降りそそぐ光の筋、祭壇の光の玉、床の魔法陣、ゆっくり昇る光の粒、戻る扉（画面の近くのものだけ描く）
   _drawSanctuary(g, tt) {
     const d = this.dungeon, wv = this.cameras.main.worldView, A = d.altar;
+    { // 柱と祭壇：神の体と同じ宇宙（星の画像）を、画面に見えている柱・祭壇のマスの形に切り抜いて重ねる（外周の壁は除く）
+      const KEY = this._ensureGodStarTex();
+      let im = this._holyStarImg;
+      if (!im || !im.scene) {
+        im = this._holyStarImg = this.add.image(0, 0, KEY).setOrigin(0, 0).setDepth(0.5);
+        this._holyStarMaskG = this.make.graphics({ add: false });
+        im.setMask(new Phaser.Display.Masks.GeometryMask(this, this._holyStarMaskG));
+      }
+      im.setVisible(true);
+      const mg = this._holyStarMaskG; mg.clear(); mg.fillStyle(0xffffff, 1);
+      const x0 = Math.max(2, Math.floor(wv.x / TILE) - 1), x1 = Math.min(d.width - 3, Math.ceil((wv.x + wv.width) / TILE) + 1);
+      const y0 = Math.max(2, Math.floor(wv.y / TILE) - 1), y1 = Math.min(d.height - 3, Math.ceil((wv.y + wv.height) / TILE) + 1);
+      for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) if (d.grid[ty] && d.grid[ty][tx] === 0) mg.fillRect(tx * TILE, ty * TILE, TILE, TILE);
+    }
     const f = 1 + 0.12 * Math.sin(tt * 2.2) + 0.05 * Math.sin(tt * 5.1 + 1);
     const ox = (A.x + A.w / 2) * TILE, oy = A.y * TILE - 6; // 祭壇の上の光の玉
     for (let i = -4; i <= 4; i++) { // 光の筋
@@ -23605,11 +23811,12 @@ class GameScene extends Phaser.Scene {
     };
     raf = requestAnimationFrame(loop);
   }
-  // ✨ 罰の中身：HPは減らさない。装飾品を剥ぎ（このゲーム中だけ。セーブは変えない）、松明も小屋もない雪原の真ん中へテレポートさせる。
+  // ✨ 罰の中身：HPは減らさない。装飾品（悪魔の装飾品も全部）を剥ぎ（このゲーム中だけ。セーブは変えない）、松明も小屋もない雪原の真ん中へテレポートさせる。
   // 画面は演出の黒いキャンバスに隠れている間に切り替わる
   _godPunishEffect() {
     try {
       if (this.accKey) this.equipRunAccessory('');
+      this._godStripAccs(); this.limitedKey = ''; // 悪魔の装飾品（特別な装飾品）もすべて外れる（効果・エフェクトが消え、限定武器の固定も解ける）。このゲーム中だけで、セーブは変えない
       this._godExiled = true; // このゲーム中は、雪原の松明と小屋がなくなる（次に雪原を作る時から。セーブは変えない）
       this._switchSanctuary(false); // 聖域 → 雪原（松明も小屋もない雪原）
       const d = this.dungeon, grid = d && d.grid;
@@ -23654,7 +23861,14 @@ class GameScene extends Phaser.Scene {
     if (E.gx == null) { E.gx = pl.x; E.gy = pl.y; E.ga = 0.4; E.lastT = tt; }
     { const dtE = Math.min(0.1, Math.max(0, tt - E.lastT)); E.lastT = tt; const tg = E.gaze || pl, kf = 1 - Math.exp(-dtE * 7);
       E.gx += (tg.x - E.gx) * kf; E.gy += (tg.y - E.gy) * kf; E.ga += ((E.gaze ? 0.62 : 0.4) - E.ga) * kf; }
+    { // 👁 いつも、黒目がほんの少しだけ自然に動く：ときどき（0.7〜2.5秒おき）ランダムな小さな点へ、すっと視線をずらす（左右の目は同じ向きに動く）。ずれの大きさは黒目の半径の4〜15%
+      const dtS = Math.min(0.1, Math.max(0, tt - (E.sT == null ? tt : E.sT))); E.sT = tt;
+      if (E.sNext == null) { E.sNext = tt + 0.5; E.sx = 0; E.sy = 0; E.stx = 0; E.sty = 0; }
+      if (tt >= E.sNext) { const a = Math.random() * TAU, m = 0.04 + 0.11 * Math.random(); E.stx = Math.cos(a) * m; E.sty = Math.sin(a) * m * 0.7; E.sNext = tt + 0.7 + Math.random() * 1.8; }
+      const ks = 1 - Math.exp(-dtS * 9); E.sx += (E.stx - E.sx) * ks; E.sy += (E.sty - E.sy) * ks;
+    }
     const dtL = Math.min(0.1, Math.max(0, tt - (E.lidT == null ? tt : E.lidT))); E.lidT = tt; if (!E.lidK) E.lidK = {}; // 👁 まぶた：E.lidTo[side] へ向かって E.lidDur 秒かけて開閉する（1＝開く／0＝閉じる）
+    let starSrc = null; try { starSrc = this.textures.get(this._ensureGodStarTex()).getSourceImage(); } catch (eS) {} // 👁 神の体と同じ宇宙（世界に固定された星の絵）。黒目に映す
     [-1, 1].forEach((side, idx) => {
       const key = side < 0 ? 'godEyeL' : 'godEyeR';
       let tex = this.textures.exists(key) ? this.textures.get(key) : null;
@@ -23692,9 +23906,10 @@ class GameScene extends Phaser.Scene {
       }
       // 黒目：真っ黒（神の罰の目と同じ）。最初は真ん中にあって、そのあと（lk）主人公のほうへ寄る。ゆらゆらも少し
       const dx = E.gx - ex, dy = E.gy - ey, dl = Math.hypot(dx, dy) || 1;
-      const ix = cx + dx / dl * R1 * E.ga * lk + Math.sin(tt * 0.6 + side) * R1 * 0.03, iy = cy + dy / dl * R1 * E.ga * 0.625 * lk + Math.cos(tt * 0.45) * R1 * 0.02;
+      const ix = cx + dx / dl * R1 * E.ga * lk + Math.sin(tt * 0.6 + side) * R1 * 0.03 + E.sx * R1, iy = cy + dy / dl * R1 * E.ga * 0.625 * lk + Math.cos(tt * 0.45) * R1 * 0.02 + E.sy * R1;
       ctx.save(); ctx.beginPath(); ctx.arc(ix, iy, R1, 0, TAU); ctx.clip();
       ctx.fillStyle = '#000'; ctx.fillRect(ix - R1, iy - R1, R1 * 2, R1 * 2);
+      if (starSrc) { try { ctx.drawImage(starSrc, ex - cx, ey - cy, cw / sc, ch / sc, 0, 0, cw / sc, ch / sc); } catch (eD) {} } // 👁 黒目は、神の体と同じ宇宙を映す（星は世界に固定。目の絵の1マスが世界の1pxに対応するので、切り出す位置は目の中心 ex,ey に合わせる）
       gr = ctx.createRadialGradient(ix, iy, R1 * 0.6, ix, iy, R1); gr.addColorStop(0, 'rgba(0,0,10,0)'); gr.addColorStop(1, 'rgba(0,0,10,0.55)');
       ctx.fillStyle = gr; ctx.fillRect(ix - R1, iy - R1, R1 * 2, R1 * 2);
       if (ra > 0.003) { const rg = ctx.createRadialGradient(ix, iy, 0, ix, iy, R1); rg.addColorStop(0, `rgba(255,70,80,${ra})`); rg.addColorStop(0.55, `rgba(230,10,30,${ra * 0.9})`); rg.addColorStop(1, `rgba(110,0,10,${ra * 0.8})`); ctx.fillStyle = rg; ctx.fillRect(ix - R1, iy - R1, R1 * 2, R1 * 2); } // 黒目が赤く光る（白目はそのまま）
@@ -23706,16 +23921,7 @@ class GameScene extends Phaser.Scene {
       let im = this._godEyeImgs[idx];
       if (!im || !im.scene) { im = this.add.image(0, 0, key).setDepth(7); this._godEyeImgs[idx] = im; }
       im.setOrigin(0.5, (PAD + Hh * sc) / ch).setScale(1 / sc).setPosition(ex, ey).setVisible(true);
-      if (RD) { // 目のまわりの赤い光
-        if (!this._godEyeGlow || !this._godEyeGlow.scene) this._godEyeGlow = this.add.graphics().setDepth(6.9).setBlendMode(Phaser.BlendModes.ADD);
-        const gg = this._godEyeGlow; gg.clear(); // 赤い光は、黒目を中心に
-        if (ra > 0.003) for (let k = 5; k >= 1; k--) { gg.fillStyle(0xff1428, 0.06 * ra); gg.fillCircle(ex + (ix - cx), ey + (iy - cy), R1 * (0.9 + k * 0.45)); }
-      }
-      if (BD) { // 目のまわりの水色の光
-        if (!this._godEyeGlowB || !this._godEyeGlowB.scene) this._godEyeGlowB = this.add.graphics().setDepth(6.9).setBlendMode(Phaser.BlendModes.ADD);
-        const gb = this._godEyeGlowB; gb.clear();
-        if (ba > 0.003) for (let k = 5; k >= 1; k--) { gb.fillStyle(0x58d2ff, 0.07 * ba); gb.fillCircle(ex + (ix - cx), ey + (iy - cy), R1 * (0.9 + k * 0.5)); }
-      }
+      // （目のまわりに広がる赤・水色の光は描かない。光るのは黒目の中だけ）
     });
   }
   // 🗣 神が、Firebase から読み込んだセリフを話す：上に吹き出しが出て、1文字ずつ。セリフが複数ある時は、順番に（全部話し終えて少し待ったら閉じる）
@@ -23732,9 +23938,24 @@ class GameScene extends Phaser.Scene {
     const A = this.dungeon.altar, G = SANCTUARY_GOD, gx = (A.x + A.w / 2) * TILE, gy = (A.y + A.h) * TILE + G.bodyR * G.scale * 0.85 + 6;
     const stopY = gy + G.bodyR * G.scale + TILE * 2.5; // 本編と同じ：神の体の少し手前（南側）
     this.player.x = gx; this.player.y = stopY + TILE * 3; this.cameras.main.centerOn(this.player.x, this.player.y); // 少し手前から、本編と同じ歩きで神の前へ
-    this._autoWalk = { pts: [[gx, stopY]], i: 0, speed: 0.55, keep: true, onDone: () => { // 着いたら、本編の神の罰のあとと同じ：神の左右に目がひらき、話す
-      if (this.sanctuary) this._godEyes = { t0: null, lastOnly: true };
-    } };
+    if (this._endTestFinale) { // 🛠 神の左目が閉じたあとから：本編でそこまでに変わっている状態（神の体は消え、目は閉じ、悪魔の装飾は外れ、主人公は操作できない）にして、最後の演出（歩く → 根が復活 → 壁に刺さる → 大爆発）を始める
+      this._endTestFinale = false;
+      if (this._god) this._god.gone = true;
+      this._godEyes = null; this._godAccGone = false; this._godStripAccs(); this._godFinaleDone = true; // 目は無し（＝閉じている）／_godStripAccs＝装飾を外した状態
+      this.player.setDepth(7.5); if (this.facing) this.facing.setDepth(7.5); if (this.accText) this.accText.setDepth(7.6);
+      this._autoWalk = { pts: [], i: 0, speed: 0.55, keep: true };
+      this.time.delayedCall(GOD_ROOTFIN.startWait * 1000, () => this._godRootFinale());
+      return;
+    }
+    // 宇宙が割れて聖域に戻った直後から始める：神の前（本編で歩き終わる位置）に立ち、神の目はもう全部ひらいて主人公を見ていて（話し終えた扱い）、
+    //   悪魔の装飾は外れている。そこから本編と同じ _godFinaleStart（神の体が消えて目だけ残る → 片目が赤くチカチカ → 天使の腕 → …）を始める
+    this.player.x = gx; this.player.y = stopY; this.cameras.main.centerOn(this.player.x, this.player.y);
+    this._autoWalk = { pts: [], i: 0, speed: 0.55, keep: true }; this._autoFace = -Math.PI / 2; // 操作は効かない／神（上）のほうを向いて立つ
+    if (this.sanctuary) {
+      const E = this._godEyes = { t0: -100, spoke: true }; // t0 を遠い過去にして、目は最初から全部ひらいて主人公のほうを向く／spoke＝神はもう話し終えた
+      this._godAccGone = false; this._godStripAccs(); // 聖域に戻った時点で、シリアルキラー以外の装飾は外れている
+      this.time.delayedCall(300, () => { if (this.sanctuary && this._godEyes === E) this._godFinaleStart(); }); // 目の位置が決まってから始める
+    }
   }
   _godSpeak(E) {
     if (!E || !E.talkP) return;
@@ -23767,13 +23988,13 @@ class GameScene extends Phaser.Scene {
       hold += TICK; // 全部出きって少し待つ
       if (hold < cfg.hold) return;
       li++; shown = 0; hold = 0;
-      if (li >= lines.length) { // 最後の台詞を言い終えた：アルベドが左右に悪魔と天使を出す（1回だけ）
+      if (li >= lines.length) { // 最後の台詞を言い終えた：主人公の左右に悪魔と天使が出る（1回だけ）
         this._godTalkHide();
         if (E0 && this._godEyes === E0 && !E0.acted && this.dungeon && this.dungeon.holy) { E0.acted = true; this._godAct(); }
       } else sp.textContent = '';
     } });
   }
-  // 🎬 エンディングの続き：神が最後の台詞を言い終えると、アルベド（主人公）の左右に、悪魔と天使が現れる（いつも通りの登場：天使は画面がチカチカして、悪魔は影から浮かび上がる）。
+  // 🎬 エンディングの続き：神が最後の台詞を言い終えると、主人公の左右に、悪魔と天使が現れる（いつも通りの登場：天使は画面がチカチカして、悪魔は影から浮かび上がる）。
   //   少し間をおいて、悪魔は赤い強い根（天使を刺す根と同じ見た目）を全方位へ伸ばし、天使は「四武器」（黒剣・黒槍・黒斧・黒星）を神に向けて放つ。
   //   ここで使う悪魔・天使は演出用の見た目だけのもの（戦わず、ダメージも出さない）。
   _godActClear() {
@@ -23791,12 +24012,12 @@ class GameScene extends Phaser.Scene {
     const dT = ENEMY_TYPES.find(t => t.key === 'demon'), aT = ENEMY_TYPES.find(t => t.key === 'arms4');
     if (!pl || !god || !dT || !aT) return;
     this._godActClear();
-    const A = this._endAct = { objs: [], projs: [], tick: null, angel: null, demon: null, fired: 0 };
+    const A = this._endAct = { objs: [], projs: [], tick: null, angel: null, demon: null, fired: 0, spread: true }; // spread＝主人公の根を左右に広げる（_godSpreadRoots）。天使・悪魔が出る前から始まる
     const spot = (sg, r) => { // プレイヤーの左（sg=-1）／右（sg=1）。壁にめり込む時は、少し近づける
       return { x: pl.x + sg * C.dist, y: pl.y }; // 柱や壁と重なってもよい：いつも、主人公から dist だけ離れた位置
     };
     const demonSide = C.left === 'demon' ? -1 : 1;
-    this.time.delayedCall(C.appearDelay * 1000, () => {
+    this.time.delayedCall((C.appearDelay + C.spreadLead) * 1000, () => {
       if (this._endAct !== A) return;
       // 😈 悪魔：足もとに影が広がり、その中から浮かび上がる（25階の悪魔と同じ）
       const R = dT.radius, dp = spot(demonSide, R);
@@ -23817,6 +24038,8 @@ class GameScene extends Phaser.Scene {
         if (this._endAct !== A || a.dead || !a.gfx.scene) return;
         this.cameras.main.flash(60, 255, 255, 255); a.gfx.setVisible(i % 2 === 1); // 最後は見えている状態
       }));
+      // 🪽 主人公の根が、半分ずつ悪魔と天使を掴むような動きを始める（演出が終わるまで続ける。_godGrabRoots）
+      this.time.delayedCall(900, () => { if (this._endAct === A) A.grab = true; });
       // 間をおいて、攻撃
       this.time.delayedCall((1.9 + C.pause) * 1000, () => { if (this._endAct === A) this._godActAttack(A); });
     });
@@ -24012,7 +24235,7 @@ class GameScene extends Phaser.Scene {
         if (off.length() < D.swarmMinDist || C.swarm.some(o => o.off.distanceTo(off) < D.swarmGap)) continue; // 近すぎる・重なる所は避ける（点々と）
         const mesh = new THREE.Mesh(geo, mat), pivot = new THREE.Group(); pivot.add(mesh);
         pivot.quaternion.setFromUnitVectors(Y, off.clone().negate().normalize()); pivot.visible = false; scene.add(pivot); // 先を主人公へ向ける
-        C.swarm.push({ pivot, mesh, off, kc: Math.min(0.9, Ls / off.length()), cut: false, ang: Math.random() * 6.283, slashLen: 5, fx: false,
+        C.swarm.push({ pivot, mesh, off, kc: Math.min(0.9, Ls / off.length()), cut: false, ang: Math.random() * 6.283,
           appearAt: C.swarm.length * D.swarmAppearGap + Math.random() * 0.3, launchAt: D.swarmCount * D.swarmAppearGap + 0.8 + Math.random() * D.swarmLaunchSpread, flight: D.swarmFlightMin + Math.random() * (D.swarmFlightMax - D.swarmFlightMin) });
       }
     };
@@ -24244,22 +24467,23 @@ class GameScene extends Phaser.Scene {
     };
     const spawnBlock = () => { // 🧱 壁のブロック（聖域の柱と同じ藍色に金のふち）。1マスか2×2マス。主人公のまわり全方位の、画面のすぐ外から、主人公へまっすぐ
       const S = TILE * (Math.random() < 0.4 ? 2 : 1), R = Math.hypot(cam.worldView.width, cam.worldView.height) * 0.5 + 40, an = F0.nb * 2.39996 + Math.random() * 0.9, x = pl.x + Math.cos(an) * R, y = pl.y + Math.sin(an) * R; // 向きは毎回ずらして、まんべんなく
-      const g = this.add.rectangle(x, y, S, S, 0x33396b).setStrokeStyle(2, 0xe2c978).setDepth(7.7);
+      const g = this.add.image(x, y, this._ensureBlockSpaceTex()).setDisplaySize(S, S).setDepth(7.7); // 固定の宇宙の画像（黒地に星、金のふち）を貼るだけ
       const dx = pl.x - x, dy = pl.y - y, d = Math.hypot(dx, dy) || 1, sp = F.blockSpeed * (0.85 + Math.random() * 0.3);
       F0.blocks.push({ g, S, vx: dx / d * sp, vy: dy / d * sp, spin: (Math.random() - 0.5) * 14, life: 0 });
     };
     const breakBlock = b => { // 主人公にぶつかって砕ける：かけらが散る（主人公は無傷）
       const n = b.S > TILE ? 7 : 4;
       for (let k = 0; k < n; k++) {
-        const fs = b.S * (0.18 + Math.random() * 0.15), f = this.add.rectangle(b.g.x, b.g.y, fs, fs, 0x33396b).setStrokeStyle(1, 0xe2c978).setDepth(7.7), an = Math.random() * TAU, ds = 50 + Math.random() * 90;
+        const fs = b.S * (0.18 + Math.random() * 0.15), f = this.add.image(b.g.x, b.g.y, this._ensureBlockSpaceTex()).setDisplaySize(fs, fs).setDepth(7.7), an = Math.random() * TAU, ds = 50 + Math.random() * 90;
         this.tweens.add({ targets: f, x: f.x + Math.cos(an) * ds, y: f.y + Math.sin(an) * ds, angle: Math.random() * 360, alpha: 0, duration: 380 + Math.random() * 200, onComplete: () => f.destroy() });
       }
-      this.spawnBurst(b.g.x, b.g.y, 0x58d2ff, 8); cam.shake(90, 0.005); b.g.destroy();
+      this.spawnBurst(b.g.x, b.g.y, 0xe2c978, 8); cam.shake(90, 0.005); b.g.destroy(); // 粒の色は、ブロックの金のふちに合わせる
     };
     F0.upd = () => {
       if (this._godFin !== F0) return;
       if (!this.dungeon || !this.dungeon.holy) { this._godFinaleStop(); return; }
       const dt = Math.min(0.05, (this.game.loop.delta || 16.7) / 1000); F0.t += dt;
+      if (this.accFx) { if (this.accFx.g) this.accFx.g.setDepth(7.45); if (this.accFx.gt) this.accFx.gt.setDepth(7.55); } // シリアルキラーの目などの装飾エフェクトも、主人公（7.5）に合わせて上へ（元は体の下4.6／体の上5.5）。体の上＝7.55、頭の上の絵文字＝7.6
       const tg = F0.tg; tg.clear();
       while (F0.next < F.armCount && F0.t >= times[F0.next]) { spawnArm(); F0.next++; }
       for (let i = F0.arms.length - 1; i >= 0; i--) { // 腕：画像は切り取らず、1本まるごと、狙う線に沿って動く（back＝手の先が、狙う場所の何px手前にいるか）
@@ -24311,7 +24535,7 @@ class GameScene extends Phaser.Scene {
           if (le && F0.skT >= ACC_SERIALKILLER.interval) { F0.skT = 0; this.addSerialKillerSlash(le.x, le.y, F.eyeSlashR); }
           if (F0.nb < F.blockTotal) { if (F0.bt <= 0) { spawnBlock(); F0.nb++; F0.bt = F.blockGapStart * Math.pow(F.blockGapEnd / F.blockGapStart, Math.min(1, F0.nb / F.blockRamp)); } }
           else if (!F0.blocks.length) { F0.phase = 'shut'; F0.pt = 0; E.lidTo = Object.assign(E.lidTo || {}, { [-F.redSide]: 0 }); E.lidDur = F.closeDur; } // 全部飛ばして砕け終わった：左の目も閉じて、斬撃も終わる
-        } else if (F0.phase === 'shut' && F0.pt >= F.closeDur + 0.8) { F0.phase = 'done'; this._godFinaleDone = true; this._godEndingClear(); } // 両目が閉じた → 少し間をおいて、暗転してオールクリア画面へ
+        } else if (F0.phase === 'shut' && F0.pt >= F.closeDur + 0.8) { F0.phase = 'done'; this._godFinaleDone = true; this.time.delayedCall(GOD_ROOTFIN.startWait * 1000, () => this._godRootFinale()); } // 両目が閉じた → 少し間をおいて、暗転してオールクリア画面へ
       }
       for (let i = F0.blocks.length - 1; i >= 0; i--) { // ブロックの移動と、主人公にぶつかった時の砕け方
         const b = F0.blocks[i]; b.life += dt; b.g.x += b.vx * dt; b.g.y += b.vy * dt; b.g.rotation += b.spin * dt;
@@ -24321,9 +24545,145 @@ class GameScene extends Phaser.Scene {
     this.events.on('update', F0.upd);
     this.events.once('shutdown', () => this._godFinaleStop());
   }
-  _godEndingClear() { // 🎬 エンディングの最後：しばらく静かな間をおいて、画面が暗転 → オールクリア画面（GAME CLEAR）
+  _godEndingClear(opt) { // opt＝{ hold: 暗転までの間(秒), dur: 暗転の長さ(ミリ秒), rgb: 暗転の色 }（省略すると GOD_END と黒） // 🎬 エンディングの最後：しばらく静かな間をおいて、画面が暗転 → オールクリア画面（GAME CLEAR）
     if (this._godEndClear) return; this._godEndClear = true;
-    this.time.delayedCall(GOD_END.hold * 1000, () => this.triggerAllClear({ black: true, dur: GOD_END.fade * 1000 }));
+    const o = opt || {}; this.time.delayedCall((o.hold != null ? o.hold : GOD_END.hold) * 1000, () => this.triggerAllClear({ black: true, dur: o.dur || GOD_END.fade * 1000, rgb: o.rgb }));
+  }
+  // 🌹 エンディングの最後（両目が閉じたあと）：右へ歩く → 下へ歩く → 根が復活して赤く輝く → 全方位へ伸びて外周の壁に刺さる（柱・祭壇には刺さらない）→ 刺さった瞬間に大きく揺れ、そのあと揺れが高まりながら、赤い亀裂が主人公を中心に広がって画面が徐々に赤くなる → 真っ赤になって少し経つと暗転して、コンプリート画面へ。GOD_ROOTFIN で調整
+  _godRootFinale() {
+    if (this._godRF) return;
+    const C = GOD_ROOTFIN, pl = this.player, D = this.dungeon, cam = this.cameras.main, TAU = Math.PI * 2;
+    if (!pl || !D || !D.holy || this._godEndClear) { this._godEndingClear(); return; }
+    this._godFinaleStop(); // 左の目へ進ませていた動きは、ここで止める
+    const EA = this._endAct; if (EA) { EA.grab = false; EA.spread = false; } // 悪魔・天使を掴む根の動きは、もう使わない
+    this._autoWalk = { pts: [], i: 0, speed: 0.55, keep: true }; // 操作は効かない。歩きは、ここで決める
+    const grid = D.grid, gw = D.width, gh = D.height, B = SANCTUARY.border, cx = gw * TILE / 2, cy = gh * TILE / 2;
+    const isRim = (x, y) => x >= 0 && y >= 0 && x < gw && y < gh && grid[y][x] === 0 && (x < B || y < B || x >= gw - B || y >= gh - B); // 外周の壁だけ（柱・祭壇は含めない）
+    const rim = [];
+    for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) if (isRim(x, y)) rim.push({ x, y, on: false, st: 0, s: 0, e: 0, fl: 0 }); // st＝0:ふつう／2:爆発したあと
+    const R = this._godRF = { phase: 'walkX', t: 0, now: 0, hits: null, dl: null, go: null, g: this.add.graphics().setDepth(3), ov: null, lt: 0, ending: false, shakeT: 0 };
+    // 主人公から角度 a の向きへ進み、外周の壁にぶつかる所を探す（柱・祭壇は素通り）。壁にぶつからずマップの外へ出る向き（南の戻る扉）は null
+    const castRoot = (a) => {
+      const dx = Math.cos(a), dy = Math.sin(a);
+      for (let d = 8; d < 2000; d += 4) {
+        const x = pl.x + dx * d, y = pl.y + dy * d, tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+        if (tx < 0 || ty < 0 || tx >= gw || ty >= gh) return null;
+        if (isRim(tx, ty)) return { x: x + dx * C.stabDepth, y: y + dy * C.stabDepth, tx, ty, a };
+      }
+      return null;
+    };
+    const walk = (tx, ty) => { // 目的地へまっすぐ歩く（壁は気にしない）。着いたら true
+      const dx = tx - pl.x, dy = ty - pl.y, len = Math.hypot(dx, dy);
+      if (len < 2) return true;
+      const st = Math.min(len, C.walkSpeed * (R.dt || 0.016)); pl.x += dx / len * st; pl.y += dy / len * st;
+      this._autoFace = Math.atan2(dy, dx);
+      return len - st < 2;
+    };
+    const startBlow = () => { // 🔴 根が一斉に刺さったあと：主人公を中心に、赤い亀裂が地面に広がり始める（画面は徐々に赤くなる）
+      const wv = cam.worldView; let far = 0;
+      for (const q of [[wv.x, wv.y], [wv.right, wv.y], [wv.x, wv.bottom], [wv.right, wv.bottom]]) far = Math.max(far, Math.hypot(q[0] - pl.x, q[1] - pl.y));
+      R.rmax = far * 1.05 + TILE; R.cracks = [];
+      const grow = (x, y, ang, len, w, depth, d0) => { // 折れ曲がりながら進む亀裂。ときどき枝分かれする
+        let px = x, py = y, d = d0, remain = len;
+        while (remain > 0) {
+          const st = 14 + Math.random() * 26; ang += (Math.random() - 0.5) * 0.7;
+          const nx = px + Math.cos(ang) * st, ny = py + Math.sin(ang) * st;
+          R.cracks.push({ x0: px, y0: py, x1: nx, y1: ny, d0: d, d1: d + st, w });
+          d += st; remain -= st; px = nx; py = ny;
+          if (depth < 2 && Math.random() < 0.09) grow(px, py, ang + (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random() * 0.7), remain * (0.4 + Math.random() * 0.4), w * 0.6, depth + 1, d);
+        }
+      };
+      const off = Math.random() * TAU;
+      for (let n = 0; n < C.crackCount; n++) { // 画面の外のまわりから、主人公のいる真ん中へ向かって亀裂が伸びてくる
+        const a = off + (n / C.crackCount) * TAU + (Math.random() - 0.5) * 0.3;
+        grow(pl.x + Math.cos(a) * R.rmax, pl.y + Math.sin(a) * R.rmax, a + Math.PI + (Math.random() - 0.5) * 0.3, R.rmax * (0.95 + Math.random() * 0.25), 5, 0, 0);
+      }
+      R.fx2 = this.add.graphics().setDepth(3); // 地面の亀裂（主人公より下）
+      R.fx = this.add.graphics().setDepth(9); // 画面を染める赤（キャラや壁より上）
+      cam.shake(C.stabShakeTime * 1000, C.stabShake, true); R.shk = 0; // 根が刺さった瞬間：大きめの揺れ（根を伸ばしている間は揺れない）
+    };
+    const drawBlow = () => { // 🔴 亀裂を広げて、画面を徐々に赤くする
+      const gc = R.fx2, gr = R.fx; if (!gc || !gc.scene || !gr || !gr.scene) return;
+      const u = Math.min(1, R.t / C.crackTime), reach = R.rmax * 1.25 * (1 - Math.pow(1 - u, 1.6)); // 亀裂の先が、外から進んだ距離
+      gc.clear();
+      for (const sg of R.cracks) {
+        if (sg.d0 >= reach) continue;
+        const k = Math.min(1, (reach - sg.d0) / (sg.d1 - sg.d0)), ex = sg.x0 + (sg.x1 - sg.x0) * k, ey = sg.y0 + (sg.y1 - sg.y0) * k;
+        gc.lineStyle(sg.w * 2.6, C.crimson, 0.35); gc.lineBetween(sg.x0, sg.y0, ex, ey); // 画面の赤と同じ色のにじみ
+        gc.lineStyle(sg.w, C.crimson, 1); gc.lineBetween(sg.x0, sg.y0, ex, ey); // 画面の赤と同じ色の亀裂
+      }
+      const ra = Math.pow(Math.min(1, Math.max(0, (R.t - C.redDelay) / C.redTime)), 1.5); // 画面の赤の濃さ（0→1で、真っ赤）
+      gr.clear();
+      if (ra > 0.001) { const wv = cam.worldView, pad = TILE * 3; gr.fillStyle(C.crimson, ra); gr.fillRect(wv.x - pad, wv.y - pad, wv.width + pad * 2, wv.height + pad * 2); }
+    };
+    R.upd = () => {
+      if (this._godRF !== R) return;
+      if (!this.dungeon || !this.dungeon.holy) { this._godRootFinaleStop(); return; }
+      const dt = R.dt = Math.min(0.05, (this.game.loop.delta || 16.7) / 1000); R.t += dt; R.now += dt; R.shakeT -= dt;
+      if (R.fa != null && this._wings) { this._wings.face = R.fa; this._wings.px = pl.x; this._wings.py = pl.y; } // 根が身体の向きに合わせて（背中側に）復活するよう、向きと前の位置をそろえる
+      if (R.phase === 'walkX') { if (walk(cx, pl.y)) { R.phase = 'walkY'; R.t = 0; } } // 右へ歩いて、聖域の真ん中の列まで
+      else if (R.phase === 'walkY') { if (walk(pl.x, cy)) { R.phase = 'hold'; R.t = 0; } } // 次に下へ歩いて、聖域の真ん中辺りまで
+      else if (R.phase === 'hold') { if (R.fa == null) R.fa = this._autoFace != null ? this._autoFace : Math.PI / 2; /* 今の身体の向き */ if (R.t >= C.holdTime) { R.phase = 'revive'; R.t = 0; this._wingA = 1; this._rootRevive = 0; this._rootReviveOn = true; this._spWings = true; } } // 根が復活する
+      else if (R.phase === 'revive') { this._rootRevive = Math.min(1, R.t / C.reviveTime); if (R.t >= C.reviveTime) { R.phase = 'red'; R.t = 0; cam.flash(C.redFlash * 1000, 255, 40, 40); cam.shake(C.redShakeTime * 1000, C.redShake, true); } } // 根が赤く輝き始める：赤いフラッシュと、輝いている間の画面揺れ
+      else if (R.phase === 'red') { // 根の全体が赤く輝いていく
+        this._rootRed = R.t >= C.redFlash ? 1 : 0; // 赤いフラッシュのあいだはそのまま。フラッシュが明けた瞬間に、一気に全部赤くなっている（redFlash＝フラッシュの長さ(秒)）
+        if (R.t >= C.redTime + C.redHold) { R.phase = 'extend'; R.t = 0; }
+      } else if (R.phase === 'extend') { // 根を全方位へ伸ばし、外周の壁に刺す
+        if (!R.hits) {
+          const W0 = this._wings, n = (W0 && W0.roots.length) || C.rootsFallback, off = Math.random() * TAU; R.hits = [];
+          for (let j = 0; j < n; j++) { let h = null; for (let k = 0; k < 8 && !h; k++) h = castRoot(off + (j / n) * TAU + k * 0.1 + (Math.random() - 0.5) * 0.05); R.hits.push(h); }
+          R.dl = R.hits.map(() => Math.random() * C.extendStagger); R.go = R.hits.map(() => false);
+        }
+        const W = this._wings; let touched = 0;
+        R.hits.forEach((h, j) => {
+          if (!h) { touched++; return; }
+          const r = W && W.roots[j];
+          if (r) {
+            if (!R.go[j] && R.t >= R.dl[j]) { R.go[j] = true; r.st = 'end'; r.es = Math.log(Math.max(31, Math.hypot(r.tx - h.x, r.ty - h.y)) / 30) / C.thrustTime; r.straight = true; /* 距離に合わせて速さを変え、全部の根が同時に着く */ r.ex = h.x; r.ey = h.y; r.cd = 0; }
+            if (R.go[j] && Math.hypot(r.tx - h.x, r.ty - h.y) < 30) touched++;
+          } else if (R.t >= R.dl[j] + 0.6) touched++; // 根が出ていない時でも、時間で先へ進める
+        });
+        if (touched >= R.hits.length || R.t >= C.extendMax) { R.phase = 'blow'; R.t = 0; startBlow(); } // 根が一斉に刺さった瞬間：しんと静まる（溜め）
+      }
+      if (R.phase === 'blow' && !R.ending) { // 🔴 根が刺さったまま脈打つ → 亀裂が広がる → 画面が徐々に赤くなる → 真っ赤になって少し経つと、暗転へ
+        const W = this._wings;
+        if (W) R.hits.forEach((h, j) => { const r = W.roots[j]; if (h && r && r.st === 'end') { const th = Math.sin(R.now * 30 + j) * 4; r.ex = h.x + Math.cos(h.a) * th; r.ey = h.y + Math.sin(h.a) * th; } }); // 根の先が、壁の中でどくどく脈打つ
+        drawBlow();
+        if (R.t >= C.stabShakeTime) { // 大きな揺れのあと、真っ赤になるまで揺れがどんどん高まる。0.2秒ごとに揺れをかけ直す（毎フレームかけ直すと、揺れが消えてしまう）
+          R.shk -= dt;
+          if (R.shk <= 0) { R.shk = 0.2; const k = Math.min(1, (R.t - C.stabShakeTime) / Math.max(0.1, C.redDelay + C.redTime - C.stabShakeTime)); cam.shake(260, C.shakeStart + (C.shakeEnd - C.shakeStart) * k, true); }
+        }
+        if (!R.ov && R.t >= C.redDelay + C.redTime) { // 真っ赤になったら、暗転用の板を用意する（少し経つと暗転が始まる）
+          const ov = R.ov = document.createElement('div'); ov.id = 'endingRedLight';
+          ov.style.cssText = 'position:fixed;inset:0;z-index:21;pointer-events:none;overflow:hidden;';
+          document.body.appendChild(ov);
+        }
+      }
+      if (R.ov && !R.ending) { // 大爆発のあと、真っ赤な画面のまましばらく待って、コンプリート画面へ
+        R.lt += dt;
+        if (!R.dark && R.lt >= C.blastHold) { // 火に包まれたまま少し待ったら、ゆっくり暗転していく（燃える画面の上に、黒がじわじわ重なる）
+          R.dark = true;
+          const bk = document.createElement('div'); bk.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;'; R.ov.appendChild(bk);
+          bk.animate([{ opacity: 0 }, { opacity: 1 }], { duration: C.darkTime * 1000, fill: 'forwards', easing: 'ease-in-out' });
+        }
+        if (R.dark && R.lt >= C.blastHold + C.darkTime) { // 真っ暗になりきった：コンプリート画面へ
+          R.ending = true;
+          cam.once('camerafadeoutcomplete', () => this._godRootFinaleStop()); // 暗転の板は、コンプリート画面が出る時に片付ける
+          this._godEndingClear({ hold: 0.3, dur: 60, rgb: [0, 0, 0] }); // もう真っ暗なので、ゲーム画面側の暗転は一瞬でよい
+        }
+      }
+    };
+    this.events.on('update', R.upd);
+    this.events.once('shutdown', () => this._godRootFinaleStop());
+  }
+  _godRootFinaleStop() {
+    const R = this._godRF; this._godRF = null; if (!R) return;
+    this.events.off('update', R.upd);
+    if (R.g && R.g.scene) R.g.destroy();
+    if (R.ov && R.ov.parentNode) R.ov.remove();
+    if (R.fx && R.fx.scene) R.fx.destroy();
+    if (R.fx2 && R.fx2.scene) R.fx2.destroy();
+    this._rootRed = 0; this._rootReviveOn = false;
   }
   _godFinaleStop() {
     const F0 = this._godFin; this._godFin = null; if (!F0) return;
@@ -24332,6 +24692,7 @@ class GameScene extends Phaser.Scene {
     if (F0.tg && F0.tg.scene) F0.tg.destroy();
     for (const b of F0.blocks) if (b.g && b.g.scene) b.g.destroy();
     const p0 = this.player; if (p0 && p0.scene) { p0.setDepth(5); if (this.facing && this.facing.scene) this.facing.setDepth(5); if (this.accText && this.accText.scene) this.accText.setDepth(6); } // 主人公の深さをもとに戻す
+    if (this.accFx) { if (this.accFx.g) this.accFx.g.setDepth(4.6); if (this.accFx.gt) this.accFx.gt.setDepth(5.5); } // 装飾エフェクトの深さももとに戻す
   }
   _godScreenSlashStop() {
     const C = this._godScreenSlash; this._godScreenSlash = null; if (!C) return;
@@ -24423,13 +24784,13 @@ class GameScene extends Phaser.Scene {
     }
     return { n: N, x, y, type, col, al };
   }
-  // ✨ 神の体の宇宙：星を全部描いた1枚の絵（canvasテクスチャ）を一度だけ作り、毎フレームは、丸い窓（GeometryMask）の位置と大きさを変えるだけ。星は世界に固定
-  _godStarsBody(x, y, r) {
+  _ensureGodStarTex() { // 神の体・聖域の柱と祭壇で共有する、星を全部描いた1枚の絵（canvasテクスチャ）。なければ作る
     const W = this.dungeon.width * TILE, H = this.dungeon.height * TILE, KEY = 'godStarsTex';
     let tex = this.textures.exists(KEY) ? this.textures.get(KEY) : null;
     if (tex && (tex.getSourceImage().width !== W || tex.getSourceImage().height !== H)) {
       if (this._godStarImg && this._godStarImg.scene) this._godStarImg.destroy();
-      this._godStarImg = null; this.textures.remove(KEY); tex = null;
+      if (this._holyStarImg && this._holyStarImg.scene) this._holyStarImg.destroy();
+      this._godStarImg = null; this._holyStarImg = null; this.textures.remove(KEY); tex = null;
     }
     if (!tex) {
       if (!this._godStars) this._godStars = this._makeGodStars(W, H);
@@ -24445,6 +24806,38 @@ class GameScene extends Phaser.Scene {
       }
       ctx.globalAlpha = 1; tex.refresh();
     }
+    return KEY;
+  }
+  _ensureBlastTex() { // 💥 大爆発の火・煙に使う、柔らかい縁の雲のような塊（白）。3種類。色は使う時に付ける
+    for (let v = 0; v < 3; v++) {
+      const KEY = 'blastCloud' + v; if (this.textures.exists(KEY)) continue;
+      const N = 128, tex = this.textures.createCanvas(KEY, N, N), c = tex.getContext();
+      let sd = 777 + v * 4099; const rnd = () => { sd = (sd * 1664525 + 1013904223) >>> 0; return sd / 4294967296; };
+      for (let i = 0; i < 11; i++) { // 小さな丸いぼかしをいくつも重ねて、もこもこした形にする
+        const a = rnd() * Math.PI * 2, d = rnd() * N * 0.22, x = N / 2 + Math.cos(a) * d, y = N / 2 + Math.sin(a) * d, r = N * (0.14 + rnd() * 0.16);
+        const g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, 'rgba(255,255,255,0.55)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+        c.fillStyle = g; c.fillRect(0, 0, N, N);
+      }
+      c.globalCompositeOperation = 'destination-in'; // ふちを丸くぼかして消す
+      const m = c.createRadialGradient(N / 2, N / 2, N * 0.1, N / 2, N / 2, N * 0.5); m.addColorStop(0, 'rgba(0,0,0,1)'); m.addColorStop(1, 'rgba(0,0,0,0)');
+      c.fillStyle = m; c.fillRect(0, 0, N, N); c.globalCompositeOperation = 'source-over';
+      tex.refresh();
+    }
+  }
+  _ensureBlockSpaceTex() { // 🧱 エンディングで神の左目が飛ばすブロック（と、そのかけら）に貼る、固定の宇宙の画像（黒地に星・金のふち）。一度だけ作る
+    const KEY = 'godBlockSpace'; if (this.textures.exists(KEY)) return KEY;
+    const N = 64, tex = this.textures.createCanvas(KEY, N, N), c = tex.getContext();
+    const gr = c.createLinearGradient(0, 0, N, N); gr.addColorStop(0, '#0a0b24'); gr.addColorStop(0.55, '#150f33'); gr.addColorStop(1, '#070817');
+    c.fillStyle = gr; c.fillRect(0, 0, N, N);
+    let sd = 20260; const rnd = () => { sd = (sd * 1664525 + 1013904223) >>> 0; return sd / 4294967296; }; // いつも同じ配置
+    for (let i = 0; i < 34; i++) { c.globalAlpha = 0.35 + 0.65 * rnd(); c.fillStyle = rnd() < 0.2 ? '#bfe6ff' : rnd() < 0.2 ? '#ffe9b8' : '#ffffff'; const x = 3 + rnd() * (N - 6), y = 3 + rnd() * (N - 6), z = rnd() < 0.15 ? 2 : 1; c.fillRect(x, y, z, z); }
+    c.globalAlpha = 0.6; c.fillStyle = '#ffffff'; for (const q of [[17, 20], [45, 41]]) { c.fillRect(q[0] - 3, q[1], 7, 1); c.fillRect(q[0], q[1] - 3, 1, 7); } // きらめく星を2つ
+    c.globalAlpha = 1; c.strokeStyle = '#e2c978'; c.lineWidth = 4; c.strokeRect(2, 2, N - 4, N - 4); // 金のふち
+    tex.refresh(); return KEY;
+  }
+  // ✨ 神の体の宇宙：星を全部描いた1枚の絵（canvasテクスチャ）を一度だけ作り、毎フレームは、丸い窓（GeometryMask）の位置と大きさを変えるだけ。星は世界に固定
+  _godStarsBody(x, y, r) {
+    const KEY = this._ensureGodStarTex();
     let im = this._godStarImg;
     if (!im || !im.scene) {
       im = this._godStarImg = this.add.image(0, 0, KEY).setOrigin(0, 0).setDepth(0.5); // 神の体の黒（depth 0）の上、キャラ（depth 5〜）より下
@@ -24582,9 +24975,40 @@ class GameScene extends Phaser.Scene {
     this.hideBossUi();
     this.transitioning = true;
     if (this.mp) this._mpResultStarted = true;
-    if (opt && opt.black) this.cameras.main.fadeOut(opt.dur || 2500, 0, 0, 0);
+    if (opt && opt.black) { const c = opt.rgb || [0, 0, 0]; this.cameras.main.fadeOut(opt.dur || 2500, c[0], c[1], c[2]); } // opt.rgb＝暗転の色（省略すると黒）
     else { this.showBanner('🎉 ALL CLEAR！', 2500); this.cameras.main.fadeOut(1200, 255, 255, 255); }
-    this.cameras.main.once('camerafadeoutcomplete', () => { if (this.mp) this.showMpResult(); else this.showResult(); });
+    this.cameras.main.once('camerafadeoutcomplete', () => { if (this.mp) this.showMpResult(); else if (this._godEndClear) this.showEndingComplete(); else this.showResult(); }); // エンディングの最後だけ、通常のリザルト（GAME CLEAR）ではなく専用の画面
+  }
+
+  // 🎬 エンディングの最後の専用画面：上に GAME COMPLETE、下に灰色の案内、その下に「書庫へ」「タイトル画面へ」。
+  // ここで初めて「エンディングを見た」（endingDone）を保存する（書庫の最後の本の解放・ロビーの再視聴／書庫ボタンはこの印で出る）。🛠 エンディングのテストボタンから来た時は、保存しない
+  showEndingComplete() {
+    this._resultOpen = true;
+    this.commitRunStats(); // 通常のクリアと同じく、クリア回数などの記録は更新する
+    if (!this._endTest) { const cur = loadSave(); cur.endingDone = true; cur.endingReady = false; writeSave(cur); }
+    const root = document.createElement('div');
+    root.id = 'endingCompleteScreen';
+    root.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgb(5,5,10);color:#f0f0f5;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:16vh;box-sizing:border-box;text-align:center;opacity:0;transition:opacity 1.2s;';
+    const title = document.createElement('div');
+    title.textContent = 'GAME COMPLETE';
+    title.style.cssText = 'font-family:"Hiragino Mincho ProN","Yu Mincho","YuMincho","Noto Serif JP","MS PMincho","Times New Roman",serif;font-size:7vh;letter-spacing:0.2em;line-height:1.1;color:#ffd54c;text-shadow:0 0 2vh rgba(255,213,76,0.45);';
+    const note = document.createElement('div');
+    note.textContent = '書庫の最後の本が読めるようになりました';
+    note.style.cssText = 'margin-top:5vh;font-size:2.8vh;color:#8a8fa3;letter-spacing:0.08em;';
+    const row = document.createElement('div');
+    row.style.cssText = 'margin-top:5vh;display:flex;gap:3vh;justify-content:center;flex-wrap:wrap;';
+    const mkBtn = (text, border) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = text; b.style.cssText = 'font-size:3vh;padding:1.2vh 4vh;border-radius:1.2vh;border:0.2vh solid ' + border + ';background:#1c1c26;color:#fff;cursor:pointer;'; return b; };
+    const libBtn = mkBtn('書庫へ', '#c8a45c'), titleBtn = mkBtn('タイトル画面へ', '#b26bff');
+    libBtn.addEventListener('click', () => { // 書庫へ：帰る扉に触れると、タイトル画面へ（読み込み直し）
+      if (this._endLibOpen) return; this._endLibOpen = true;
+      let visits = 1; try { visits = loadSave().libraryVisits || 1; } catch (e) {}
+      try { openLibrary(() => { location.reload(); }, this.playerColor, accHeadIcon(this.accKey), visits); } catch (err) { console.error('書庫を開けませんでした:', err); this._endLibOpen = false; }
+    });
+    titleBtn.addEventListener('click', () => { location.reload(); });
+    row.appendChild(libBtn); row.appendChild(titleBtn);
+    root.appendChild(title); root.appendChild(note); root.appendChild(row);
+    document.body.appendChild(root);
+    void root.offsetWidth; root.style.opacity = '1';
   }
 
   // リザルト画面の見出し：オールクリアなら GAME CLEAR（金色）、それ以外は RESULT
@@ -24901,7 +25325,7 @@ class GameScene extends Phaser.Scene {
       this.interruptBandage();
       this.floor = this.devStartFloor || 1;
       this.hell = false; this._hellDest = 0; this._hellT0 = 0; // 🔥 やり直したら、地獄からも出る
-      this._demonRun = !!this._demonEligible && this.floor === 1; // 😈 やり直したら、全滅の記録も最初から
+      this._demonRun = !!this._demonEligible && this.floor === 1; this._demonRedOn = false; this._demonSeenEnemy = false; // 😈 やり直したら、全滅の記録も最初から
     this._hellDoorDone = false; this._hellDoorT = 0;
       this.weaponLevels = {};
       this._usedAccKeys = this.accKey ? [this.accKey] : []; // リザルト用の装飾品の記録もやり直す
@@ -26220,10 +26644,16 @@ class OfflineNet {
 // 既存のWebRTCと同じ rooms/{部屋}/rtc/ の下を使う。TURNはRTC_CONFIGのUDPを優先して使う。
 // 音量は「自分と相手の距離」で決まる。距離は“画面の端までを1”とした値(横は画面の半分の幅、縦は半分の高さで割る)。
 const VOICE = {
-  fullRatio: 0.4,    // この距離(画面の端＝1)より近いと、最大音量で聞こえる
+  // 距離の基準（ワールド座標）。この半径の円を「距離1」とみなす（画面の大きさ・縦横比には関係しない）。
+  // 参考：縦に見える範囲は400（REF_VIEW_H）なので半高は200、16:9なら半幅は約356。広げると遠くまで聞こえ、狭めると近くだけ聞こえる
+  radius: 300,
+  fullRatio: 0.32,   // この距離(半径＝1)より近いと、最大音量で聞こえる（0.32×半径300＝96px＝3マス以内。1マス＝TILE 32px）
   maxVolume: 1,      // 最大音量(0〜1)。聞こえすぎる時は下げる
   edgeVolume: 0.12,  // 画面の端(距離1)での音量の割合（小さく聞こえる）。0にすると端で消える
-  outRatio: 1.25,    // この距離(画面の少し外)で、聞こえなくなる（端〜ここの間で、edgeVolumeから0へ小さくなる）
+  outRatio: 2.5,     // この距離(半径×2.5＝750px＝約23マス)で、聞こえなくなる
+  panMax: 0.9,       // 左右の振り分けの強さ(0〜1)。真横にいる人の声が、どれだけ片耳に寄るか。0で左右差なし、1で完全に片耳のみ。イヤホン向け
+  panSoft: 48,       // 相手がこの距離(px・1.5マス)より近いと、左右差を弱めて中央に寄せる（すぐ近く・真上真下で左右が急に入れ替わらないように）
+  fadeRatio: 1.5,    // この距離(約14マス)から outRatio にかけて、反比例の音量から0へなめらかに消える（遠くで急にプツッと切れないように）
   wallVolume: 0.3,   // 壁越し（自分と相手の間に壁がある）の時に、距離で決まった音量へかける割合（0〜1）。小さいほど小さく聞こえる。1で壁の影響なし
   // ----- こもり（ローパスフィルタ：高い音を削る。上限の周波数が低いほど、こもって聞こえる） -----
   nearCutoff: 20000, // 近い時（fullRatio以内）の上限周波数(Hz)。20000で、こもりなし
@@ -26325,19 +26755,20 @@ class VoiceChat {
     const ww = document.getElementById('wwChatBtn');
     this.bar.classList.toggle('high', !!(ww && ww.style.display && ww.style.display !== 'none'));
     if (!this.ctx || !sc || !sc.player) return;
-    const cam = sc.cameras && sc.cameras.main, wv = cam && cam.worldView;
-    const zoom = window.GAME_VIEW_ZOOM || 1;
-    const halfW = Math.max(100, (wv && wv.width ? wv.width : window.innerWidth / zoom) / 2);
-    const halfH = Math.max(100, (wv && wv.height ? wv.height : window.innerHeight / zoom) / 2);
+    // 距離は、画面の大きさ・縦横比・演出のズームに関係なく、ワールド上の円（半径 VOICE.radius）で測る（声の聞こえ方を左右対称にするため）
+    const R = VOICE.radius;
     const full = VOICE.fullRatio;
     this.peers.forEach((e, uid) => {
       if (!e.gain) return;
       const p = players[uid];
-      let v = 0, cut = VOICE.nearCutoff;
+      let v = 0, cut = VOICE.nearCutoff, pv = 0;
       if (p && p.floor === sc.floor) {
-        const d = Math.hypot(((p.x || 0) - sc.player.x) / halfW, ((p.y || 0) - sc.player.y) / halfH);
+        const dx = (p.x || 0) - sc.player.x, dy = (p.y || 0) - sc.player.y, dpx = Math.hypot(dx, dy), d = dpx / R;
+        pv = VOICE.panMax * dx / Math.max(dpx, VOICE.panSoft); // 左(-)〜右(+)。真横ほど片耳に寄り、すぐ近くは中央
         const ev = VOICE.edgeVolume, out = VOICE.outRatio;
-        v = d <= full ? 1 : d <= 1 ? 1 - (1 - ev) * (d - full) / (1 - full) : d < out ? ev * (out - d) / (out - 1) : 0;
+        // リアル寄り：fullより遠いと距離に反比例して小さくなる（距離が2倍で音量は半分）。画面の端〜outの間で、0へなめらかに消える
+        const fade = VOICE.fadeRatio;
+        v = d <= full ? 1 : d >= out ? 0 : (full / d) * (d <= fade ? 1 : (out - d) / (out - fade));
         // 壁越しは、音量を下げる（間に壁がある＝視線が通らない）
         let wall = false;
         if (v > 0 && sc.dungeon && sc.dungeon.grid && !sc.hasLineOfSight(sc.player.x, sc.player.y, p.x || 0, p.y || 0)) { v *= VOICE.wallVolume; wall = true; }
@@ -26349,6 +26780,7 @@ class VoiceChat {
       }
       if (e.lp) e.lp.frequency.setTargetAtTime(cut, this.ctx.currentTime, 0.08);
       e.gain.gain.setTargetAtTime(v * VOICE.maxVolume, this.ctx.currentTime, 0.08);
+      if (e.pan) e.pan.pan.setTargetAtTime(pv, this.ctx.currentTime, 0.08);
     });
   }
 
@@ -26381,8 +26813,10 @@ class VoiceChat {
       const src = this.ctx.createMediaStreamSource(stream);
       const g = this.ctx.createGain(); g.gain.value = 0;
       const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.7071; lp.frequency.value = VOICE.nearCutoff; // 距離・壁越しのこもり用
-      src.connect(lp); lp.connect(g); g.connect(this.master);
-      e.src = src; e.lp = lp; e.gain = g;
+      const pan = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null; // 方向を感じさせる左右の振り分け
+      src.connect(lp); lp.connect(g);
+      if (pan) { g.connect(pan); pan.connect(this.master); } else g.connect(this.master);
+      e.src = src; e.lp = lp; e.gain = g; e.pan = pan;
     } catch (err) {}
   }
   _addCand(pc, pending, c) {
@@ -26741,6 +27175,7 @@ function startGame(mode, extra) {
     frontline: !!(extra && extra.frontline), // 最北戦線（ソロ／協力プレイ）
     nightmare: !!(extra && extra.nightmare), // ナイトメア：ダンジョン（ソロ）で、壁の裏が見えない
     hellTest: !!(extra && extra.hellTest), // 🛠 テスト用：始まったらすぐ地獄にいる（ダンジョン（ソロ）のみ）
+    endingFinaleTest: !!(extra && extra.endingFinaleTest), // 🛠 テスト用（endingTest と一緒に使う）：神の左目が閉じたあと（最後の演出）から始める
     endingTest: !!(extra && extra.endingTest), // 🛠 テスト用：始まったらすぐ聖域で、神の最後の台詞から、エンディングの続き（悪魔と天使）が始まる（ダンジョン（ソロ）のみ）
     warpHut: !!(extra && extra.warpHut), // 🛠 テスト用：始まったらすぐ、雪原の小屋の入り口に立っている（ダンジョン（ソロ）のみ）
     rushWeaponKey: (extra && extra.weaponKey) || null,
@@ -26763,7 +27198,7 @@ function readSoloSeed() {
 }
 document.getElementById('soloBtn').addEventListener('click', () => startGame('solo', { soloSeed: readSoloSeed() }));
 // 🛠 テスト用：雪原の小屋の入り口へワープして始める（ダンジョン（ソロ）と同じ設定で、最初から雪原にいる。白い扉から戻るとダンジョンの1階）
-document.getElementById('endingTestBtn').addEventListener('click', () => { ENDING_STATE.run = true; ENDING_STATE.next = true; renderAccPicker(); startGame('solo', { soloSeed: 496, endingTest: true }); }); // 🛠 テスト用：神の最後の台詞からエンディング。本編の「エンディングの続き」と同じ状態（シード496・悪魔の装飾オン・強力な根・操作ロック・左上パネルなし）で始める。読み込み直すまで、悪魔の装飾オンの見た目は残る
+document.getElementById('endingTestBtn').addEventListener('click', () => { ENDING_STATE.run = true; ENDING_STATE.next = true; renderAccPicker(); startGame('solo', { soloSeed: 496, endingTest: true }); }); // 🛠 テスト用：宇宙が壊れて聖域に戻ったところから（神の体は消えて目だけが残り、片目が赤くチカチカ → 天使の腕 → …と続く）。本編の「エンディングの続き」と同じ状態（シード496・悪魔の装飾オン・強力な根・操作ロック・左上パネルなし）で始める。読み込み直すまで、悪魔の装飾オンの見た目は残る
 document.getElementById('hutWarpBtn').addEventListener('click', () => startGame('solo', { soloSeed: readSoloSeed(), warpHut: true }));
 // 🛠 テスト用：ソロのダンジョンを25階から始めて、悪魔の問答を必ず出す（全滅の記録・DEMON_ENABLEDに関係なく出る）
 document.getElementById('hellTestBtn').addEventListener('click', () => startGame('solo', { soloSeed: readSoloSeed(), hellTest: true })); // 🛠 テスト用：地獄から始める
@@ -27315,12 +27750,12 @@ const ENDING = { flashIn: 500, flashOut: 4500, edgeIn: 2500, typeWait: 1200, typ
   walkWait: 1.0, walkSpeed: 190, walkMin: 170, walkMax: 8, viewMargin: 30, stepBack: 320, camDown: 0, camSpeed: 5, camReturn: 2.2, rootReturn: 3, // 翼が大きくなってから歩き出すまでの秒／上へ進む速さ(px/秒)／これ以上は近づかない距離(px)／歩く時間の上限(秒)／画面のふちの余白(px)／止まる位置を、その分だけ手前（下）にする(px)／カメラが動く速さ／天使を倒したあと、カメラが主人公に戻る速さ・根が元の位置へ戻る速さ
   swordStart: 0.4, swordGap: 0, swordGrow: 0.5, swordHold: 0.8,   // 剣を作り始めるまで／1本ごとの間隔（0＝4本一斉に作る）／1本が出来上がるまで／全部できてから根が動くまで（秒）
   pinReach: 0.45, pinHold: 1.4,                                       // 根が手首へ届くまで／磔にしたまま見せる時間（秒）
-  stabPeriod: 0.55, stabStep: 0.11, stabTotal: 20 };                  // 刺す1回の長さ／根ごとの開始ずらし（秒）／刺す回数の合計（最後の1回で天使が倒れる）  // 調伏の儀が始まってから翼が大きくなるまでの秒／大きくなる時間／長さの増え方／太さの増え方
+  stabPeriod: 0.2, stabStep: 0.11, stabGap: 0.02, stabTotal: 20 };                  // 刺す1回の長さ／（使っていない）／1本が刺し終わってから次の根が刺し始めるまでの間(stabGap)／刺す回数の合計（最後の1回で天使が倒れる）  // 調伏の儀が始まってから翼が大きくなるまでの秒／大きくなる時間／長さの増え方／太さの増え方
 (function endingBoot() {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   function mk(css, parent) { const d = document.createElement('div'); d.style.cssText = css; (parent || document.body).appendChild(d); return d; }
   async function loadEndingName() { // 主人公の名前は、HTMLには持たず、Firebase の library/endingTalk から読み込む。読めなかった時は、名前は入力されない（空のまま）
-    try { ENDING.name = (await fetchEndingTalk()).name; } catch (err) { ENDING.name = ''; console.error('エンディングの名前をFirebaseから読めませんでした:', err); }
+    try { ENDING.name = (await fetchEndingTalk()).name; try { if (ENDING.name) sessionStorage.setItem('endingNameCache', ENDING.name); } catch (e2) {} } catch (err) { ENDING.name = ''; console.error('エンディングの名前をFirebaseから読めませんでした:', err); }
   }
   async function playEnding() {
     // 操作ロック：画面全体を透明な板でふさぎ、キー入力も止める（演出が終わるまで外さない）
@@ -27374,7 +27809,10 @@ const ENDING = { flashIn: 500, flashOut: 4500, edgeIn: 2500, typeWait: 1200, typ
     const seedInput = document.getElementById('soloSeedInput'), sb = document.getElementById('soloBtn');
     const edge = mk('position:fixed;inset:0;z-index:99999;pointer-events:none;box-shadow:inset 0 0 14vh 5vh rgba(200,0,0,0.95);opacity:0;transition:opacity ' + ENDING_NEXT.edgeIn + 'ms ease-in;');
     void edge.offsetWidth; edge.style.opacity = '1';
-    await loadEndingName(); nameInput.value = ENDING.name; // 名前欄は、Firebaseから読み込んだ名前のまま（見た目だけ。セーブはしない）
+    let cachedName = ''; try { cachedName = sessionStorage.getItem('endingNameCache') || ''; sessionStorage.removeItem('endingNameCache'); } catch (e2) {} // 控えは、読んだらすぐ消す（使い終わったら残さない）
+    if (cachedName) ENDING.name = cachedName; // 控えがあれば、待たずにすぐ入れる
+    else await loadEndingName(); // 控えが無い時だけ、従来どおりFirebaseから読み込む
+    nameInput.value = ENDING.name; // 名前欄は、Firebaseから読み込んだ名前のまま（見た目だけ。セーブはしない）
     nameInput.style.color = ENDING.color; nameInput.style.caretColor = ENDING.color; nameInput.style.textShadow = '0 0 1vh rgba(255,0,0,0.8)';
     ENDING_STATE.run = true; renderAccPicker(); // 悪魔の装飾が全部オン（保存はしない）。主人公の強力な根のため
     accPicker.style.transition = 'filter 0.6s'; accPicker.style.filter = 'drop-shadow(0 0 1.2vh #ff2030)';
@@ -27419,9 +27857,20 @@ const ENDING = { flashIn: 500, flashOut: 4500, edgeIn: 2500, typeWait: 1200, typ
       if (playing) return;
       const ok = await askConfirm('エンディングをもう一度見ますか？', { ok: '見る', cancel: 'やめる' });
       if (!ok || playing) return;
-      playing = true; b.style.display = 'none'; playEnding();
+      playing = true; b.style.display = 'none'; lb.style.display = 'none'; playEnding();
     });
     lobby.appendChild(b);
+    // 📚 書庫へ行くボタン（エンディングをもう一度見るボタンの隣）。書庫から出ると、そのままロビーに戻る
+    const lb = document.createElement('button'); lb.type = 'button'; lb.id = 'endingLibraryBtn'; lb.textContent = '📚'; lb.title = '書庫へ行く';
+    lb.style.cssText = 'position:fixed;left:calc(max(1.5vh,env(safe-area-inset-left)) + 7.5vh);bottom:max(1.5vh,env(safe-area-inset-bottom));z-index:60;width:6vh;height:6vh;min-width:36px;min-height:36px;border-radius:50%;border:0.25vh solid #c8a45c;background:rgba(20,20,30,0.92);color:#fff;font-size:3vh;line-height:1;padding:0;cursor:pointer;box-shadow:0 0 1.5vh rgba(200,164,92,0.6);';
+    let libOpen = false;
+    lb.addEventListener('click', () => {
+      if (playing || libOpen) return; libOpen = true;
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); // 名前欄などに文字が入らないように
+      let visits = 1; try { visits = loadSave().libraryVisits || 1; } catch (e) {}
+      try { openLibrary(() => { libOpen = false; }, selectedColor, accHeadIcon(currentAccKey()), visits); } catch (err) { console.error('書庫を開けませんでした:', err); libOpen = false; }
+    });
+    lobby.appendChild(lb);
   }
   const sv = loadSave();
   if (endingUpdateFlag(sv)) writeSave(sv); // このアップデート前に3つ集めていた人も、ここでフラグが立つ
