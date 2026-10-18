@@ -1355,32 +1355,13 @@ function openLibrary(onClose, playerColor, accIcon, visits, countReach) { // cou
 // 🎉 パーティールーム：クリア後のおまけの部屋（広めで明るい、陽気な部屋）。メモを読んでおまけ情報が分かる。
 //   入り方：ロビーのダンジョン番号の欄に、Firebase の library/partyroom/number と同じ文字・数字を入れて「ダンジョン」を押す。
 //   メモは Firebase の library/partyroom/memos から読み込む（HTMLには本文を持たない）。
-//   形式：library/partyroom/memos/0 = { title: 'メモの題名', text: '本文' }, library/partyroom/memos/1 = …（最大12枚。本文は \n・¥n・￥n で改行）
+//   形式：library/partyroom/memos/0 = { title: 'メモの題名', text: '本文' }, library/partyroom/memos/1 = …（最大20枚。本文は \n・¥n・￥n で改行）
 //   セキュリティルール：library は「読み取りのみ許可」にすること（書庫と同じ）。入れる元データは partyroom.json。
-// 🏔 雪原のフロアの番号は、HTMLには持たず、Firebase の library/godFloor から読み込む（数字でも文字でもよい。セーブや localStorage には保存しない）。
-//   読めなかった時は null のまま＝どの番号も「雪原のフロア」にならない（白い扉も、エンディングの続きも出ない）。
-let GOD_FLOOR_RAW = null, GOD_FLOOR_OK = false, GOD_FLOOR_NOFB = false, _godFloorP = null;
-//   「たまたまその時だけ読めなかった」で扉が出ないことがないように、読めるまで間を空けて何度もやり直す（成功したら止まる）。
-function loadGodFloor() {
-  if (_godFloorP) return _godFloorP;
-  _godFloorP = (async () => {
-    if (typeof netInstance === 'undefined' || !netInstance || !netInstance.enabled) { GOD_FLOOR_NOFB = true; return null; } // Firebaseを使わない環境：待っても読めない
-    for (let i = 0; ; i++) {
-      try {
-        const run = (async () => { await netInstance.signIn(); return (await netInstance.db.ref('library/godFloor').once('value')).val(); })();
-        const v = await Promise.race([run, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000))]);
-        GOD_FLOOR_RAW = (v == null || String(v).trim() === '') ? null : String(v).normalize('NFKC').trim();
-        GOD_FLOOR_OK = true; return GOD_FLOOR_RAW; // 読めた（library/godFloor が空なら、雪原のフロアは無い扱い）
-      } catch (err) {
-        console.warn('library/godFloor を読めませんでした。やり直します:', err);
-        await new Promise(r => setTimeout(r, Math.min(10000, 1000 * Math.pow(2, Math.min(i, 4)))));
-      }
-    }
-  })();
-  return _godFloorP;
-}
-// 読み終わる（または、Firebaseを使わない環境だと分かる）まで、最大 ms ミリ秒待つ。読み終わっていれば true
-async function waitGodFloor(ms) { await Promise.race([loadGodFloor(), new Promise(r => setTimeout(r, ms))]); return GOD_FLOOR_OK || GOD_FLOOR_NOFB; }
+// 🏔 雪原のフロアの番号は 496 に固定（通信なしで判定できる。Firebase の library/godFloor は読まない。セーブや localStorage には保存しない）。
+const GOD_FLOOR_FIXED = '496';
+let GOD_FLOOR_RAW = GOD_FLOOR_FIXED, GOD_FLOOR_OK = true, GOD_FLOOR_NOFB = false, _godFloorP = null;
+function loadGodFloor() { if (!_godFloorP) _godFloorP = Promise.resolve(GOD_FLOOR_RAW); return _godFloorP; } // 読み込み不要：すぐ返す
+async function waitGodFloor(ms) { return true; } // 待たない（呼び出し側は今までどおり使える）
 function godFloorSeed() { return GOD_FLOOR_RAW == null ? null : seedFromText(GOD_FLOOR_RAW); } // 雪原のフロアのシード値（読めていなければ null）
 function isGodFloorSeed(seed) { const g = godFloorSeed(); return g != null && seed === g; }
 async function fetchPartyRoomNumber() {
@@ -1414,7 +1395,7 @@ function openPartyRoom(onClose, playerColor, accIcon) {
   const R = (x, y, w, h) => ({ x, y, w, h });
   const table = R(224, 196, 192, 40);
   const solids = [table, R(0, 0, W, 64), R(0, 0, T, H), R(W - T, 0, T, H), R(0, H - T, 288, T), R(352, H - T, 288, T)]; // 下の壁の真ん中（288〜352）が扉
-  const slots = [[60, 40], [130, 40], [200, 40], [440, 40], [510, 40], [580, 40], [16, 150], [16, 300], [624, 150], [624, 300], [110, 390], [530, 390]]; // メモを貼る場所（最大12枚）
+  const slots = [[60, 40], [130, 40], [200, 40], [440, 40], [510, 40], [580, 40], [16, 150], [16, 300], [624, 150], [624, 300], [110, 390], [530, 390], [16, 225], [16, 375], [624, 225], [624, 375], [60, 432], [190, 432], [450, 432], [580, 432]]; // メモを貼る場所（最大20枚。13枚目以降は左右の壁の間と下の壁に貼る）
   const pl = { x: 320, y: 380, a: -Math.PI / 2 };
   const col = '#' + ((playerColor == null ? 0xffffff : playerColor) >>> 0).toString(16).padStart(6, '0').slice(-6);
   const hash = n => ((n * 2654435761) >>> 0) % 1000;
