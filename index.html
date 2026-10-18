@@ -3723,7 +3723,25 @@ class GameScene extends Phaser.Scene {
     { const fb = document.getElementById('weaponFixBtn'); if (fb) { fb.classList.remove('on'); fb.setAttribute('aria-pressed', 'false'); const fixToggle = () => { this.fixYellow = !this.fixYellow; fb.classList.toggle('on', this.fixYellow); fb.setAttribute('aria-pressed', this.fixYellow ? 'true' : 'false'); fb.blur(); };
       let fixTouchAt = 0; // スティックを押さえたまま別の指で押すと、スマホでは click が発火しないことがある。touchstart で切り替える（時計ボタンと同じ）。touchstart で処理した時は、続けて来る click を無視する
       fb.ontouchstart = (ev) => { ev.preventDefault(); ev.stopPropagation(); fixTouchAt = Date.now(); fixToggle(); };
-      fb.onclick = () => { if (Date.now() - fixTouchAt < 700) return; fixToggle(); }; } }
+      fb.onclick = () => { if (Date.now() - fixTouchAt < 700) return; fixToggle(); };
+      // スティックを押さえている最中でも確実に押せるよう、document のキャプチャ段階（どの要素よりも先）で「指がボタンの位置に触れたか」を座標で見る。
+      // ボタンの上にスティックの領域などが重なっていても、別の指の touchstart が届かなくても、ここで拾って切り替える（拾った時は、ほかの要素には渡さない）。
+      window._fixBtnHook = { el: fb, toggle: () => { fixTouchAt = Date.now(); fixToggle(); } };
+      if (!window._fixBtnHookInstalled) {
+        window._fixBtnHookInstalled = true;
+        document.addEventListener('touchstart', (ev) => {
+          const H = window._fixBtnHook; if (!H || !H.el || !H.el.isConnected) return;
+          const el = H.el, r = el.getBoundingClientRect(); if (r.width < 1 || r.height < 1) return; // 隠れている（HUDが出ていない）間は何もしない
+          const cs = getComputedStyle(el); if (cs.display === 'none' || cs.visibility === 'hidden') return;
+          const pad = Math.max(6, r.height * 0.25);
+          for (const t of ev.changedTouches) {
+            if (t.clientX < r.left - pad || t.clientX > r.right + pad || t.clientY < r.top - pad || t.clientY > r.bottom + pad) continue;
+            const top = document.elementFromPoint(t.clientX, t.clientY); // 宝箱の選択画面などのメニューがボタンの上に出ている時は、拾わない（ボタン自身・スティックの領域・ゲーム画面の上にいる時だけ）
+            if (!top || !(el.contains(top) || (top.closest && top.closest('#joystickZone, #aimJoystickZone, #game, #ui')))) continue;
+            ev.preventDefault(); ev.stopPropagation(); H.toggle(); return;
+          }
+        }, { passive: false, capture: true });
+      } } }
 
     this.fixedSeed = (!this.mp && app.soloSeed != null) ? app.soloSeed : null; // ロビーで指定したシード値（ソロのダンジョンのみ。nullならランダム）
     this.baseSeed = this.mp ? app.baseSeed : (this.fixedSeed != null ? this.fixedSeed : ((Math.random() * 1e9) | 0));
