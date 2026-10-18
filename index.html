@@ -1315,6 +1315,12 @@ function openLibrary(onClose, playerColor, accIcon, visits, countReach) { // cou
     const light = (x, y, r) => { const g = dctx.createRadialGradient(x, y, r * 0.2, x, y, r); g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)'); dctx.fillStyle = g; dctx.fillRect(x - r, y - r, r * 2, r * 2); };
     light(pl.x, pl.y, (60 + 90 * e)); light(240, desk.y + 11, (30 + 100 * e) * (0.95 + 0.05 * Math.sin(t * 9)));
     ctx.drawImage(dk, 0, 0);
+    readable.forEach((ls, i) => { // 読める本（解禁済みの棚。最後の本は、いつも読める扱い）の棚：暗闇の上から、薄い矢印を出す（小屋の本と同じ、上下にゆれる金色の矢印。暗くても場所が分かる）
+      if (!ls.unlocked) return;
+      const ax = ls.x + ls.w / 2, ay = ls.y - 20 + Math.sin(t * 5 + i * 0.7) * 3;
+      ctx.save(); ctx.globalAlpha = 0.35; ctx.fillStyle = '#ffe9a0'; ctx.strokeStyle = '#5e3f1f'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(ax - 7, ay); ctx.lineTo(ax + 7, ay); ctx.lineTo(ax, ay + 11); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+    });
   };
 
   // ----- 毎フレーム -----
@@ -23294,10 +23300,16 @@ class GameScene extends Phaser.Scene {
     const bx = ix + 2 * TILE, by = iy + TILE; // 机のマスの左上
     g.fillStyle(0x8a5f33, 1); g.fillRect(bx + 4, by + 4, TILE - 8, TILE - 8);
     g.lineStyle(1, 0x5e3f1f, 1); g.strokeRect(bx + 4, by + 4, TILE - 8, TILE - 8);
-    g.fillStyle(0xffd980, 0.10 + 0.05 * Math.sin(tt * 3)); g.fillCircle(bx + TILE / 2, by + TILE / 2, TILE * 0.8); // 本のまわりのやわらかい光
-    g.fillStyle(0x8f2f2f, 1); g.fillRect(bx + 8, by + 9, TILE - 16, TILE - 18); // 本（赤い表紙）
-    g.fillStyle(0xf2e6c8, 1); g.fillRect(bx + 10, by + 11, TILE - 20, TILE - 22); // ページ
-    g.lineStyle(1, 0x8f2f2f, 1); g.beginPath(); g.moveTo(bx + TILE / 2, by + 9); g.lineTo(bx + TILE / 2, by + TILE - 9); g.strokePath(); // とじ目
+    const bcx = bx + TILE / 2, bcy = by + TILE / 2, bp = 0.5 + 0.5 * Math.sin(tt * 3); // 本を目立たせる（読めると分かるように）：脈打つ金色の光・まわる光の粒・上下にゆれる矢印
+    g.fillStyle(0xffd980, 0.12 + 0.10 * bp); g.fillCircle(bcx, bcy, TILE * (1.5 + 0.25 * bp)); // 外側の大きな光
+    g.fillStyle(0xffe9a0, 0.22 + 0.14 * bp); g.fillCircle(bcx, bcy, TILE * 0.95); // 内側の光
+    for (let k = 0; k < 4; k++) { const ang = tt * 1.6 + k * Math.PI / 2, rr = TILE * (0.7 + 0.12 * Math.sin(tt * 4 + k)); g.fillStyle(0xfff3c4, 0.9); g.fillCircle(bcx + Math.cos(ang) * rr, bcy + Math.sin(ang) * rr * 0.8, 2.2); } // まわりをまわる光の粒
+    g.fillStyle(0x8f2f2f, 1); g.fillRect(bx + 6, by + 7, TILE - 12, TILE - 14); // 本（赤い表紙。目立つよう少し大きめ）
+    g.fillStyle(0xf2e6c8, 1); g.fillRect(bx + 8, by + 9, TILE - 16, TILE - 18); // ページ
+    g.lineStyle(1, 0x8f2f2f, 1); g.beginPath(); g.moveTo(bx + TILE / 2, by + 7); g.lineTo(bx + TILE / 2, by + TILE - 7); g.strokePath(); // とじ目
+    { const bob = Math.sin(tt * 5) * 3, ay = by - 12 + bob; // 本の真上で、上下にゆれる金色の矢印（ここに読めるものがある、の目印）
+      g.fillStyle(0xffe9a0, 1); g.fillTriangle(bcx - 8, ay, bcx + 8, ay, bcx, ay + 12);
+      g.lineStyle(1.5, 0x5e3f1f, 1); g.strokeTriangle(bcx - 8, ay, bcx + 8, ay, bcx, ay + 12); }
     const hd = h.holyDoor; // ✨ 右上の隅の、金色にひかる扉
     if (hd) {
       const ddx = hd.x * TILE, ddy = hd.y * TILE, pp = 0.5 + 0.5 * Math.sin(tt * 2.4);
@@ -25343,6 +25355,9 @@ class GameScene extends Phaser.Scene {
       this.interruptBandage();
       this.floor = this.devStartFloor || 1;
       this.hell = false; this._hellDest = 0; this._hellT0 = 0; // 🔥 やり直したら、地獄からも出る
+      this.snowfield = false; this.sanctuary = false; this._godExiled = false; this._snowSaved = null; this._snowRestore = null; this._coldT = 0; this._hutIn = false; setBlizzard(false); // ❄ やり直したら、雪原・聖域からも出る（吹雪も止める）
+      this._libT0 = 0; this._hellT0 = 0; this._hellDoorDone = false; this._hellDoorT = 0; // 雪原・地獄の滞在時間の記録も最初から
+      this._spUndead = undefined; this._spWings = false; this._godAccGone = false; this._rootReviveOn = false; this._rootRevive = 0; this._rootRed = 0; this._godRF = null; this._neckFloor = null; this._spT = 0; // 特別な装飾品の状態も、1回目の挑戦の始まりと同じ（神の罰で外れた装飾品なども元に戻る）
       this._demonRun = !!this._demonEligible && this.floor === 1; this._demonRedOn = false; this._demonSeenEnemy = false; // 😈 やり直したら、全滅の記録も最初から
     this._hellDoorDone = false; this._hellDoorT = 0;
       this.weaponLevels = {};
