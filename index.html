@@ -563,7 +563,10 @@
       <button id="createRoomBtn">ルームを作成</button>
       <button id="createPvpRoomBtn" style="background:#e0533d;">PvPのルームを作成</button>
       <button id="pvpTestBtn" style="background:#8a5cf5; display:none !important;"> <!-- 人狼ゲームの一人テスト用。準備中の間は非表示 -->PvPを一人でテスト（通信なし）</button>
-      <label style="display:flex; align-items:center; justify-content:center; gap:6px; margin:0 0 6px; cursor:pointer;"><input type="checkbox" id="pvpFixedWeaponChk" checked> 武器固定（全員が同じ武器）</label>
+      <div style="display:flex; align-items:center; justify-content:center; gap:14px; margin:0 0 6px;">
+        <label style="display:flex; align-items:center; gap:6px; cursor:pointer;" title="全員が同じ武器になります"><input type="checkbox" id="pvpFixedWeaponChk" checked> 武器固定</label>
+        <label style="display:flex; align-items:center; gap:6px; cursor:pointer;" title="ボイスチャットの声が、左右だけでなく前後（画面の上下）も聞き分けやすくなります。イヤホン向け"><input type="checkbox" id="spatialAudioChk"> 立体音響</label>
+      </div>
       <button id="createFrontlineRoomBtn" style="background:#4fd67a;">最北戦線のルームを作成</button>
       <div class="joinRow">
         <input type="text" id="roomCodeInput" placeholder="ルームコード" maxlength="5">
@@ -3724,23 +3727,30 @@ class GameScene extends Phaser.Scene {
       let fixTouchAt = 0; // スティックを押さえたまま別の指で押すと、スマホでは click が発火しないことがある。touchstart で切り替える（時計ボタンと同じ）。touchstart で処理した時は、続けて来る click を無視する
       fb.ontouchstart = (ev) => { ev.preventDefault(); ev.stopPropagation(); fixTouchAt = Date.now(); fixToggle(); };
       fb.onclick = () => { if (Date.now() - fixTouchAt < 700) return; fixToggle(); };
-      // スティックを押さえている最中でも確実に押せるよう、document のキャプチャ段階（どの要素よりも先）で「指がボタンの位置に触れたか」を座標で見る。
-      // ボタンの上にスティックの領域などが重なっていても、別の指の touchstart が届かなくても、ここで拾って切り替える（拾った時は、ほかの要素には渡さない）。
+      // スティックを押さえている最中でも確実に押せるよう、document のキャプチャ段階（どの要素よりも先）で「指がボタンの位置に触れたか」を座標で見て切り替える。
+      // pointerdown で拾う（Chromebook などで、ボタン自身の touchstart / click が届かないことがあるため）。touchstart も同じように拾い、二重に切り替わらないよう時間で見る。
+      // 拾った時は、ほかの要素には渡さない。ロビー・宝箱の選択・リザルトなどのメニューが上に出ている時だけ、拾わない。
       window._fixBtnHook = { el: fb, toggle: () => { fixTouchAt = Date.now(); fixToggle(); } };
       if (!window._fixBtnHookInstalled) {
         window._fixBtnHookInstalled = true;
-        document.addEventListener('touchstart', (ev) => {
-          const H = window._fixBtnHook; if (!H || !H.el || !H.el.isConnected) return;
-          const el = H.el, r = el.getBoundingClientRect(); if (r.width < 1 || r.height < 1) return; // 隠れている（HUDが出ていない）間は何もしない
-          const cs = getComputedStyle(el); if (cs.display === 'none' || cs.visibility === 'hidden') return;
+        const hitTest = (x, y) => {
+          const H = window._fixBtnHook; if (!H || !H.el || !H.el.isConnected) return false;
+          const el = H.el, r = el.getBoundingClientRect(); if (r.width < 1 || r.height < 1) return false; // 隠れている（HUDが出ていない）間は何もしない
+          const cs = getComputedStyle(el); if (cs.display === 'none' || cs.visibility === 'hidden') return false;
           const pad = Math.max(6, r.height * 0.25);
-          for (const t of ev.changedTouches) {
-            if (t.clientX < r.left - pad || t.clientX > r.right + pad || t.clientY < r.top - pad || t.clientY > r.bottom + pad) continue;
-            const top = document.elementFromPoint(t.clientX, t.clientY); // 宝箱の選択画面などのメニューがボタンの上に出ている時は、拾わない（ボタン自身・スティックの領域・ゲーム画面の上にいる時だけ）
-            if (!top || !(el.contains(top) || (top.closest && top.closest('#joystickZone, #aimJoystickZone, #game, #ui')))) continue;
-            ev.preventDefault(); ev.stopPropagation(); H.toggle(); return;
-          }
-        }, { passive: false, capture: true });
+          if (x < r.left - pad || x > r.right + pad || y < r.top - pad || y > r.bottom + pad) return false;
+          const top = document.elementFromPoint(x, y);
+          return !(top && !el.contains(top) && top.closest && top.closest('#lobby, .lobbyBox, #chestChoiceOverlay, #resultScreen, #wwGuideBox, #hutBookOverlay, #wwChatPanel'));
+        };
+        let lastAt = 0;
+        const fire = (ev, x, y) => {
+          if (!hitTest(x, y)) return false;
+          if (ev.cancelable) ev.preventDefault(); ev.stopPropagation();
+          const now = Date.now(); if (now - lastAt > 350) { lastAt = now; window._fixBtnHook.toggle(); }
+          return true;
+        };
+        document.addEventListener('touchstart', (ev) => { for (const t of ev.changedTouches) { if (fire(ev, t.clientX, t.clientY)) return; } }, { passive: false, capture: true });
+        document.addEventListener('pointerdown', (ev) => { if (ev.pointerType === 'mouse') return; fire(ev, ev.clientX, ev.clientY); }, { passive: false, capture: true }); // マウスは、従来どおり click で切り替わる
       } } }
 
     this.fixedSeed = (!this.mp && app.soloSeed != null) ? app.soloSeed : null; // ロビーで指定したシード値（ソロのダンジョンのみ。nullならランダム）
@@ -26957,10 +26967,50 @@ const VOICE = {
   farCutoff: 2500,   // 遠い時（outRatioの距離）の上限周波数(Hz)。fullRatio〜outRatioの間で、なめらかに下がる
   wallCutoffScale: 0.05, // 壁越しの時に、上限周波数へかける割合（0.05なら、近くでも約1000Hzまで下がる）。1で壁によるこもりなし
   minCutoff: 350,    // 上限周波数の下限(Hz)。これより下げない（遠い＋壁越しでも、これ以上は削らない）
+  // ----- 壁の厚み・ドアや通路を回り込む音 -----
+  wallThickVolume: 0.6,  // 壁が1枚より厚い時、壁のタイル1枚ごとに、壁越しの音量へかける割合（0.6なら、3枚の厚みで0.36倍）
+  wallThickCutoff: 0.7,  // 同じく、壁のタイル1枚ごとに、上限周波数へかける割合（厚いほどこもる）
+  pathVolume: 0.7,       // 壁を迂回して（ドアや通路から）届く音の、回り込みの損失（0〜1）。1で損失なし
+  pathCutoffScale: 0.45, // 迂回して届く音の、上限周波数へかける割合（回り込むと、少しこもる）
+  pathStretch: 1.2,      // 経路の長さを見積もる時の倍率（斜めの分の補正）
+  // ----- 響き（洞窟のようなリバーブ）。遠いほど、声のあとに響きが長く残って「奥の方から聞こえる」感じになる。 -----
+  // 響きの波形は短い・中くらい・長いの3つ。いる場所（下の env）に合わせて、混ぜる割合を変える。使っていない波形は、無音になるので負荷がほぼかからない
+  reverbMax: 0.9,        // 遠い時に響きへ送る量の最大(0〜1)。大きいほど、遠い声が響きだらけになる（現実より少し大げさ）。0で響きなし
+  reverbStart: 0.5,      // この距離（半径＝1）から、響きが増え始める。これより近いと、ほぼ響かない
+  reverbFull: 1.8,       // この距離で、響きの送る量が最大(reverbMax)になる。outRatio に近づくと、声と一緒に消える
+  wallReverb: 0.55,      // 壁越しの時の、響きの最低の割合(0〜1)。近くても、壁の向こうの声は響いて聞こえる。0で壁の影響なし
+  reverbGain: 1,         // 響き全体の音量。響きが大きすぎる時は下げる
+  reverbTypes: [         // sec＝響きの長さ(秒)、decay＝消えていく速さ(大きいほどすぐ小さくなる)、pre＝声から響きが始まるまでの間(秒)、bright→dark＝響きの明るさ(Hz)。最初から終わりにかけて、だんだん暗く（こもって）消える
+    { sec: 0.5, decay: 2.4, pre: 0.008, bright: 7000, dark: 2500 },  // 短い：通路・小部屋
+    { sec: 1.5, decay: 3,   pre: 0.02,  bright: 6000, dark: 1000 },  // 中くらい：ふつうの部屋
+    { sec: 3.2, decay: 2.4, pre: 0.035, bright: 5000, dark: 800 },   // 長い：広い場所・洞窟
+  ],
+  // いる場所ごとの響き：w＝[短い, 中くらい, 長い]を混ぜる割合、wet＝響き全体にかける倍率（大きいほどよく響く）
+  env: {
+    corridor:  { w: [0.75, 0.25, 0],   wet: 0.9 },   // 通路（部屋の外）
+    smallRoom: { w: [1, 0, 0],         wet: 0.8 },   // 小さい部屋
+    room:      { w: [0.25, 0.75, 0],   wet: 1 },     // ふつうの部屋
+    hall:      { w: [0, 0.35, 0.65],   wet: 1.15 },  // 広い部屋・ボスの階
+    hut:       { w: [1, 0, 0],         wet: 0.7 },   // 小屋・家の中
+    open:      { w: [1, 0, 0],         wet: 0.25 },  // 雪原・広場など外：ほとんど響かない
+    hell:      { w: [0, 0.2, 0.8],     wet: 1.25 },  // 地獄
+    sanctuary: { w: [0, 0.1, 0.9],     wet: 1.1 },   // 聖域
+  },
+  srcEnvMix: 0.6,        // 響きの種類を決める時、声の主がいる場所の割合(0〜1)。残りは自分のいる場所。1で声の主の場所だけ、0で自分の場所だけ（声には、声の主のいる空間の響きが乗るので、大きめにする）
+  roomSmallArea: 36,     // 部屋の広さ（タイル数）がこれより小さいと「小さい部屋」
+  roomLargeArea: 130,    // これ以上だと「広い部屋」
+  // ----- 近い声の低音（近接効果）：すぐ近くだと、低い音が少し太く聞こえる -----
+  nearBassDb: 7,         // いちばん近い時の低音の持ち上げ(dB)。現実より少し大げさ。0でなし
+  nearBassStart: 0.12,   // この距離（半径＝1）より近いと、最大に持ち上がる
+  nearBassEnd: 0.5,      // この距離で、持ち上がりが0になる
+  bassHz: 250,           // 持ち上げる低音の周波数(Hz)（これより低い音が太くなる）
   // fullRatio〜1の間は、最大音量からedgeVolumeまで直線的に小さくなる
   tick: 100,         // 接続の確認と音量の更新の間隔(ミリ秒)
   retryMs: 5000,     // つながらなかった相手に、もう一度つなぎに行くまでの待ち時間
 };
+
+// 立体音響のチェック（ロビー）：選んだ状態を覚えておく（初期はオフ）
+{ const chk = document.getElementById('spatialAudioChk'); if (chk) { try { chk.checked = localStorage.getItem('spatialAudio') === '1'; } catch (x) {} chk.addEventListener('change', () => { try { localStorage.setItem('spatialAudio', chk.checked ? '1' : '0'); } catch (x) {} }); } }
 
 class VoiceChat {
   constructor(net, scene) {
@@ -26980,7 +27030,7 @@ class VoiceChat {
 
   start() {
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (AC) { this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = this.deaf ? 0 : 1; this.master.connect(this.ctx.destination); }
+    if (AC) { this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = this.deaf ? 0 : 1; this.master.connect(this.ctx.destination); try { this._makeReverb(); } catch (err) { this.revTaps = null; } }
     // ブラウザは、操作する前の音を止めるので、最初の操作で音を出せる状態にする
     this._resume = () => { if (this.ctx && this.ctx.state !== 'running') this.ctx.resume().catch(() => {}); };
     ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, this._resume, true));
@@ -27000,6 +27050,111 @@ class VoiceChat {
     this._micStop();
     this.bar.classList.remove('show');
     if (this.ctx) { try { this.ctx.close(); } catch (e) {} }
+  }
+
+  // 響き（洞窟のようなリバーブ）：ノイズが暗くなりながら消えていく波形を、起動時にコードで作る（音声ファイルは使わない）。左右で別のノイズにして、広がりを出す。
+  // 波形は短い・中くらい・長いの3つ。全員の声がこの3つに入る（相手ごとに増えるのは送る量の調整だけなので、人数が増えても重くならない）
+  _makeReverb() {
+    const ctx = this.ctx; if (!ctx || !ctx.createConvolver) return;
+    const sr = ctx.sampleRate;
+    const out = ctx.createGain(); out.gain.value = VOICE.reverbGain;
+    this.revTaps = VOICE.reverbTypes.map((T) => {
+      const len = Math.max(2, Math.floor(sr * T.sec)), pre = Math.min(len - 1, Math.floor(sr * T.pre));
+      const ir = ctx.createBuffer(2, len, sr);
+      for (let ch = 0; ch < 2; ch++) {
+        const d = ir.getChannelData(ch); let lp = 0;
+        for (let i = pre; i < len; i++) {
+          const t = (i - pre) / (len - pre);
+          const env = Math.pow(1 - t, T.decay);                                      // だんだん小さく
+          const fc = T.bright * Math.pow(T.dark / T.bright, t);                      // だんだん暗く（高い音から消える）
+          lp += ((Math.random() * 2 - 1) - lp) * (1 - Math.exp(-2 * Math.PI * fc / sr));
+          d[i] = lp * env;
+        }
+      }
+      const conv = ctx.createConvolver(); conv.buffer = ir;
+      const tap = ctx.createGain(); tap.gain.value = 1;   // この波形の入口。相手ごとに、どの波形へどれだけ送るかを変える（使っていない波形は、入力が無音になるので、ほぼ負荷なし）
+      tap.connect(conv); conv.connect(out);
+      return tap;
+    });
+    out.connect(this.master);
+    this.revOut = out;
+  }
+
+  // その場所（ワールド座標 x,y）の響きの種類を決める。自分の足元と、声の主の足元の両方に使う
+  _envAt(sc, x, y) {
+    const E = VOICE.env, dg = sc.dungeon; if (!dg) return E.corridor;
+    const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+    if (sc.sanctuary) return E.sanctuary;
+    if (sc.hell) return E.hell;
+    if (sc.snowfield) { const h = dg.hut; return (h && tx >= h.x && tx < h.x + h.w && ty >= h.y && ty < h.y + h.h) ? E.hut : E.open; }
+    const ww = dg.werewolf;
+    if (ww && ww.kind && ww.w) { const k = ww.kind[ty * ww.w + tx]; if (k === 3) return E.hut; if (k === 1 || k === 2 || k === 4) return E.open; }
+    if (sc.bossRush || sc.bossFloor) return E.hall;
+    if (sc.pvp) return E.room;
+    if (sc.frontline) return E.corridor;
+    const rooms = dg.rooms;
+    if (rooms) for (const r of rooms) { if (tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h) { const area = r.w * r.h; return area < VOICE.roomSmallArea ? E.smallRoom : area >= VOICE.roomLargeArea ? E.hall : E.room; } }
+    return E.corridor; // 部屋の外＝通路
+  }
+  _updateEnv(sc) { this.envL = this._envAt(sc, sc.player.x, sc.player.y); } // 自分のいる場所の響き（相手ごとの混ぜ合わせは、tick で）
+
+  // 2点の間にある壁のタイルの数（＝壁の厚み）。途中で壁のタイルに入るたびに1つ数える
+  _wallTiles(sc, x1, y1, x2, y2) {
+    const n = Math.max(1, Math.ceil(Math.hypot(x2 - x1, y2 - y1) / (TILE * 0.25))), W2 = sc.dungeon.width + 2;
+    let count = 0, last = -1;
+    for (let i = 1; i < n; i++) {
+      const x = x1 + (x2 - x1) * i / n, y = y1 + (y2 - y1) * i / n;
+      if (sc.isWall(x, y)) { const key = Math.floor(y / TILE) * W2 + Math.floor(x / TILE); if (key !== last) { count++; last = key; } } else last = -1;
+    }
+    return count;
+  }
+
+  // 音の通り道：自分のいるタイルから、歩いて行ける範囲を幅優先で調べる（声が届く距離まで）。1回の更新につき1回だけ調べて、壁越しの全員で共有する
+  _soundField(sc) {
+    const dg = sc.dungeon; if (!dg || !dg.grid) return null;
+    const W = dg.width, H = dg.height, N = W * H;
+    let B = this._bfs;
+    if (!B || B.N !== N) B = this._bfs = { N, dist: new Int16Array(N), par: new Int32Array(N), seen: new Int32Array(N), open: new Int8Array(N), openSeen: new Int32Array(N), queue: new Int32Array(N), cur: 0, W, H };
+    const cur = ++B.cur; B.W = W; B.H = H;
+    const sx = Math.floor(sc.player.x / TILE), sy = Math.floor(sc.player.y / TILE);
+    if (sx < 0 || sx >= W || sy < 0 || sy >= H) return null;
+    const maxD = Math.ceil(VOICE.radius * VOICE.outRatio / (TILE * VOICE.pathStretch)) + 1;
+    const free = (x, y) => {
+      if (x < 0 || y < 0 || x >= W || y >= H) return false;
+      const i = y * W + x;
+      if (B.openSeen[i] !== cur) { B.openSeen[i] = cur; B.open[i] = sc.isWall(x * TILE + TILE / 2, y * TILE + TILE / 2) ? 0 : 1; }
+      return B.open[i] === 1;
+    };
+    const NB = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+    let qh = 0, qt = 0; const s0 = sy * W + sx;
+    B.seen[s0] = cur; B.dist[s0] = 0; B.par[s0] = -1; B.queue[qt++] = s0;
+    while (qh < qt) {
+      const c = B.queue[qh++], cd = B.dist[c]; if (cd >= maxD) continue;
+      const cx = c % W, cy = (c - cx) / W;
+      for (let k = 0; k < 8; k++) {
+        const dx = NB[k][0], dy = NB[k][1], nx = cx + dx, ny = cy + dy;
+        if (!free(nx, ny)) continue;
+        if (dx !== 0 && dy !== 0 && (!free(cx + dx, cy) || !free(cx, cy + dy))) continue; // 斜めは、角を抜けない
+        const ni = ny * W + nx; if (B.seen[ni] === cur) continue;
+        B.seen[ni] = cur; B.dist[ni] = cd + 1; B.par[ni] = c; B.queue[qt++] = ni;
+      }
+    }
+    return B;
+  }
+  // 相手のいる場所まで、音が回り込んで届く経路。{len＝経路の長さ(px), dx/dist＝聞こえる方向（自分から見える一番遠い経路上の点＝ドアや曲がり角）}。届かなければnull
+  _soundPath(B, sc, px, py) {
+    const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+    if (tx < 0 || ty < 0 || tx >= B.W || ty >= B.H) return null;
+    const idx = ty * B.W + tx; if (B.seen[idx] !== B.cur) return null;
+    const lx = sc.player.x, ly = sc.player.y;
+    const nodes = []; for (let c = idx; c !== -1; c = B.par[c]) nodes.push(c); // 相手→自分の順（最後が自分のタイル）
+    let tgt = nodes.length >= 2 ? nodes[nodes.length - 2] : idx;                // 見つからなければ、自分の隣
+    for (let i = 0; i < nodes.length - 1; i++) {                                // 相手に近い方から見て、最初に視線が通る点＝一番遠く見える点
+      const c = nodes[i];
+      if (sc.hasLineOfSight(lx, ly, (c % B.W) * TILE + TILE / 2, Math.floor(c / B.W) * TILE + TILE / 2)) { tgt = c; break; }
+    }
+    const cx = (tgt % B.W) * TILE + TILE / 2, cy = Math.floor(tgt / B.W) * TILE + TILE / 2;
+    return { len: B.dist[idx] * TILE * VOICE.pathStretch, dx: cx - lx, dy: cy - ly, dist: Math.hypot(cx - lx, cy - ly) };
   }
 
   _paintButtons() {
@@ -27053,31 +27208,72 @@ class VoiceChat {
     this.bar.classList.toggle('high', !!(ww && ww.style.display && ww.style.display !== 'none'));
     if (!this.ctx || !sc || !sc.player) return;
     // 距離は、画面の大きさ・縦横比・演出のズームに関係なく、ワールド上の円（半径 VOICE.radius）で測る（声の聞こえ方を左右対称にするため）
-    const R = VOICE.radius;
-    const full = VOICE.fullRatio;
+    const R = VOICE.radius, full = VOICE.fullRatio, fade = VOICE.fadeRatio, out = VOICE.outRatio;
+    const clamp01 = (x) => x < 0 ? 0 : x > 1 ? 1 : x;
+    // リアル寄り：fullより遠いと距離に反比例して小さくなる（距離が2倍で音量は半分）。fade〜outの間で、0へなめらかに消える
+    const att = (d) => d <= full ? 1 : d >= out ? 0 : (full / d) * (d <= fade ? 1 : (out - d) / (out - fade));
+    // こもり：遠いほど高い音を削る（周波数は対数で、なめらかに下げる）
+    const cutAt = (d) => VOICE.nearCutoff * Math.pow(VOICE.farCutoff / VOICE.nearCutoff, clamp01((d - full) / (out - full)));
+    const panOf = (dx, dist) => VOICE.panMax * dx / Math.max(dist, VOICE.panSoft); // 左(-)〜右(+)。真横ほど片耳に寄り、すぐ近くは中央
+    // 響き：遠いほど増える（声は距離で小さくなるのに、響きは残る＝奥から聞こえる感じ）。壁越しなら、近くてもある程度響く。声が消える距離に近づくと、響きも一緒に消える
+    const wetOf = (d, blocked) => {
+      const rd = clamp01((d - VOICE.reverbStart) / Math.max(0.01, VOICE.reverbFull - VOICE.reverbStart));
+      const edge = d >= out ? 0 : d <= fade ? 1 : (out - d) / (out - fade);
+      return VOICE.reverbMax * Math.max(rd, blocked ? VOICE.wallReverb : 0) * edge;
+    };
+    const hasGrid = !!(sc.dungeon && sc.dungeon.grid), ct = this.ctx.currentTime;
+    this._updateEnv(sc); // 自分のいる場所の響きの種類
+    const sch = document.getElementById('spatialAudioChk'); this.spatial = !!(sch && sch.checked && this.ctx.createPanner); // 立体音響（HRTF）のオン/オフ
+    let field = null;    // 音の通り道（壁越しの相手がいる時だけ調べる。全員で共有）
     this.peers.forEach((e, uid) => {
       if (!e.gain) return;
+      this._applySpatial(e);
       const p = players[uid];
-      let v = 0, cut = VOICE.nearCutoff, pv = 0;
+      let v = 0, cut = VOICE.nearCutoff, pv = 0, wet = 0, bass = 0, ux = 0, uy = 0, hd = 0; // ux,uy＝聞こえる方向（自分から見た単位ベクトル。画面の右が+x、下が+y）、hd＝その方向までの距離
       if (p && p.floor === sc.floor) {
-        const dx = (p.x || 0) - sc.player.x, dy = (p.y || 0) - sc.player.y, dpx = Math.hypot(dx, dy), d = dpx / R;
-        pv = VOICE.panMax * dx / Math.max(dpx, VOICE.panSoft); // 左(-)〜右(+)。真横ほど片耳に寄り、すぐ近くは中央
-        const ev = VOICE.edgeVolume, out = VOICE.outRatio;
-        // リアル寄り：fullより遠いと距離に反比例して小さくなる（距離が2倍で音量は半分）。画面の端〜outの間で、0へなめらかに消える
-        const fade = VOICE.fadeRatio;
-        v = d <= full ? 1 : d >= out ? 0 : (full / d) * (d <= fade ? 1 : (out - d) / (out - fade));
-        // 壁越しは、音量を下げる（間に壁がある＝視線が通らない）
-        let wall = false;
-        if (v > 0 && sc.dungeon && sc.dungeon.grid && !sc.hasLineOfSight(sc.player.x, sc.player.y, p.x || 0, p.y || 0)) { v *= VOICE.wallVolume; wall = true; }
-        // こもり：遠いほど高い音を削る（周波数は対数で、なめらかに下げる）。壁越しは、さらに削る
-        const tt = Math.min(1, Math.max(0, (d - full) / (out - full)));
-        cut = VOICE.nearCutoff * Math.pow(VOICE.farCutoff / VOICE.nearCutoff, tt);
-        if (wall) cut *= VOICE.wallCutoffScale;
-        cut = Math.max(VOICE.minCutoff, cut);
+        const ppx = p.x || 0, ppy = p.y || 0;
+        const dx = ppx - sc.player.x, dy = ppy - sc.player.y, dpx = Math.hypot(dx, dy), d = dpx / R;
+        const vDirect = att(d);
+        // 間に壁がある（視線が通らない）時は、壁のタイルの数（厚み）を数える
+        const tiles = (vDirect > 0 && hasGrid && !sc.hasLineOfSight(sc.player.x, sc.player.y, ppx, ppy)) ? Math.max(1, this._wallTiles(sc, sc.player.x, sc.player.y, ppx, ppy)) : 0;
+        if (!tiles) {
+          v = vDirect; pv = panOf(dx, dpx); cut = Math.max(VOICE.minCutoff, cutAt(d)); wet = wetOf(d, false);
+          ux = dpx > 0 ? dx / dpx : 0; uy = dpx > 0 ? dy / dpx : 0; hd = dpx;
+          bass = VOICE.nearBassDb * clamp01((VOICE.nearBassEnd - d) / Math.max(0.01, VOICE.nearBassEnd - VOICE.nearBassStart)); // 近いほど低音が太く
+        } else {
+          // ①壁を通り抜けてくる音：厚いほど小さく、こもる。方向は相手のいる方向
+          const k = tiles - 1;
+          const vW = vDirect * VOICE.wallVolume * Math.pow(VOICE.wallThickVolume, k);
+          const cW = cutAt(d) * VOICE.wallCutoffScale * Math.pow(VOICE.wallThickCutoff, k);
+          const pW = panOf(dx, dpx);
+          // ②ドアや通路を回り込んでくる音：経路が長いほど小さい。方向は、経路上で自分から見える一番遠い点（ドアや曲がり角）
+          let vP = 0, cP = 0, pP = 0, dEff = d;
+          if (field === null) field = this._soundField(sc) || false;
+          const path = field ? this._soundPath(field, sc, ppx, ppy) : null;
+          if (path) { dEff = Math.max(path.len, dpx) / R; vP = att(dEff) * VOICE.pathVolume; cP = cutAt(dEff) * VOICE.pathCutoffScale; pP = panOf(path.dx, path.dist); }
+          // 2つの大きさに応じて、方向とこもりをなめらかに混ぜる（どちらかが急に入れ替わらない）。音量は大きい方
+          const sum = vW + vP, wP = sum > 0 ? vP / sum : 0;
+          v = Math.max(vW, vP);
+          if (sum > 0) { pv = pP * wP + pW * (1 - wP); cut = cP * wP + cW * (1 - wP); } else { pv = pW; cut = cW; }
+          const uWx = dpx > 0 ? dx / dpx : 0, uWy = dpx > 0 ? dy / dpx : 0; // 立体音響用の方向も、同じ割合で混ぜる
+          if (path && path.dist > 0 && wP > 0) { ux = path.dx / path.dist * wP + uWx * (1 - wP); uy = path.dy / path.dist * wP + uWy * (1 - wP); hd = path.dist * wP + dpx * (1 - wP); } else { ux = uWx; uy = uWy; hd = dpx; }
+          cut = Math.max(VOICE.minCutoff, cut);
+          wet = wetOf(vP > vW ? dEff : d, true);
+        }
       }
-      if (e.lp) e.lp.frequency.setTargetAtTime(cut, this.ctx.currentTime, 0.08);
-      e.gain.gain.setTargetAtTime(v * VOICE.maxVolume, this.ctx.currentTime, 0.08);
-      if (e.pan) e.pan.pan.setTargetAtTime(pv, this.ctx.currentTime, 0.08);
+      if (e.lp) e.lp.frequency.setTargetAtTime(cut, ct, 0.08);
+      if (e.shelf) e.shelf.gain.setTargetAtTime(bass, ct, 0.1);
+      e.gain.gain.setTargetAtTime(v * VOICE.maxVolume, ct, 0.08);
+      if (e.pan) e.pan.pan.setTargetAtTime(pv, ct, 0.08);
+      if (e.sends) { // 響き：声の主のいる場所と自分のいる場所の響きの種類を混ぜて、短い・中くらい・長いの3つへ、それぞれ送る量を決める（場所が変わっても、ゆっくり混ざり替わる）
+        const L = this.envL || VOICE.env.corridor, S = (p && p.floor === sc.floor) ? this._envAt(sc, p.x || 0, p.y || 0) : L, a = VOICE.srcEnvMix;
+        const scale = wet * (a * S.wet + (1 - a) * L.wet);
+        for (let i = 0; i < e.sends.length; i++) e.sends[i].gain.setTargetAtTime(scale * (a * (S.w[i] || 0) + (1 - a) * (L.w[i] || 0)), ct, 0.25);
+      }
+      if (e.pn) { // 立体音響：画面の上＝前、下＝後ろ、右＝右として、方向だけを渡す（距離による音量は上の gain で決めている）。すぐ近くは、方向を前に寄せて、急に入れ替わらないようにする
+        const nk = Math.min(1, hd / Math.max(1, VOICE.panSoft)), hx = ux * nk * 3, hz = (uy * nk - (1 - nk)) * 3;
+        if (e.pn.positionX) { e.pn.positionX.setTargetAtTime(hx, ct, 0.08); e.pn.positionZ.setTargetAtTime(hz, ct, 0.08); } else e.pn.setPosition(hx, 0, hz);
+      }
     });
   }
 
@@ -27086,21 +27282,47 @@ class VoiceChat {
     const off = this.myUid < uid ? this.myUid : uid, ans = this.myUid < uid ? uid : this.myUid;
     return this.db.ref(`rooms/${this.roomId}/rtc/v_${off}_${ans}`);
   }
-  _makePc(e) {
+  _makePc(e, asAnswerer) {
     if (e.pc) { try { e.pc.close(); } catch (x) {} }
     if (e.gain) { try { e.gain.disconnect(); } catch (x) {} e.gain = null; }
     if (e.lp) { try { e.lp.disconnect(); } catch (x) {} e.lp = null; }
+    if (e.sends) { e.sends.forEach((sg) => { try { sg.disconnect(); } catch (x) {} }); e.sends = null; }
+    if (e.shelf) { try { e.shelf.disconnect(); } catch (x) {} e.shelf = null; }
+    if (e.pn) { try { e.pn.disconnect(); } catch (x) {} e.pn = null; }
     const pc = new RTCPeerConnection(RTC_CONFIG);
-    e.pc = pc;
-    const tr = pc.addTransceiver('audio', { direction: 'sendrecv' });  // マイクがオフでも、聞く側は常に繋いでおく
-    e.sender = tr.sender;
-    if (this.micTrack) e.sender.replaceTrack(this.micTrack).catch(() => {});
+    e.pc = pc; e.sender = null;
+    // offerを出す側：音声の枠（送受信）を作って出す。マイクがオフでも、聞く側は常に繋いでおく。
+    // 答える側：ここでは枠を作らない（相手のofferを受け取ったあと、_answer で、offerから作られた枠を送受信にして使う）。
+    //   addTransceiver で先に作った枠は、相手のofferの音声の枠とは結びつかない（addTrack で足したものだけが結びつく）。そのため答える側が先に作ると、
+    //   offerの枠は「受信専用」で答えてしまい、答える側のマイクの声が相手に届かなかった（片方向になる原因）。
+    if (!asAnswerer) {
+      const tr = pc.addTransceiver('audio', { direction: 'sendrecv' });
+      e.sender = tr.sender;
+      if (this.micTrack) e.sender.replaceTrack(this.micTrack).catch(() => {});
+    }
     pc.ontrack = (ev) => this._attach(e, ev.streams[0] || new MediaStream([ev.track]));
     pc.onconnectionstatechange = () => {
       if (e.pc !== pc) return;
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') this._close(e.uid);
     };
     return pc;
+  }
+  // 立体音響（HRTF）のオン/オフに合わせて、声のつなぎ先を、左右の振り分け(StereoPanner)と立体音響(PannerNode)とで切り替える。オフの間は、立体音響の処理は作らない（負荷なし）
+  _applySpatial(e) {
+    const want = !!(this.spatial && this.ctx && this.ctx.createPanner);
+    if (!!e.pn === want || !e.gain) return;
+    try { e.gain.disconnect(); } catch (x) {}
+    try { if (e.pan) e.pan.disconnect(); } catch (x) {}
+    if (want) {
+      const pn = this.ctx.createPanner();
+      pn.panningModel = 'HRTF'; pn.distanceModel = 'inverse'; pn.refDistance = 1; pn.rolloffFactor = 0; // 距離による音量の変化は、こちらの音量(gain)で決めているので、ここでは変えない
+      if (pn.positionX) { pn.positionX.value = 0; pn.positionY.value = 0; pn.positionZ.value = -3; } else pn.setPosition(0, 0, -3);
+      e.gain.connect(pn); pn.connect(this.master); e.pn = pn;
+    } else {
+      try { e.pn.disconnect(); } catch (x) {}
+      e.pn = null;
+      if (e.pan) { e.gain.connect(e.pan); e.pan.connect(this.master); } else e.gain.connect(this.master);
+    }
   }
   _attach(e, stream) {
     if (!this.ctx || this.stopped) return;
@@ -27111,9 +27333,12 @@ class VoiceChat {
       const g = this.ctx.createGain(); g.gain.value = 0;
       const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.7071; lp.frequency.value = VOICE.nearCutoff; // 距離・壁越しのこもり用
       const pan = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null; // 方向を感じさせる左右の振り分け
-      src.connect(lp); lp.connect(g);
+      const shelf = this.ctx.createBiquadFilter(); shelf.type = 'lowshelf'; shelf.frequency.value = VOICE.bassHz; shelf.gain.value = 0; // 近い声の低音（近接効果）
+      src.connect(lp); lp.connect(shelf); shelf.connect(g);
       if (pan) { g.connect(pan); pan.connect(this.master); } else g.connect(this.master);
-      e.src = src; e.lp = lp; e.gain = g; e.pan = pan;
+      let sends = null; // 響き（短い・中くらい・長い）へ送る量（距離と場所で変わる）。左右の振り分けの前から送るので、響きは方向を持たず広がる（声は方向がはっきり、響きはぼんやり）
+      if (this.revTaps) sends = this.revTaps.map((tap) => { const sg = this.ctx.createGain(); sg.gain.value = 0; lp.connect(sg); sg.connect(tap); return sg; });
+      e.src = src; e.lp = lp; e.shelf = shelf; e.gain = g; e.pan = pan; e.sends = sends; e.pn = null; this._applySpatial(e);
     } catch (err) {}
   }
   _addCand(pc, pending, c) {
@@ -27160,11 +27385,18 @@ class VoiceChat {
     // 相手が新しいofferを出した（＝繋ぎ直し）時は、古い接続を捨てて作り直す
     e.gen = v.gen;
     (e.candRefs || []).forEach(f => f()); e.candRefs = [];
-    const pc = this._makePc(e);
+    const pc = this._makePc(e, true);
     const pending = [];
     try {
       pc.onicecandidate = (ev) => { if (ev.candidate) base.child(`c/${v.gen}/a`).push(ev.candidate.toJSON()); };
       await pc.setRemoteDescription({ type: v.type, sdp: v.sdp });
+      // offerから作られた音声の枠を送受信にして、マイクの声を送れるようにする（受信専用のままだと、こちらの声が相手に届かない）
+      const tr = pc.getTransceivers().find(t => t.receiver && t.receiver.track && t.receiver.track.kind === 'audio') || pc.getTransceivers()[0];
+      if (tr) {
+        try { tr.direction = 'sendrecv'; } catch (x) {}
+        e.sender = tr.sender;
+        if (this.micTrack) e.sender.replaceTrack(this.micTrack).catch(() => {});
+      }
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       await base.child('answer').set({ sdp: pc.localDescription.sdp, type: pc.localDescription.type, gen: v.gen });
@@ -27184,6 +27416,9 @@ class VoiceChat {
     try { if (e.pc) e.pc.close(); } catch (x) {}
     try { if (e.gain) e.gain.disconnect(); } catch (x) {}
     try { if (e.lp) e.lp.disconnect(); } catch (x) {}
+    try { if (e.sends) e.sends.forEach((sg) => sg.disconnect()); } catch (x) {}
+    try { if (e.shelf) e.shelf.disconnect(); } catch (x) {}
+    try { if (e.pn) e.pn.disconnect(); } catch (x) {}
     try { if (e.audioEl) { e.audioEl.pause(); e.audioEl.srcObject = null; } } catch (x) {}
     if (!silent) { try { this._base(uid).remove(); } catch (x) {} }
   }
