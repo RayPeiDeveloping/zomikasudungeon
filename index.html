@@ -578,6 +578,7 @@
       <button id="soloBtn">ダンジョン</button>
       <button id="hutWarpBtn" style="background:#6b8fa8; margin-top:0.8vh; display:none !important;">🛠 テスト：小屋の入り口へワープ</button>
       <button id="endingTestBtn" style="display:none; background:#ffd77a; color:#222; margin-top:0.8vh;">🛠 テスト：エンディング（宇宙が壊れて聖域に戻ったところから）</button>
+      <button id="endingFullTestBtn" style="display:none; background:#ff7a7a; color:#222; margin-top:0.8vh;">🛠 テスト：エンディング（最初から）</button>
       <button id="demonTestBtn" style="background:#3a2450; color:#fff; margin-top:0.8vh; display:none !important;">🛠 テスト：悪魔（25階）</button>
       <button id="hellTestBtn" style="background:#8a2a1a; color:#fff; margin-top:0.8vh; display:none !important;">🛠 テスト：地獄（扉から出ると1階）</button> <!-- テスト用：最初から地獄で始める。奥の扉に入ると1階に出る --> <!-- テスト用：ソロで25階から始めて、悪魔の問答を必ず出す --> <!-- テスト用：雪原の小屋の入り口から始める（表示中。デベロッパーモードでも使える） -->
     </div>
@@ -1356,6 +1357,32 @@ function openLibrary(onClose, playerColor, accIcon, visits, countReach) { // cou
 //   メモは Firebase の library/partyroom/memos から読み込む（HTMLには本文を持たない）。
 //   形式：library/partyroom/memos/0 = { title: 'メモの題名', text: '本文' }, library/partyroom/memos/1 = …（最大12枚。本文は \n・¥n・￥n で改行）
 //   セキュリティルール：library は「読み取りのみ許可」にすること（書庫と同じ）。入れる元データは partyroom.json。
+// 🏔 雪原のフロアの番号は、HTMLには持たず、Firebase の library/godFloor から読み込む（数字でも文字でもよい。セーブや localStorage には保存しない）。
+//   読めなかった時は null のまま＝どの番号も「雪原のフロア」にならない（白い扉も、エンディングの続きも出ない）。
+let GOD_FLOOR_RAW = null, GOD_FLOOR_OK = false, GOD_FLOOR_NOFB = false, _godFloorP = null;
+//   「たまたまその時だけ読めなかった」で扉が出ないことがないように、読めるまで間を空けて何度もやり直す（成功したら止まる）。
+function loadGodFloor() {
+  if (_godFloorP) return _godFloorP;
+  _godFloorP = (async () => {
+    if (typeof netInstance === 'undefined' || !netInstance || !netInstance.enabled) { GOD_FLOOR_NOFB = true; return null; } // Firebaseを使わない環境：待っても読めない
+    for (let i = 0; ; i++) {
+      try {
+        const run = (async () => { await netInstance.signIn(); return (await netInstance.db.ref('library/godFloor').once('value')).val(); })();
+        const v = await Promise.race([run, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000))]);
+        GOD_FLOOR_RAW = (v == null || String(v).trim() === '') ? null : String(v).normalize('NFKC').trim();
+        GOD_FLOOR_OK = true; return GOD_FLOOR_RAW; // 読めた（library/godFloor が空なら、雪原のフロアは無い扱い）
+      } catch (err) {
+        console.warn('library/godFloor を読めませんでした。やり直します:', err);
+        await new Promise(r => setTimeout(r, Math.min(10000, 1000 * Math.pow(2, Math.min(i, 4)))));
+      }
+    }
+  })();
+  return _godFloorP;
+}
+// 読み終わる（または、Firebaseを使わない環境だと分かる）まで、最大 ms ミリ秒待つ。読み終わっていれば true
+async function waitGodFloor(ms) { await Promise.race([loadGodFloor(), new Promise(r => setTimeout(r, ms))]); return GOD_FLOOR_OK || GOD_FLOOR_NOFB; }
+function godFloorSeed() { return GOD_FLOOR_RAW == null ? null : seedFromText(GOD_FLOOR_RAW); } // 雪原のフロアのシード値（読めていなければ null）
+function isGodFloorSeed(seed) { const g = godFloorSeed(); return g != null && seed === g; }
 async function fetchPartyRoomNumber() {
   if (typeof netInstance === 'undefined' || !netInstance || !netInstance.enabled) throw new Error('Firebase unavailable');
   const run = (async () => {
@@ -1718,7 +1745,7 @@ const GOD_END = { hold: 1.5, fade: 2.5 };
 //   startWait＝両目が閉じてから歩き出すまで(秒)／walkSpeed＝歩く速さ(px/秒)／holdTime＝真ん中に着いてから根が復活し始めるまで(秒)／reviveTime＝根が浮かび上がる秒／redTime・redHold＝根全体が赤く輝いていく秒・輝いたまま待つ秒
 //   thrustTime＝根が一斉に壁へ伸びて、刺さるまでの秒（距離が違っても、全部が同時に刺さる）／extendStagger＝根ごとの伸び始めのばらつき(秒。0＝一斉)／extendMax＝全部が刺さらなくても、この秒で先へ進む／stabDepth＝壁の中へ食い込む深さ(px)／rootsFallback＝根が出ていない時に使う本数
 //   crackTime＝根が刺さってから、赤い亀裂が画面の外から真ん中近くまで伸びてくる秒／crackCount＝画面の外のまわりから伸びてくる亀裂の本数（枝分かれは別）／redDelay・redTime＝根が刺さってから画面が赤くなり始めるまでの秒・そこから真っ赤になるまでの秒／crimson＝画面の赤の色／stabShake・stabShakeTime＝根が刺さった瞬間の、大きめの揺れの強さ・秒／shakeStart・shakeEnd＝そのあと真っ赤になるまでに、揺れが高まっていく強さ（始まり・最後）／blastHold＝真っ赤になってから、暗転が始まるまでの秒／darkTime＝そこから、ゆっくり暗転していく秒（真っ暗になりきったら、コンプリート画面へ）／redShake・redShakeTime＝根が赤く輝き始める瞬間の、画面の揺れの強さ・秒（一瞬だけ揺れる。根を伸ばしている間は揺れない）
-const GOD_ROOTFIN = { startWait: 0.6, walkSpeed: 92.4, redFlash: 0.22, holdTime: 0.5, reviveTime: 1.2, redTime: 1.5, redHold: 0.6, thrustTime: 0.35, extendStagger: 0, extendMax: 2.4, stabDepth: 14, rootsFallback: 18, stabShake: 0.06, stabShakeTime: 0.5, shakeStart: 0.008, crackTime: 3.5, crackCount: 16, redDelay: 1, redTime: 3.5, crimson: 0xff0000, shakeEnd: 0.03, blastHold: 1.2, darkTime: 6, redShake: 0.007, redShakeTime: 0.25 }; // 🎬 エンディングの最後：両目が閉じてから暗転が始まるまでの間(秒)／暗くなっていく時間(秒)。暗転のあと、オールクリア画面（GAME CLEAR）へ
+const GOD_ROOTFIN = { startWait: 0.6, walkSpeed: 55, redFlash: 0.22, holdTime: 0.5, reviveTime: 1.2, redTime: 1.5, redHold: 0.6, thrustTime: 0.35, extendStagger: 0, extendMax: 2.4, stabDepth: 14, rootsFallback: 18, stabShake: 0.06, stabShakeTime: 0.5, shakeStart: 0.008, crackTime: 3.5, crackCount: 16, redDelay: 1, redTime: 3.5, crimson: 0xff0000, shakeEnd: 0.03, blastHold: 1.2, darkTime: 6, redShake: 0.007, redShakeTime: 0.25 }; // 🎬 エンディングの最後：両目が閉じてから暗転が始まるまでの間(秒)／暗くなっていく時間(秒)。暗転のあと、オールクリア画面（GAME CLEAR）へ
 const SANCTUARY_GOD = { nearRadius: 120, interval: 0.5, growTime: 0.35, holdTime: 2, fadeTime: 0.6, maxWidth: 56, length: 1400, color: 0x000000, orbR: 14, scale: 2, speed: 45, pauseMin: 0.6, pauseMax: 2.2, bodyR: 22, lines: false, punishHits: 3, hitGap: 0.45 };
 // ✨ 神には当たり判定がないが、狙って攻撃した回数を数える：punishHits＝この回数に達すると罰（目の演出）／hitGap＝同じ攻撃を連続で数えない間隔（秒）。罰＝HPは減らさず、装飾品を剥いで（このゲーム中だけ）、雪原のランダムな点へテレポート。
 // ✨ scale＝神全体の大きさの倍率（体・輪・目・光・攻撃の判定・歩く時の壁との距離がぜんぶこれで変わる）。bodyR＝神の体（宇宙への窓）の基本の半径（px）。 lines＝黒い線（宇宙への窓）を出すか（false で一時的に消す／true で戻る）。
@@ -2225,7 +2252,7 @@ function generateDungeon(seed, floor, opts) {
     }
   }
 
-  // ⬜ 白い扉（ロビーで指定した番号が496の、6階だけ）：いちばん上にある部屋（出口の部屋は避ける）から真上へまっすぐ通路を掘り、マップの上の端に白い扉を作る。
+  // ⬜ 白い扉（ロビーで指定した番号が雪原のフロアの、6階だけ）：いちばん上にある部屋（出口の部屋は避ける）から真上へまっすぐ通路を掘り、マップの上の端に白い扉を作る。
   // 専用の処理で、乱数は使わない（扉が出ない階・番号のマップは、これまでと全く同じ）。出口(3)や書庫の扉と重なる列は避ける。
   let whiteDoor = null;
   if (opts && opts.whiteDoor && others.length > 0) {
@@ -3246,8 +3273,8 @@ const DEFAULT_SAVE = {
   libraryReported: false, // 書庫への到達者数(Firebaseの library/reachers)に、自分を1人として数え済みか
   hutVisited: false,    // 雪原の小屋の中に入ったことがあるか（エンディングが始まる条件の1つ。🛠 テスト起動では記録しない）
   endingReady: false,   // 悪魔の装飾品（SPECIAL_ACCS）を全部集め、かつ雪原の小屋を訪れた印。trueの間、ホーム画面（ロビー）を開くたびに特別演出から始まる（演出の途中で閉じても、次はまた最初から）
-  endingGodReady: false, // エンディングの調伏の儀に成功した印。trueで、まだ続きの演出（496のダンジョンへ自動で入る）を流していなければ、次にロビーを開いた時に流れる
-  endingNextShown: false, // 調伏の儀のあとの続き（496のダンジョンへ自動で入る演出）を流した印。次に調伏の儀を終えるまで、二度と自動では始まらない
+  endingGodReady: false, // エンディングの調伏の儀に成功した印。trueで、まだ続きの演出（雪原のフロアのダンジョンへ自動で入る）を流していなければ、次にロビーを開いた時に流れる
+  endingNextShown: false, // 調伏の儀のあとの続き（雪原のフロアのダンジョンへ自動で入る演出）を流した印。次に調伏の儀を終えるまで、二度と自動では始まらない
   endingDone: false,    // 特別演出が終わり、GAME COMPLETE を出した印（一度trueになったら、演出は二度と始まらない）
   soloClears: 0,        // ダンジョン（ソロ）を全クリア（25階オールクリア）した回数（デベロッパーモード・協力プレイ・ボスラッシュを除く）。1回で装飾品「時計」を入手
 };
@@ -3310,10 +3337,10 @@ const ACC_GOLDSILVER = { count: 6, radius: 70 }; // 金銀のネックレス：�
 function specialAccByKey(key) { return SPECIAL_ACCS.find(a => a.key === key) || null; }
 // 悪魔の装飾品（SPECIAL_ACCS）を全部持っていて、かつ雪原の小屋を訪れていて（hutVisited）、まだ演出が終わっていなければ、sv.endingReady を立てる（保存は呼んだ側が行う）。立てたら true
 // エンディングの演出中だけ true：悪魔の装飾（SPECIAL_ACCS）が全部オンになり、普通の装飾はシリアルキラーになる（入手済みかどうかは関係なし）。セーブには一切書かない（閉じる・読み込み直すと元に戻る）
-const ENDING_NEXT_FACE_SEC = 2; // 496のダンジョン（エンディングの続き）が始まってから、右下を向いたままにする秒数（そのあとは普通の向きの操作に戻る）
-// 496の1階：全滅させたあと、悪魔が話すセリフは、Firebase の library/endingTalk から読み込む（fetchEndingTalk）
+const ENDING_NEXT_FACE_SEC = 2; // 雪原のフロアのダンジョン（エンディングの続き）が始まってから、右下を向いたままにする秒数（そのあとは普通の向きの操作に戻る）
+// 雪原のフロアの1階：全滅させたあと、悪魔が話すセリフは、Firebase の library/endingTalk から読み込む（fetchEndingTalk）
 const ENDING_RESULT_WAIT = 1500; // エンディングの調伏の儀のリザルト画面が出てから、自動で「ロビーへ」を押すまで(ms)
-const ENDING_STATE = { run: false, unlock: null, next: false }; // next：エンディングの続き（496のダンジョンへ自動で入る演出）から始まった印（読み込み直すまで残る） // unlock：演出の操作ロックを外す関数（リザルト画面で自動の「ロビーへ」が押されなかった時の保険にだけ使う）
+const ENDING_STATE = { run: false, unlock: null, next: false }; // next：エンディングの続き（雪原のフロアのダンジョンへ自動で入る演出）から始まった印（読み込み直すまで残る） // unlock：演出の操作ロックを外す関数（リザルト画面で自動の「ロビーへ」が押されなかった時の保険にだけ使う）
 function endingUpdateFlag(sv) {
   if (sv.endingDone || sv.endingReady) return false;
   if (!SPECIAL_ACCS.every(a => sv.specialAccs && sv.specialAccs[a.key])) return false;
@@ -3742,8 +3769,8 @@ class GameScene extends Phaser.Scene {
     this.rushWeaponKey = ((!this.mp && (app.bossRush || app.arms4Ritual)) || app.frontline || app.pvp) ? (app.rushWeaponKey || null) : null;
     // ボスラッシュでは選んだ武器のLv.5でスタートする（デベロッパーモードの開始武器と同じ仕組みを流用）
     this.devWeaponKey = this.rushWeaponKey || app.devWeaponKey || null;
-    this._endingNext = !this.mp && !this.bossRush && !this.frontline && !app.arms4Ritual && !!ENDING_STATE.next && this.baseSeed === 496; // エンディングの続き：主人公の強力な根（二倍の本数）で始まり、壁越しにすべての敵を掴む
-    this._autoWalk = this._endingNext ? { pts: [], i: 0, speed: 0.55 } : null; this._autoFace = null; this._endHudHidden = undefined; // エンディングの続き：496のダンジョンに入った時から、エンディングが終わるまで、ずっと操作を受けつけない（目的地が空のあいだは、その場で止まって待つ。根が全部の敵を掴むので、動かなくても進む）
+    this._endingNext = !this.mp && !this.bossRush && !this.frontline && !app.arms4Ritual && !!ENDING_STATE.next && isGodFloorSeed(this.baseSeed); // エンディングの続き：主人公の強力な根（二倍の本数）で始まり、壁越しにすべての敵を掴む
+    this._autoWalk = this._endingNext ? { pts: [], i: 0, speed: 0.55 } : null; this._autoFace = null; this._endHudHidden = undefined; // エンディングの続き：雪原のフロアのダンジョンに入った時から、エンディングが終わるまで、ずっと操作を受けつけない（目的地が空のあいだは、その場で止まって待つ。根が全部の敵を掴むので、動かなくても進む）
     this._hellDoorDone = false; this._hellDoorT = 0; // エンディングの続き：1階を全滅させたあと、右の部屋に地獄の扉を開けたか
     this._wingDouble = this._endingNext; // 翼（根）の本数が二倍になっているか（調伏の儀では、翼が大きくなる時に二倍になる）
     this.arms4Ritual = !this.mp && !!app.arms4Ritual; this._endingRun = this.arms4Ritual && !!app.endingRitual; this._endingT = 0; this._wingBigT = -1; this._ritualWon = false; // 【期間限定】四つ腕の調伏の儀
@@ -4846,7 +4873,7 @@ class GameScene extends Phaser.Scene {
     this.hideClearTime(); // 前の階のクリア時間表示を消す
     const seed = this.baseSeed + this.floor * 7919;
     this.bossFloor = !this.snowfield && !this.hell && !this.sanctuary && !this.bossRush && !this.frontline && !this.pvp && this.isBossFloor(this.floor); // ダンジョンの5階ごと（10・15・20…）はボス階
-    const dungeon = this._snowRestore ? this._snowRestore.dungeon : this.sanctuary ? generateSanctuaryMap() : this.hell ? generateHellMap() : this.snowfield ? generateSnowfieldMap(this._godExiled) : (this.bossRush || this.bossFloor) ? generateBossArena() : (this.pvp ? generatePvpMap() : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor, { secretLibrary: !this.mp, whiteDoor: !this.mp && !this.isDevMode && this.baseSeed === 496 && this.floor === 6 })));
+    const dungeon = this._snowRestore ? this._snowRestore.dungeon : this.sanctuary ? generateSanctuaryMap() : this.hell ? generateHellMap() : this.snowfield ? generateSnowfieldMap(this._godExiled) : (this.bossRush || this.bossFloor) ? generateBossArena() : (this.pvp ? generatePvpMap() : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor, { secretLibrary: !this.mp, whiteDoor: !this.mp && !this.isDevMode && isGodFloorSeed(this.baseSeed) && this.floor === 6 })));
     if (this.mp && !this.bossRush && !this.pvp && !this.frontline) addRitualRoom(dungeon); // 協力プレイ：調伏の儀の部屋を遠くに足す
     this.rt = null; if (this._rtGfx && this._rtGfx.scene) this._rtGfx.clear(); // 前の階の調伏の儀の進行は持ち越さない
     this.dungeon = dungeon;
@@ -5273,7 +5300,7 @@ class GameScene extends Phaser.Scene {
     if (d) d.objs.forEach(o => { try { if (this.tweens) this.tweens.killTweensOf(o); o.destroy(); } catch (e) {} });
     return d;
   }
-  // ===== エンディングの続き：496の1階を全滅させると、スタート部屋の右の部屋に地獄の扉が開き、悪魔が現れて話しかけてくる =====
+  // ===== エンディングの続き：雪原のフロアの1階を全滅させると、スタート部屋の右の部屋に地獄の扉が開き、悪魔が現れて話しかけてくる =====
   _endingHellUpdate(dt) {
     if (this._hellDoorDone || this.floor !== 1 || this.mp || this.transitioning || this.isGhost || this.isDowned || this._resultOpen || this._demonTalk) return;
     this._hellDoorT = (this._hellDoorT || 0) + dt;
@@ -5358,24 +5385,25 @@ class GameScene extends Phaser.Scene {
       });
     });
   }
-  _endingGrabGod() { // 神の前に着いた：根が神を掴む（血は出ない）→ しばらくして「神の罰」の演出（エンディング版：赤い斬撃 → 大量の斬撃 → 目が砕けて、もとの聖域へ戻る）
+  _endingGrabGod() { // 神の前に着いた：根が神を3回刺す（天使を刺す時と同じペース・速さ。血は出ない）→ しばらくして「神の罰」の演出（エンディング版：赤い斬撃 → 大量の斬撃 → 目が砕けて、もとの聖域へ戻る）
     const god = this._god, W = this._wings, pl = this.player;
     if (!this.sanctuary || !god || !pl || this._endingGrabbed) return;
     this._endingGrabbed = true;
     this._autoFace = Math.atan2(god.y - pl.y, god.x - pl.x); // 神のほうを向く
-    const GRABS = 3, GAP = 0.75; // 根が神を掴むのは3回。1本ずつ順に（前の根は掴んだまま）。3回目から少したったら、目の演出
+    // 根が神を刺すのは3回。天使を何度も刺す時（調伏の儀の⑤）と同じペース・同じ速さ：1回の長さ ENDING.stabPeriod、次の根が動き出すまでの間 stabGap、
+    // 最初の35%で構えの位置へ引く(es28) → 突く(es70・まっすぐ) → 60%で当たる → 刺し終えたら構えへ戻る(es14)。1本ずつ順に（左・真ん中・右の根）。血は出ない
+    const GRABS = 3, E = ENDING, P = E.stabPeriod, STEP = P + (E.stabGap || 0);
     for (let k = 0; k < GRABS; k++) {
-      this.time.delayedCall(k * GAP * 1000, () => {
-        if (!this.sanctuary || !this._god) return;
-        const W2 = this._wings, G = SANCTUARY_GOD, g2 = this._god;
-        if (W2 && W2.roots.length) { // 左・真ん中・右の根から1本ずつ。先端を神の体のまわりへまっすぐ伸ばして、掴んだままにする（敵を刺す時の血は出さない）
-          const n = W2.roots.length, r = W2.roots[Math.round(k * (n - 1) / (GRABS - 1))], a = (k / GRABS) * Math.PI * 2 + 0.4, rad = G.bodyR * G.scale * 0.55;
-          if (r) { if (r.tgt) this._wingRelease(r.tgt); r.tgt = null; r.st = 'end'; r.straight = true; r.es = 18; r.ex = g2.x + Math.cos(a) * rad; r.ey = g2.y + Math.sin(a) * rad; }
-        }
-        g2.flash = 1; this.cameras.main.shake(180, 0.004);
-      });
+      const at = (sec, fn) => this.time.delayedCall((k * STEP + sec) * 1000, () => { if (this.sanctuary && this._god) fn(); });
+      const pick = () => { const W2 = this._wings; if (!W2 || !W2.roots.length) return null; return W2.roots[Math.round(k * (W2.roots.length - 1) / (GRABS - 1))] || null; };
+      const ready = () => ({ x: pl.x + (k - (GRABS - 1) / 2) * 55, y: pl.y - 70 }); // 構えの位置（主人公のすぐ前。天使を刺す時と同じ）
+      const aim = () => { const G = SANCTUARY_GOD, g2 = this._god, a = (k / GRABS) * Math.PI * 2 + 0.4, rad = G.bodyR * G.scale * 0.55; return { x: g2.x + Math.cos(a) * rad, y: g2.y + Math.sin(a) * rad }; }; // 神の体のどこか
+      at(0, () => { const r = pick(); if (!r) return; if (r.tgt) this._wingRelease(r.tgt); r.tgt = null; r.st = 'end'; r.straight = false; r.es = 28; const q = ready(); r.ex = q.x; r.ey = q.y; }); // 引く
+      at(P * 0.35, () => { const r = pick(); if (!r) return; const q = aim(); r.st = 'end'; r.straight = true; r.es = 70; r.ex = q.x; r.ey = q.y; }); // 突く
+      at(P * 0.6, () => { this._god.flash = 1; this.cameras.main.shake(180, 0.004); }); // 当たった
+      at(P, () => { const r = pick(); if (!r) return; const q = ready(); r.straight = false; r.es = 14; r.ex = q.x; r.ey = q.y; }); // 構えへ戻る
     }
-    this.time.delayedCall(((GRABS - 1) * GAP + 1.1) * 1000, () => { if (this.sanctuary) this._godPunish(true); });
+    this.time.delayedCall(((GRABS - 1) * STEP + P * 0.6 + 1.1) * 1000, () => { if (this.sanctuary) this._godPunish(true); }); // 最後に当たってから少したったら、目の演出
   }
   _endingRootsRelease() { // 根が神を掴むのをやめて、ふだんの待機（背中でゆらゆら）へスーッと戻る
     const W = this._wings; if (!W) return;
@@ -22164,7 +22192,7 @@ class GameScene extends Phaser.Scene {
       });
     }
   }
-  _endingHud() { // エンディングの演出中（調伏の儀・496のダンジョン・雪原・聖域）は、左上のパネル（#ui）を出さない。ふつうのゲームに戻ったら、元に戻す（amidaHud と同じく visibility を使う）
+  _endingHud() { // エンディングの演出中（調伏の儀・雪原のフロアのダンジョン・雪原・聖域）は、左上のパネル（#ui）を出さない。ふつうのゲームに戻ったら、元に戻す（amidaHud と同じく visibility を使う）
     const hide = !!(this._endingRun || this._endingNext);
     if (hide === this._endHudHidden) return;
     this._endHudHidden = hide;
@@ -22849,7 +22877,7 @@ class GameScene extends Phaser.Scene {
       this.exitGlow.lineStyle(1, 0x403629, 1); this.exitGlow.strokeRect(dx + 5, dy + 2, TILE - 10, TILE - 4);
       this.exitGlow.fillStyle(0x5e5038, 0.8); this.exitGlow.fillCircle(dx + TILE - 10, dy + TILE / 2, 1.5);
     }
-    // ⬜ 白い扉（番号496の6階）：目立つ白い扉。入ると雪原へ
+    // ⬜ 白い扉（雪原のフロアの番号の6階）：目立つ白い扉。入ると雪原へ
     const wdr = this.dungeon.whiteDoor;
     if (wdr) {
       const wdx = wdr.x * TILE, wdy = wdr.y * TILE, wp = 0.5 + 0.5 * Math.sin(this.time.now / 600);
@@ -24138,7 +24166,7 @@ class GameScene extends Phaser.Scene {
   _endingTestStart() {
     if (!this._endTest || !this.dungeon || this.transitioning) return;
     this._endTest = false;
-    this._hellDoorDone = true; // （シード496の1階を全滅させたら地獄の扉、の流れは、テストでは起こさない）
+    this._hellDoorDone = true; // （雪原のフロアのシードの1階を全滅させたら地獄の扉、の流れは、テストでは起こさない）
     this._wingsClear(); this._rootsOff = true; // 雪原へ行った時（_endingGoHut）と同じ：根は自動で敵を掴まない
     this._switchSanctuary(true); // この時点では _endingHutGo が無いので、切り替えだけが行われる（神の前へ歩くのは、下で行う）
     this._endingHutGo = true; this._godStill = true; this._endingGrabbed = true; this._godPunishing = false; // 神は止まって待つ／掴む演出は済んだ扱い
@@ -24361,7 +24389,8 @@ class GameScene extends Phaser.Scene {
       halo.style.left = (cx - w * 0 - Math.min(w, h) * 0.45) + 'px'; halo.style.top = (cy - Math.min(w, h) * 0.45) + 'px';
       if (C.phase === 'spin' || C.phase === 'limit') { // limit＝回転が限界に達して、爆発が起こるのを待っている間（最高速で光りふるえ続ける）
         const p = C.phase === 'limit' ? 1 : Math.min(1, C.t / GS.spinTime), om = 0.9 + (GS.spinMax - 0.9) * Math.pow(p, 2.5); // だんだん速くなる
-        C.ang += (TRI ? -1 : 1) * om * dt; grp.rotation.y = C.ang; // 逆三角形は、十字架と反対向きに回る grp.rotation.x = 0.12 + Math.sin(C.t * 0.5) * 0.06 * (1 - p); grp.position.y = 1.4 + Math.sin(C.t * 0.8) * 0.12 * (1 - p);
+        C.ang += (TRI ? -1 : 1) * om * dt; grp.rotation.y = C.ang; // 逆三角形は、十字架と反対向きに回る
+        grp.rotation.x = 0.12 + Math.sin(C.t * 0.5) * 0.06 * (1 - p); grp.position.y = 1.4 + Math.sin(C.t * 0.8) * 0.12 * (1 - p); // 傾きと高さ（爆発で薄れ始める段階と同じ 0.12／1.4 に、回転中からそろえておく。同じ行のコメントに飲み込まれて、爆発の瞬間にだけ跳ねていた）
         const g = Math.pow(Math.max(0, (p - 0.55) / 0.45), 2); // 限界に近づくほど、光る・ふるえる
         setGlow(g * 0.85); halo.style.opacity = String(Math.min(1, g)); key.intensity = (TRI ? 4.5 : 3.2) + g * 6; grp.scale.setScalar(1 + g * 0.08 * Math.sin(C.t * 45));
         const s = g * 7; root.style.transform = `translate(${(Math.random() - 0.5) * s}px,${(Math.random() - 0.5) * s}px)`;
@@ -24727,7 +24756,7 @@ class GameScene extends Phaser.Scene {
       } else {
         const le = E.pos && E.pos[-F.redSide]; // 左の目の位置
         if (le) this._autoFace = Math.atan2(le.y - pl.y, le.x - pl.x); // 主人公は、左の目のほうを向く
-        if (le && F0.phase !== 'close') { // 🚶 左の目が光り始めたら、左の目じたいへ向かって一直線にゆっくり進み、手前（eyeStopDist）で止まる
+        if (le && F0.phase !== 'close' && F0.phase !== 'shut' && F0.phase !== 'done') { // 🚶 左の目が光り始めたら、左の目じたいへ向かって一直線にゆっくり進み、手前（eyeStopDist）で止まる。左の目が閉じ始めたら（shut）、止まる位置に着いていなくても、そこで進むのをやめる（着くまで待たない）
           const dx = le.x - pl.x, dy = le.y - pl.y, dist = Math.hypot(dx, dy) || 1, len = dist - F.eyeStopDist;
           if (len > 1) {
             const st = Math.min(len, F.walkSpeed * dt), mx = dx / dist * st, my = dy / dist * st;
@@ -27308,7 +27337,7 @@ function setLobbyStatus(msg) { document.getElementById('lobbyStatus').textConten
 
 // ルーム作成・参加の通信中は他のロビー操作を一切できないようにする。
 // （連打での二重作成や、入力途中でのボタン誤操作を防ぐため）
-const LOBBY_CONTROL_IDS = ['soloBtn', 'endingTestBtn', 'hutWarpBtn', 'demonTestBtn', 'hellTestBtn', 'arms4RitualBtn', 'bossRushBtn', 'frontlineBtn', 'nightmareBtn', 'createRoomBtn', 'createFrontlineRoomBtn', 'createPvpRoomBtn', 'pvpTestBtn', 'joinRoomBtn', 'roomCodeInput', 'nameInput', 'soloSeedInput'];
+const LOBBY_CONTROL_IDS = ['soloBtn', 'endingTestBtn', 'endingFullTestBtn', 'hutWarpBtn', 'demonTestBtn', 'hellTestBtn', 'arms4RitualBtn', 'bossRushBtn', 'frontlineBtn', 'nightmareBtn', 'createRoomBtn', 'createFrontlineRoomBtn', 'createPvpRoomBtn', 'pvpTestBtn', 'joinRoomBtn', 'roomCodeInput', 'nameInput', 'soloSeedInput'];
 // ロビーの上に出る短いバナー（ゲーム画面のバナーとは別）
 function showLobbyBanner(text, ms) {
   let el = document.getElementById('lobbyBanner');
@@ -27398,23 +27427,44 @@ function startGame(mode, extra) {
 }
 
 // ロビーのシード値の欄：数字ならそのまま、数字以外が混ざっていれば文字列から数値を作る（同じ文字なら同じダンジョン）。空欄ならnull＝ランダム。
-function readSoloSeed() {
-  const raw = (document.getElementById('soloSeedInput').value || '').trim();
-  if (!raw) return null;
+function seedFromText(raw) {
   if (/^\d+$/.test(raw)) return Number(raw) % 2147483647;
   let h = 2166136261; // 文字列→数値（FNV-1a）
   for (let i = 0; i < raw.length; i++) { h ^= raw.charCodeAt(i); h = Math.imul(h, 16777619); }
   return (h >>> 0) % 2147483647;
 }
+function readSoloSeed() {
+  const raw = (document.getElementById('soloSeedInput').value || '').trim();
+  if (!raw) return null;
+  return seedFromText(raw);
+}
 // 🎉 ダンジョン番号の欄が Firebase の library/partyroom/number と同じなら、ダンジョンの代わりにパーティールームへ行く
 let _partyNumP = null, partyBusy = false, partyOpen = false;
-function prefetchPartyNumber() { if (!_partyNumP) _partyNumP = fetchPartyRoomNumber().catch(() => { _partyNumP = null; return null; }); return _partyNumP; }
-document.getElementById('soloSeedInput').addEventListener('input', () => { prefetchPartyNumber(); }); // 入力し始めたら、先に番号を読んでおく（押した時に待たないように）
-async function isPartyRoomCode() {
-  const raw = (document.getElementById('soloSeedInput').value || '').normalize('NFKC').trim(); // 全角の数字でも同じ扱い
-  if (!raw) return false;
-  const num = await Promise.race([prefetchPartyNumber(), new Promise(r => setTimeout(() => r(null), 2500))]);
-  return num != null && num !== '' && num === raw;
+setTimeout(() => { loadGodFloor(); }, 0); // 起動したら、雪原のフロアの番号を先に読んでおく
+// 合言葉（library/partyroom/number）も、雪原のフロアの番号と同じ方式：読めるまで間を空けて何度もやり直す。メモリの中だけに持ち、確認が終わったらすぐ捨てる（どこにも保存しない）
+let PARTY_NUM = null, PARTY_NUM_OK = false, PARTY_NOFB = false;
+function loadPartyNumber() {
+  if (_partyNumP) return _partyNumP;
+  _partyNumP = (async () => {
+    if (typeof netInstance === 'undefined' || !netInstance || !netInstance.enabled) { PARTY_NOFB = true; return null; } // Firebaseを使わない環境：合言葉は無い扱い
+    for (let i = 0; ; i++) {
+      try { PARTY_NUM = await fetchPartyRoomNumber(); PARTY_NUM_OK = true; return PARTY_NUM; }
+      catch (err) { console.warn('library/partyroom/number を読めませんでした。やり直します:', err); await new Promise(r => setTimeout(r, Math.min(10000, 1000 * Math.pow(2, Math.min(i, 4))))); }
+    }
+  })();
+  return _partyNumP;
+}
+async function waitPartyNumber(ms) { await Promise.race([loadPartyNumber(), new Promise(r => setTimeout(r, ms))]); return PARTY_NUM_OK || PARTY_NOFB; }
+function discardPartyNumber() { PARTY_NUM = null; PARTY_NUM_OK = false; _partyNumP = null; }
+document.getElementById('soloSeedInput').addEventListener('input', () => { loadPartyNumber(); loadGodFloor(); }); // 入力し始めたら、先に読んでおく（押した時に待たないように）
+// 読み終わるまで待つ。1.5秒で読めていなければ「接続を確認中…」を出して最大12秒待ち、それでも読めなければ false（ボタンに案内を出す）
+async function waitWithMessage(waitFn) {
+  if (await waitFn(1500)) return true;
+  const btn = document.getElementById('soloBtn'), old = btn.innerHTML; btn.innerHTML = '接続を確認中…';
+  const ok = await waitFn(12000);
+  if (ok) { btn.innerHTML = old; return true; }
+  btn.innerHTML = '通信できませんでした。もう一度押してください'; setTimeout(() => { btn.innerHTML = old; }, 3500); // 裏では読み込みのやり直しを続けている
+  return false;
 }
 function enterPartyRoom() {
   partyOpen = true;
@@ -27423,16 +27473,21 @@ function enterPartyRoom() {
 }
 document.getElementById('soloBtn').addEventListener('click', async () => {
   if (partyBusy || partyOpen) return;
-  if (!(document.getElementById('soloSeedInput').value || '').trim()) { startGame('solo', { soloSeed: readSoloSeed() }); return; } // 空欄なら、今までどおりすぐ始める
-  partyBusy = true; let party = false;
-  try { party = await isPartyRoomCode(); } catch (e) {}
-  partyBusy = false; _partyNumP = null; // 読んだ番号は、確認が終わったらすぐ捨てる（どこにも保存しない）
-  let endingSeen = false; try { endingSeen = !!loadSave().endingDone; } catch (e) {} // エンディングを見た人だけが入れる（見ていない人は、番号が合っていても普通のダンジョンになる）
-  if (party && endingSeen) { document.getElementById('soloSeedInput').value = ''; enterPartyRoom(); } // 合言葉は入力欄にも残さない
-  else startGame('solo', { soloSeed: readSoloSeed() });
+  const raw = (document.getElementById('soloSeedInput').value || '').normalize('NFKC').trim(); // 全角の数字でも同じ扱い
+  if (!raw) { startGame('solo', { soloSeed: readSoloSeed() }); return; } // 空欄なら、今までどおりすぐ始める
+  partyBusy = true;
+  try {
+    if (!(await waitWithMessage(waitPartyNumber))) return; // 合言葉を読めなかった：始めずに、もう一度押してもらう
+    const party = !PARTY_NOFB && PARTY_NUM != null && PARTY_NUM !== '' && PARTY_NUM === raw;
+    discardPartyNumber(); // 読んだ番号は、確認が終わったらすぐ捨てる（どこにも保存しない）
+    let endingSeen = false; try { endingSeen = !!loadSave().endingDone; } catch (e) {} // エンディングを見た人だけが入れる（見ていない人は、番号が合っていても普通のダンジョンになる）
+    if (party && endingSeen) { document.getElementById('soloSeedInput').value = ''; enterPartyRoom(); return; } // 合言葉は入力欄にも残さない
+    if (!(await waitWithMessage(waitGodFloor))) return; // 白い扉などの判定に使う雪原のフロアの番号も、読み終えてから始める
+    startGame('solo', { soloSeed: readSoloSeed() });
+  } finally { partyBusy = false; }
 });
 // 🛠 テスト用：雪原の小屋の入り口へワープして始める（ダンジョン（ソロ）と同じ設定で、最初から雪原にいる。白い扉から戻るとダンジョンの1階）
-document.getElementById('endingTestBtn').addEventListener('click', () => { ENDING_STATE.run = true; ENDING_STATE.next = true; renderAccPicker(); startGame('solo', { soloSeed: 496, endingTest: true }); }); // 🛠 テスト用：宇宙が壊れて聖域に戻ったところから（神の体は消えて目だけが残り、片目が赤くチカチカ → 天使の腕 → …と続く）。本編の「エンディングの続き」と同じ状態（シード496・悪魔の装飾オン・強力な根・操作ロック・左上パネルなし）で始める。読み込み直すまで、悪魔の装飾オンの見た目は残る
+document.getElementById('endingTestBtn').addEventListener('click', async () => { await waitGodFloor(12000); const godSeed = godFloorSeed(); if (godSeed == null) { console.error('library/godFloor を読めなかったので、テストを始められません'); return; } ENDING_STATE.run = true; ENDING_STATE.next = true; renderAccPicker(); startGame('solo', { soloSeed: godSeed, endingTest: true }); }); // 🛠 テスト用：宇宙が壊れて聖域に戻ったところから（神の体は消えて目だけが残り、片目が赤くチカチカ → 天使の腕 → …と続く）。本編の「エンディングの続き」と同じ状態（雪原のフロアのシード・悪魔の装飾オン・強力な根・操作ロック・左上パネルなし）で始める。読み込み直すまで、悪魔の装飾オンの見た目は残る
 document.getElementById('hutWarpBtn').addEventListener('click', () => startGame('solo', { soloSeed: readSoloSeed(), warpHut: true }));
 // 🛠 テスト用：ソロのダンジョンを25階から始めて、悪魔の問答を必ず出す（全滅の記録・DEMON_ENABLEDに関係なく出る）
 document.getElementById('hellTestBtn').addEventListener('click', () => startGame('solo', { soloSeed: readSoloSeed(), hellTest: true })); // 🛠 テスト用：地獄から始める
@@ -28031,8 +28086,8 @@ const ENDING = { flashIn: 500, flashOut: 4500, edgeIn: 2500, typeWait: 1200, typ
     // 演出の最後は showComplete(root) で GAME COMPLETE を出す（root＝全画面の黒い板。続きを作る時に用意する）
   }
   // ===== 続き：調伏の儀のリザルトで「ロビーへ」が自動で押され、読み込み直されたあと、ここへ来る =====
-  // 流れ：タイトル画面の縁が赤くなる → 番号欄に赤い文字で「496」が1文字ずつ入力される → ダンジョンのボタンが自動で押される（操作ロックはここで外れる）
-  const ENDING_NEXT = { seed: '496', startWait: 1500, typeStep: 700, btnWait: 1800, pressMs: 700, edgeIn: 2000, edgeOut: 1200 };
+  // 流れ：タイトル画面の縁が赤くなる → 番号欄に赤い文字で雪原のフロアの番号が1文字ずつ入力される → ダンジョンのボタンが自動で押される（操作ロックはここで外れる）
+  const ENDING_NEXT = { startWait: 1500, typeStep: 700, btnWait: 1800, pressMs: 700, edgeIn: 2000, edgeOut: 1200 };
   async function playEndingNext() {
     const lock = mk('position:fixed;inset:0;z-index:100001;background:transparent;cursor:default;');
     const stopKey = (e) => { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); };
@@ -28053,7 +28108,7 @@ const ENDING = { flashIn: 500, flashOut: 4500, edgeIn: 2500, typeWait: 1200, typ
     seedInput.value = '';
     seedInput.style.color = ENDING.color; seedInput.style.caretColor = ENDING.color; seedInput.style.textShadow = '0 0 1vh rgba(255,0,0,0.8)';
     await sleep(ENDING_NEXT.startWait);
-    for (const ch of ENDING_NEXT.seed) { seedInput.value += ch; await sleep(ENDING_NEXT.typeStep); }
+    await waitGodFloor(30000); for (const ch of (GOD_FLOOR_RAW || '')) { seedInput.value += ch; await sleep(ENDING_NEXT.typeStep); }
     await sleep(ENDING_NEXT.btnWait);
     sb.style.transition = 'transform 0.15s, filter 0.15s'; sb.style.transform = 'scale(0.94)'; sb.style.filter = 'brightness(1.4) drop-shadow(0 0 1.5vh #ff2030)';
     await sleep(ENDING_NEXT.pressMs);
@@ -28061,7 +28116,7 @@ const ENDING = { flashIn: 500, flashOut: 4500, edgeIn: 2500, typeWait: 1200, typ
     const cur = loadSave(); cur.endingNextShown = true; writeSave(cur); // 流した印（読み込み直しても、自動では二度と始まらない）
     release();
     ENDING_STATE.next = true; // ゲーム側へ「エンディングの続きから始まった」と知らせる
-    sb.click(); // → startGame('solo', { soloSeed: 496 })
+    sb.click(); // → startGame('solo', { soloSeed: 雪原のフロアのシード })
     setTimeout(() => edge.remove(), ENDING_NEXT.edgeOut + 200);
     // この先（神殺しまでの自動の演出）は、ここから足していく
   }
@@ -28082,6 +28137,7 @@ const ENDING = { flashIn: 500, flashOut: 4500, edgeIn: 2500, typeWait: 1200, typ
   }
   // ホーム画面の左下の丸いボタン：エンディングを一度見終わった（endingDone）人だけに出る。押すと、もう一度見られる（見直しても、フラグは変わらない）
   let playing = false;
+  document.getElementById('endingFullTestBtn').addEventListener('click', () => { if (playing) return; playing = true; playEnding(); }); // 🛠 テスト用：エンディングを最初（赤い閃光 → 名前の入力 → 調伏の儀 …）から流す
   function addReplayButton() {
     const lobby = document.getElementById('lobby');
     if (!lobby || document.getElementById('endingReplayBtn')) return;
@@ -28096,7 +28152,7 @@ const ENDING = { flashIn: 500, flashOut: 4500, edgeIn: 2500, typeWait: 1200, typ
     lobby.appendChild(b);
     // 📚 書庫へ行くボタン（エンディングをもう一度見るボタンの隣）。書庫から出ると、そのままロビーに戻る
     const lb = document.createElement('button'); lb.type = 'button'; lb.id = 'endingLibraryBtn'; lb.textContent = '📚'; lb.title = '書庫へ行く';
-    lb.style.cssText = 'position:fixed;left:calc(max(1.5vh,env(safe-area-inset-left)) + 7.5vh);bottom:max(1.5vh,env(safe-area-inset-bottom));z-index:60;width:6vh;height:6vh;min-width:36px;min-height:36px;border-radius:50%;border:0.25vh solid #c8a45c;background:rgba(20,20,30,0.92);color:#fff;font-size:3vh;line-height:1;padding:0;cursor:pointer;box-shadow:0 0 1.5vh rgba(200,164,92,0.6);';
+    lb.style.cssText = 'position:fixed;left:calc(max(1.5vh,env(safe-area-inset-left)) + max(6vh,36px) + max(1.5vh,10px));bottom:max(1.5vh,env(safe-area-inset-bottom));z-index:60;width:6vh;height:6vh;min-width:36px;min-height:36px;border-radius:50%;border:0.25vh solid #c8a45c;background:rgba(20,20,30,0.92);color:#fff;font-size:3vh;line-height:1;padding:0;cursor:pointer;box-shadow:0 0 1.5vh rgba(200,164,92,0.6);';
     let libOpen = false;
     lb.addEventListener('click', () => {
       if (playing || libOpen) return; libOpen = true;
@@ -28109,7 +28165,7 @@ const ENDING = { flashIn: 500, flashOut: 4500, edgeIn: 2500, typeWait: 1200, typ
   const sv = loadSave();
   if (endingUpdateFlag(sv)) writeSave(sv); // このアップデート前に3つ集めていた人も、ここでフラグが立つ
   if (sv.endingDone) addReplayButton();
-  if (sv.endingGodReady && !sv.endingNextShown) { playing = true; playEndingNext(); } // 調伏の儀を終えたあと：続き（496のダンジョンへ自動で入る）
+  if (sv.endingGodReady && !sv.endingNextShown) { playing = true; playEndingNext(); } // 調伏の儀を終えたあと：続き（雪原のフロアのダンジョンへ自動で入る）
   else if (sv.endingReady && !sv.endingDone) { playing = true; playEnding(); }
 })();
 </script>
