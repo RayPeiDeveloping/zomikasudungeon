@@ -26,6 +26,9 @@
     display: none;
   }
   #ui b { color: #f6c945; }
+  /* 📌 武器の「固定」ボタン：オンの間は、違う武器の黄色の宝箱を取らない */
+  #weaponFixBtn { margin-left: 1.5vh; padding: 0 1.8vh; font-size: 2.6vh; line-height: 1.5; font-family: inherit; border-radius: 1.2vh; border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.1); color: #e8e8f0; cursor: pointer; vertical-align: middle; touch-action: manipulation; }
+  #weaponFixBtn.on { background: #f6c945; border-color: #f6c945; color: #1b1b22; font-weight: bold; }
   #hpBarBg { width: 40vh; height: 3vh; background: #2a2a33; border-radius: 1.5vh; overflow: hidden; margin-top: 1vh; }
   #hpBarFill { height: 100%; background: linear-gradient(90deg,#ff5b5b,#ff9b5b); width: 100%; transition: width 0.15s; }
   /* 🪖 鎧の追加HPバー：通常のHPバー（最大100）の下に、鎧で増えた分（最大HPの100を超える分）を別バーで出す。被ダメージは鎧のバーから先に減る見た目 */
@@ -292,13 +295,13 @@
   #lobbyStats > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   #lobbyStats b { color: #fff; margin-left: 6px; }
   /* 記録バーは下の画面を邪魔しないよう pointer-events: none だが、リセットボタンだけは押せるようにする */
-  #lobbyStats > button#resetSaveBtn {
+  #lobbyStats > button#resetSaveBtn, #lobbyStats > button#syncBtn {
     pointer-events: auto; cursor: pointer; flex: none;
     font-size: 10px; line-height: 14px; padding: 1px 8px; margin: 0;
     color: #ffd980; background: rgba(255, 217, 128, 0.12);
     border: 1px solid rgba(255, 217, 128, 0.55); border-radius: 8px; opacity: 1;
   }
-  #lobbyStats > button#resetSaveBtn:active { background: rgba(255, 217, 128, 0.3); }
+  #lobbyStats > button#resetSaveBtn:active, #lobbyStats > button#syncBtn:active { background: rgba(255, 217, 128, 0.3); }
   .challengeBtn { font-size: 1.9vh; padding: 1.8vh 1vh; margin-top: 0; }
   .lobbyBox h1 { font-size: 20px; margin: 0 0 4px; }
   .lobbyBox h2 { font-size: 14px; color: #b388ff; margin: 18px 0 8px; }
@@ -439,6 +442,22 @@
   #confirmBtns button { flex: 1; padding: 10px 0; font-size: 14px; border-radius: 8px; border: none; cursor: pointer; color: #fff; }
   #confirmCancel { background: #3a3d4d; }
   #confirmOk { background: #d94a4a; }
+  /* ☁ 引き継ぎ画面（確認ダイアログ(300)より下に出す） */
+  #syncOverlay { display: none; position: fixed; inset: 0; z-index: 290; background: rgba(0,0,0,0.72); align-items: center; justify-content: center; padding: 12px; box-sizing: border-box; color: #e8e8f0; }
+  #syncBox { width: min(92vw, 380px); max-height: 92vh; overflow: auto; box-sizing: border-box; padding: 18px 16px 14px; border-radius: 12px; background: #1c1c26; border: 1px solid rgba(255,255,255,0.14); text-align: center; }
+  #syncBox h3 { margin: 0 0 8px; font-size: 16px; }
+  #syncMsg { font-size: 13px; line-height: 1.6; margin: 0 0 12px; white-space: pre-line; text-align: left; }
+  #syncMsg .syncBig { font-size: 22px; font-weight: bold; line-height: 1.4; text-align: center; color: #ffd980; margin-top: 8px; } /* 「スクリーンショット推奨」を大きく */
+  #syncCode { font-size: 20px; letter-spacing: 2px; font-weight: bold; color: #ffd980; margin: 6px 0 12px; user-select: all; word-break: break-all; }
+  #syncBox input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px; text-transform: uppercase; text-align: center; border-radius: 8px; border: 1px solid rgba(255,255,255,0.25); background: #12121a; color: #fff; margin-bottom: 10px; }
+  #syncBtns { display: flex; flex-direction: column; gap: 8px; }
+  #syncBtns button { padding: 10px 0; font-size: 14px; border-radius: 8px; border: none; cursor: pointer; color: #fff; background: #3a5fa8; }
+  #syncBtns button.sub { background: #3a3d4d; }
+  #syncBtns button.danger { background: #d94a4a; }
+  #syncBtns button:disabled { opacity: 0.5; cursor: default; }
+  #syncBtns input { margin-bottom: 0; }
+  #syncBtns .syncLabel { font-size: 13px; font-weight: bold; text-align: left; margin-top: 6px; }
+  #syncBtns .syncHint { font-size: 11px; line-height: 1.5; text-align: left; color: #aab; margin-top: -2px; }
   .joinRow { display: flex; gap: 8px; margin-top: 10px; }
   .joinRow input { flex: 1; text-transform: uppercase; }
   .joinRow button { width: auto; padding: 10px 16px; }
@@ -638,7 +657,7 @@
 </div>
 <div id="ui">
   <div id="uiRow1"><span id="floorLabel">階層</span>: <b id="floorNum">1</b> <span id="seedWrap">/ 番号: <span id="seedNum">-</span> </span>/ 敵残り: <span id="enemyNum">-</span></div>
-  <div><span id="weaponLabel">武器</span>: <b id="weaponName">剣</b></div>
+  <div><span id="weaponLabel">武器</span>: <b id="weaponName">剣</b><button type="button" id="weaponFixBtn" tabindex="-1" aria-pressed="false">固定</button></div>
   <div id="hpBarBg"><div id="hpBarFill"></div></div>
   <div id="armorBarBg"><div id="armorBarFill"></div></div>
   <div id="ammoRow">
@@ -3232,6 +3251,7 @@ function escapeHtml(str) {
 // ブラウザに記録を残す。保存できない環境（プライベートモード等）でもゲームが止まらないよう、必ずtry/catchで包む。
 // 項目は「足すだけ」で拡張できるようにしてある（読み出し時にDEFAULT_SAVEで不足分を補う）。キー名は変えないこと。
 const SAVE_KEY = 'zomikasudungeon_save';
+const LIBRARY_FLOORS_MAX = 500; // save.libraryFloors に控えておく「シード:階層」の最大件数（超えたら古いものから消す）
 const DEFAULT_SAVE = {
   version: 1,
   soloBestFloor: 0,      // ソロ（通常ダンジョン）の最高到達階層
@@ -3252,6 +3272,7 @@ const DEFAULT_SAVE = {
   libraryVisits: 0,     // 隠し書庫に来た回数（シード＝扉の出たフロアが別々のものだけ数える。同じシードの扉に入り直しても増えない）。N回目のとき、N冊目までの本が読める
   demonMeets: 0,        // 25階の悪魔に会った回数（ロビーのテストボタンは数えない）。台本は、この回数で切り替わる（library/demonTalk〜demonTalk4）
   libraryReported: false, // 書庫への到達者数(Firebaseの library/reachers)に、自分を1人として数え済みか
+  libraryFloors: {},    // 書庫に入ったことがある「シード:階層」の控え { '12345:7': true }。同じシードの同じ階層の書庫は、何度入っても（ゲームを開き直しても）来た回数に数えない。古いものから消して、最大 LIBRARY_FLOORS_MAX 件まで。端末ごとの控えで、引き継ぎ（同期）はしない
   hutVisited: false,    // 雪原の小屋の中に入ったことがあるか（エンディングが始まる条件の1つ。🛠 テスト起動では記録しない）
   endingReady: false,   // 悪魔の装飾品（SPECIAL_ACCS）を全部集め、かつ雪原の小屋を訪れた印。trueの間、ホーム画面（ロビー）を開くたびに特別演出から始まる（演出の途中で閉じても、次はまた最初から）
   endingGodReady: false, // エンディングの調伏の儀に成功した印。trueで、まだ続きの演出（雪原のフロアのダンジョンへ自動で入る）を流していなければ、次にロビーを開いた時に流れる
@@ -3274,6 +3295,7 @@ function normalizeSave(s) {
   s.endingReady = !!s.endingReady; s.endingDone = !!s.endingDone; s.endingGodReady = !!s.endingGodReady; s.endingNextShown = !!s.endingNextShown;
   s.libraryVisits = Math.max(0, Math.floor(Number(s.libraryVisits) || 0));
   s.libraryReported = !!s.libraryReported;
+  s.libraryFloors = (s.libraryFloors && typeof s.libraryFloors === 'object' && !Array.isArray(s.libraryFloors)) ? Object.assign({}, s.libraryFloors) : {};
   s.demonMeets = Math.max(0, Math.floor(Number(s.demonMeets) || 0));
   if (s.soulSold && s.demonMeets < 1) s.demonMeets = 1; // 昔のセーブにあった「魂を売った印」は、1回会った扱いに引き継いでから消す
   delete s.soulSold;
@@ -3281,6 +3303,7 @@ function normalizeSave(s) {
 }
 function writeSave(obj) {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(obj)); } catch (e) { /* 保存できなくてもゲームは続行 */ }
+  try { cloudSyncSchedule(); } catch (e) { /* 引き継ぎ（クラウド同期）の準備がまだ／失敗しても、ゲームは続行 */ }
 }
 // ============== 装飾品 ==============
 // 入手条件は「save[stat] が goal 以上」。項目を足す時は、この表に1行足せばロビーの選択欄と一覧に出る（keyは変えないこと）。
@@ -3695,6 +3718,9 @@ class GameScene extends Phaser.Scene {
     this._spUndead = undefined; this._spWings = false; this._godAccGone = false; this._rootReviveOn = false; this._rootRevive = 0; this._rootRed = 0; this._godRF = null; this._neckFloor = null; this._spT = 0; // 特別な装飾品を付けているかの記録（1回の挑戦ごとに取り直す）
     this.limitedKey = limitedEquippedKey(); // 限定武器の装飾品を付けていれば、その装飾品のkey（付けている間、武器はその限定武器で固定される）
     this.skullRevives = this.accKey === 'skull' ? SKULL_WISPS : 0; // ドクロ：残りの鬼火の数＝あと何回生き返れるか（1回の挑戦ごとに SKULL_WISPS 個）
+    this._initAccKey = this.accKey; // 「もう一度」でやり直す時に、この状態（ロビーで付けていた装飾品）へ戻すために覚えておく
+    this.fixYellow = false; // 📌 武器の「固定」：オンの間は、今持っているのと違う武器の黄色の宝箱を取らない（「もう一度」では保つ。ロビーへ戻ると切れる）
+    { const fb = document.getElementById('weaponFixBtn'); if (fb) { fb.classList.remove('on'); fb.setAttribute('aria-pressed', 'false'); fb.onclick = () => { this.fixYellow = !this.fixYellow; fb.classList.toggle('on', this.fixYellow); fb.setAttribute('aria-pressed', this.fixYellow ? 'true' : 'false'); fb.blur(); }; } }
 
     this.fixedSeed = (!this.mp && app.soloSeed != null) ? app.soloSeed : null; // ロビーで指定したシード値（ソロのダンジョンのみ。nullならランダム）
     this.baseSeed = this.mp ? app.baseSeed : (this.fixedSeed != null ? this.fixedSeed : ((Math.random() * 1e9) | 0));
@@ -4926,6 +4952,7 @@ class GameScene extends Phaser.Scene {
       const rs = this._snowRestore;
       this.enemies = rs.enemies; this.chests = rs.chests; this.potions = rs.potions;
       for (const [o, v] of rs.hidden) { if (o && o.scene) o.setVisible(v); }
+      for (const e of this.enemies) { try { this._wingRelease(e, true); } catch (err) { /* 念のため：戻した時点で壁に埋まっている敵は、壁の外へ出す */ } }
     } else if (this.sanctuary) { // ✨ 聖域：敵も宝箱もポーションもない
       this.enemies = []; this.chests = []; this.potions = [];
     } else {
@@ -10526,6 +10553,7 @@ class GameScene extends Phaser.Scene {
     const row1 = document.getElementById('uiRow1'); if (row1) row1.style.display = (this.pv && this.pv.mode === 'werewolf') ? 'none' : ''; // 人狼ゲームでは「階層／PvP・敵残り」の1行目はいらない
     // 人狼ゲーム中は、武器の代わりに自分の役職を出す（人狼＝赤／村人＝緑）
     const wwRole = this.pv && this.pv.mode === 'werewolf' && this.pv.myRole, wlEl = document.getElementById('weaponLabel'), wnEl = document.getElementById('weaponName');
+    { const fxb = document.getElementById('weaponFixBtn'); if (fxb) fxb.style.display = wwRole ? 'none' : ''; } // 役職を出している間は、武器の固定ボタンはいらない
     if (wwRole) {
       wlEl.textContent = '役職';
       wnEl.textContent = this.wwRoleLabel(wwRole);
@@ -10847,10 +10875,10 @@ class GameScene extends Phaser.Scene {
     }
   }
   // 掴み（刺し）が外れた敵を放す。壁をすり抜けて運ばれていて、いま壁に埋まっているなら、いちばん近い壁の外へ出す（出さないと、壁の中から動けない敵になってしまう）。
-  _wingRelease(e) {
+  _wingRelease(e, force) { // force＝階の移動中（transitioning）でも壁の外へ出す（雪原へ入る前・雪原から戻った直後など、今のダンジョンの壁を基準に出したい時）
     if (!e) return;
     e._wingBy = null;
-    if (this.transitioning || e.hp <= 0 || e._removed || !e.gfx || !e.type || e.type.canPassWalls) return;
+    if ((this.transitioning && !force) || e.hp <= 0 || e._removed || !e.gfx || !e.type || e.type.canPassWalls) return;
     const r = e.type.radius;
     if (!this.circleHitsWall(e.gfx.x, e.gfx.y, r)) return;
     const p = this._dropOutOfWall(e.gfx.x, e.gfx.y, r, true);
@@ -22749,6 +22777,10 @@ class GameScene extends Phaser.Scene {
         // かなり近づかないと反応しない判定距離にしてある（宝箱自体の当たり半径14pxに近い16px）。
         const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, chest.x, chest.y);
         if (d < 16) {
+          if (this.fixYellow && chest.lootType === 'yellow' && chest.weapon && this.weapon && chest.weapon.key !== this.weapon.key) { // 📌 「固定」がオンの間は、今持っているのと違う武器の黄色の宝箱は取らない（触れても反応せず、宝箱はそのまま残る）。同じ武器の黄色・緑・ピンク・青は取れる
+            if (!(this._fixMsgT > this.time.now)) { this._fixMsgT = this.time.now + 1500; this.showBanner('固定中：違う武器を取りません', 1400); }
+            return true;
+          }
           const lw = this.limitedKey && limitedWeaponBase(this.limitedKey); // 限定武器の装飾品を付けている間は、他の武器の宝箱は取れない（触れても反応せず、宝箱はそのまま残る）。今の武器の強化（緑・ピンク）やエフェクトは取れる
           if (lw && chest.weapon && chest.weapon.key !== lw.key && chest.lootType !== 'effect' && chest.lootType !== 'pink') {
             if (!(this._lockMsgT > this.time.now)) { this._lockMsgT = this.time.now + 1500; this.showBanner((specialAccByKey(this.limitedKey).icon) + ' ' + specialAccByKey(this.limitedKey).name + 'を付けている間は、他の武器は取れない', 1400); }
@@ -23375,10 +23407,18 @@ class GameScene extends Phaser.Scene {
     if (this.transitioning || this._inLibrary) return;
     this.interruptChargeBomb();
     this.transitioning = true; this._inLibrary = true; this._libT0 = performance.now();
-    // 来た回数：扉のシード（このフロアのシード）が初めての時だけ+1（同じシードの扉に入り直しても増えない）
-    const libSeed = this.baseSeed + this.floor * 7919; this._libSeeds = this._libSeeds || new Set();
+    // 来た回数：「シード＋階層」が初めての書庫の時だけ+1。同じシードの同じ階層の書庫は、入り直しても、ゲームを開き直しても数えない（入った書庫は save.libraryFloors に控える）
+    const libKey = this.baseSeed + ':' + this.floor;
     let visits = 1;
-    try { const sv = loadSave(); if (!this._libSeeds.has(libSeed)) { this._libSeeds.add(libSeed); sv.libraryVisits++; writeSave(sv); } visits = sv.libraryVisits; } catch (e) {}
+    try {
+      const sv = loadSave(), done = sv.libraryFloors;
+      if (!done[libKey]) {
+        done[libKey] = true;
+        const ks = Object.keys(done); if (ks.length > LIBRARY_FLOORS_MAX) ks.slice(0, ks.length - LIBRARY_FLOORS_MAX).forEach(k => { delete done[k]; }); // 古いものから消す
+        sv.libraryVisits++; writeSave(sv);
+      }
+      visits = sv.libraryVisits;
+    } catch (e) {}
     const countReach = !!(this.dungeon && this.dungeon.secretDoor && this.dungeon.secretDoor.natural) && !DEBUG_URL.library; // 確率で出た扉から入った時だけ、到達者数に数える
     this.cameras.main.fadeOut(700, 0, 0, 0);
     this.cameras.main.once('camerafadeoutcomplete', () => {
@@ -23569,6 +23609,12 @@ class GameScene extends Phaser.Scene {
   }
   // ❄ 雪原に入る時：今のダンジョンの敵（HP・位置）・宝箱・ポーション（敵のドロップも含む）・壁の壊れ具合を、消さずに隠して預かる。白い扉から戻ると、そのまま元に戻る
   _snowStash() {
+    // 🪽 悪魔の翼が掴んで壁の中へ運んでいる敵を、預ける前に（今のダンジョンの壁を基準に）壁の外へ出す。
+    //   出さずに預けると、雪原へ入ったあとの解放が「雪原のマップの壁」で判定されてしまい、戻った時に敵が壁に埋まったままになる。
+    try {
+      if (this._wings && this._wings.roots) for (const r of this._wings.roots) { if (r.tgt) this._wingRelease(r.tgt, true); r.tgt = null; r.st = 'idle'; r.stuck = false; }
+      for (const e of (this.enemies || [])) { e._wingRemote = null; this._wingRelease(e, true); }
+    } catch (err) { console.error('雪原へ入る前の敵の壁抜け処理でエラー:', err); }
     const hidden = [], hide = o => { if (o && o.scene) { hidden.push([o, o.visible]); o.setVisible(false); } };
     (this.enemies || []).forEach(e => { hide(e.gfx); hide(e.hpBar); hide(e.label); hide(e._doomText); });
     (this.chests || []).forEach(c => { hide(c.gfx); hide(c.label); });
@@ -25513,6 +25559,7 @@ class GameScene extends Phaser.Scene {
       kill(sv.graphics); kill(sv.exitGlow); kill(sv.rushExitLabel);
     }
     this.s2Trial = null; this.s2Unlocked = this.s2InitUnlocked();
+    this._s2GCd = 0; this._s2GCdTotal = 0; this._s2SkCd = {}; // 降魔術のクールダウン（全体・技ごとのリロード）も最初の状態へ（やり直してすぐ撃てる）
     try { this.a4AtkCleanup(); } catch (err) { console.error(err); } // 四つ腕の戦闘の残り（技・弾・壁の腕・演出）を片付ける
     this._a4Sp = null; this._a4Hold = false; this._a4X = null; this._a4A = null; // 分離・掴まれ状態・追加腕・技の進行も初期化
     this.clearS2TrialAura();
@@ -25534,6 +25581,14 @@ class GameScene extends Phaser.Scene {
     try {
       this.resetS2ForRestart(); // 降魔術：調伏の儀の途中経過・解放済みの技・技の状態を全て初期化
       this.clearAllies();
+      // 🎁 やり直したら、装飾品まわりも1回目の挑戦の始まり（ロビーで付けていた状態）に戻す：チェストで拾った装飾品・鬼火の数・時計・リザルトの「新しい装飾品」
+      this.equipRunAccessory(this._initAccKey || ''); // 拾った装飾品を外して、元の装飾品へ（鎧の最大HPもここで戻る）
+      this.skullRevives = this.accKey === 'skull' ? SKULL_WISPS : 0; // 同じ装飾品のままだと上は何もしないので、鬼火の数はここで必ず満タンに戻す
+      this.skullAuraT = 0;
+      this._clkOn = false; this._clkMine = false; this._clkCd = 0; this._clkLeft = 0; // 🕒 時計：発動中も待ち時間も、最初の状態（すぐ使える）へ
+      try { this.time.timeScale = 1; this.tweens.timeScale = 1; } catch (e) { /* 念のため */ }
+      { const o = document.getElementById('clockOverlay'); if (o) o.style.display = 'none'; }
+      this._ritualNewAcc = []; // 前回の挑戦で入手した装飾品を、次のリザルトに引きずらない
       this.runStats = { time: 0, kills: 0, bosses: 0 };
       this.playerInvuln = 0; this.isDowned = false; this.isGhost = false;
       this.bossGroupCounts = {}; this._rushCleared = false; this._snakeRage = {}; this._lootClaimed = {};
@@ -25542,7 +25597,7 @@ class GameScene extends Phaser.Scene {
       this.interruptBandage();
       this.floor = this.devStartFloor || 1;
       this.hell = false; this._hellDest = 0; this._hellT0 = 0; // 🔥 やり直したら、地獄からも出る
-      this.snowfield = false; this.sanctuary = false; this._godExiled = false; this._snowSaved = null; this._snowRestore = null; this._coldT = 0; this._hutIn = false; setBlizzard(false); // ❄ やり直したら、雪原・聖域からも出る（吹雪も止める）
+      this.snowfield = false; this.sanctuary = false; this._godExiled = false; this._snowDiscard(); this._snowRestore = null; this._coldT = 0; this._hutIn = false; setBlizzard(false); // ❄ やり直したら、雪原・聖域からも出る（吹雪も止める）
       this._libT0 = 0; this._hellT0 = 0; this._hellDoorDone = false; this._hellDoorT = 0; // 雪原・地獄の滞在時間の記録も最初から
       this._spUndead = undefined; this._spWings = false; this._godAccGone = false; this._rootReviveOn = false; this._rootRevive = 0; this._rootRed = 0; this._godRF = null; this._neckFloor = null; this._spT = 0; // 特別な装飾品の状態も、1回目の挑戦の始まりと同じ（神の罰で外れた装飾品なども元に戻る）
       this._demonRun = !!this._demonEligible && this.floor === 1; this._demonRedOn = false; this._demonSeenEnemy = false; // 😈 やり直したら、全滅の記録も最初から
@@ -25561,6 +25616,7 @@ class GameScene extends Phaser.Scene {
       this.weapon = applyWeaponLevel(respawnBase, respawnLv);
       this.weaponLevels[this.weapon.key] = respawnLv;
       this.reloading = false;
+      this.attackCooldown = 0; this._astralCd = 0; this._jetCd = 0; this._warpCd = 0; // 死亡中は update() が止まっていてクールダウンが減らないので、やり直しで全て最初の状態へ
       this.resetAmmoForWeapon(this.weapon);
       this.baseSeed = this.fixedSeed != null ? this.fixedSeed : ((Math.random() * 1e9) | 0); // シード指定ありなら、やり直しても同じダンジョン
       this.bossBag = []; this.lastBossKey = null; // ボスラッシュ：抽選をリセット
@@ -27177,6 +27233,189 @@ function askConfirm(message, opts) {
   });
 }
 
+// ============== セーブデータの引き継ぎ（クラウド同期） ==============
+// 引き継ぎコード（ランダムな16文字）を Firebase の saves/{コード} に結びつけて、別の端末やブラウザでも記録を共有する。
+// 上書きではなく「合流」：最高記録・累計は大きいほう、印はどちらかが立っていれば立てる、装飾品は両方の合計。何度同期しても結果は変わらない（順番も関係ない）。
+// 端末ごとの設定（付けている装飾品・エンディング演出の進行中の印）は同期しない。コードを作っていない人は、何も送らない。
+const SYNC_CODE_KEY = 'zomikasudungeon_synccode';
+const SYNC_MAX = ['soloBestFloor', 'nightmareBestFloor', 'nightmareClears', 'soloTotalKills', 'soloTotalBosses', 'frontlineBestSec', 'pvpWins', 'bossRushBestBosses', 'armorFloor10Fast', 'arms4RitualClears', 'libraryVisits', 'demonMeets', 'soloClears']; // 大きいほうを採用
+const SYNC_OR = ['arms4RitualPlayed', 'libraryReported', 'hutVisited', 'endingDone']; // どちらかが true なら true
+const SYNC_UNION = ['accUnlocked', 'specialAccs']; // 両方の合計
+const SYNC_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; // 0/1/O/I/L は使わない（読み間違い防止）
+let _syncTimer = 0, _syncChain = Promise.resolve(), _syncFail = 0;
+function syncGetCode() { try { return localStorage.getItem(SYNC_CODE_KEY) || ''; } catch (e) { return ''; } }
+const SYNC_NICK_KEY = 'zomikasudungeon_syncnick'; // 回復用のニックネーム（この端末に控えておく。連携を解除したら消す）
+function syncSetCode(c) { try { if (c) localStorage.setItem(SYNC_CODE_KEY, c); else { localStorage.removeItem(SYNC_CODE_KEY); localStorage.removeItem(SYNC_NICK_KEY); } } catch (e) {} }
+function syncGetNick() { try { return localStorage.getItem(SYNC_NICK_KEY) || ''; } catch (e) { return ''; } }
+function syncSetNick(n) { try { if (n) localStorage.setItem(SYNC_NICK_KEY, n); else localStorage.removeItem(SYNC_NICK_KEY); } catch (e) {} }
+function syncCleanNick(raw) { return Array.from(String(raw || '').replace(/[\u0000-\u001f\u007f]/g, '').trim()).slice(0, 20).join(''); } // 回復用のニックネーム：最大20文字
+function syncMakeCode() {
+  let s = '';
+  while (s.length < 16) {
+    const a = crypto.getRandomValues(new Uint8Array(32));
+    for (const b of a) { if (b < 248 && s.length < 16) s += SYNC_ALPHABET[b % 31]; } // 248 = 31×8：かたよりが出ないように、あまりは捨てる
+  }
+  return s;
+}
+function syncNormalizeCode(raw) { return String(raw || '').normalize('NFKC').toUpperCase().replace(/[\s\-ー－]/g, ''); }
+function syncValidCode(c) { return c.length === 16 && [...c].every(ch => SYNC_ALPHABET.includes(ch)); }
+function syncFormatCode(c) { return (c.match(/.{1,4}/g) || []).join('-'); }
+// セーブから、同期する項目だけを取り出す（順番を固定して、比べやすくする）
+function syncView(s) {
+  s = (s && typeof s === 'object') ? s : {};
+  const o = {};
+  SYNC_MAX.forEach(k => { const v = Number(s[k]); o[k] = Number.isFinite(v) && v > 0 ? v : 0; });
+  SYNC_OR.forEach(k => { o[k] = !!s[k]; });
+  SYNC_UNION.forEach(k => {
+    const m = {}, src = (s[k] && typeof s[k] === 'object') ? s[k] : {};
+    Object.keys(src).sort().forEach(key => { if (src[key] && key.length <= 60 && !/[.#$\[\]\/\u0000-\u001f]/.test(key)) m[key] = true; });
+    o[k] = m;
+  });
+  return o;
+}
+function syncMerge(a, b) {
+  const o = {};
+  SYNC_MAX.forEach(k => { o[k] = Math.max(a[k], b[k]); });
+  SYNC_OR.forEach(k => { o[k] = a[k] || b[k]; });
+  SYNC_UNION.forEach(k => { const m = Object.assign({}, a[k], b[k]), s = {}; Object.keys(m).sort().forEach(x => { s[x] = true; }); o[k] = s; });
+  return o;
+}
+// 合流した結果を、この端末のセーブに入れる（同期しない項目は、この端末のまま）
+function syncApply(local, mv) {
+  const s = Object.assign({}, local);
+  Object.keys(mv).forEach(k => { s[k] = mv[k]; });
+  if (s.endingDone) s.endingReady = false; // 別の端末で見終わっていたら、この端末でも演出は始めない
+  return s;
+}
+// クラウドから読んで、合流して、必要ならこの端末とクラウドの両方に書く。順番に1つずつ実行する。
+// opts.mustExist：クラウドにコードが無ければ何もしないで { notFound: true } を返す
+function syncRun(code, opts) {
+  opts = opts || {};
+  const job = _syncChain.then(() => {
+    if (typeof netInstance === 'undefined' || !netInstance || !netInstance.enabled) throw new Error('Firebase unavailable');
+    const work = (async () => {
+      await netInstance.signIn();
+      const ref = netInstance.db.ref('saves/' + code);
+      const remote = (await ref.once('value')).val();
+      if (opts.mustExist && !remote) return { notFound: true };
+      const local = loadSave();
+      const lv = syncView(local), rv = syncView(remote && remote.d);
+      const mv = syncMerge(lv, rv), mj = JSON.stringify(mv);
+      const changedLocal = mj !== JSON.stringify(lv), changedRemote = !remote || mj !== JSON.stringify(rv);
+      if (changedLocal) { try { localStorage.setItem(SAVE_KEY, JSON.stringify(normalizeSave(syncApply(local, mv)))); } catch (e) {} } // writeSave は通さない（同期が同期を呼ばないように）
+      if (changedRemote) { const upd = { d: mv, t: Date.now() }; if (!remote && opts.nickname) upd.n = opts.nickname; await ref.update(upd); } // update なので、すでにある回復用ニックネーム（n）は消えない
+      return { changedLocal, created: !remote, nick: (remote && typeof remote.n === 'string') ? remote.n.slice(0, 20) : (opts.nickname || '') };
+    })();
+    return Promise.race([work, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000))]);
+  });
+  _syncChain = job.catch(() => {});
+  return job;
+}
+// セーブを書いたあと（writeSave）に呼ぶ：数秒まとめてから同期する。コードが無ければ何もしない
+function cloudSyncSchedule(delay) {
+  if (!syncGetCode()) return;
+  clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(cloudSyncNow, delay == null ? 4000 : delay);
+}
+async function cloudSyncNow() {
+  const code = syncGetCode();
+  if (!code) return null;
+  try { const r = await syncRun(code); _syncFail = 0; return r; }
+  catch (err) { console.warn('セーブの同期に失敗しました（あとでやり直します）:', err); if (++_syncFail <= 5) cloudSyncSchedule(60000); return null; }
+}
+// 起動したら一度同期する。クラウドのほうが進んでいて、まだ読み込み直後なら、画面を一度だけ読み込み直して反映する
+setTimeout(async () => {
+  const r = await cloudSyncNow();
+  if (r && r.changedLocal && performance.now() < 15000) {
+    let last = 0; try { last = Number(sessionStorage.getItem('zk_sync_reload')) || 0; } catch (e) {}
+    if (Date.now() - last > 20000) { try { sessionStorage.setItem('zk_sync_reload', String(Date.now())); } catch (e) {} location.reload(); }
+  }
+}, 0);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && syncGetCode()) syncRun(syncGetCode()).catch(() => {}); }); // 画面を離れる時に、最後にもう一度送る
+// ロビーの「☁ 引き継ぎ」ボタンから開く画面
+function openSyncDialog() {
+  let ov = document.getElementById('syncOverlay');
+  if (!ov) {
+    ov = document.createElement('div'); ov.id = 'syncOverlay';
+    ov.innerHTML = '<div id="syncBox"><h3>セーブの引き継ぎ</h3><p id="syncMsg"></p><div id="syncCode"></div>' +
+      '<div id="syncBtns"></div></div>';
+    document.body.appendChild(ov);
+  }
+  const msg = document.getElementById('syncMsg'), codeEl = document.getElementById('syncCode'), btns = document.getElementById('syncBtns');
+  let busy = false;
+  const SHOT = '📸 スクリーンショット推奨';
+  const say = t => { msg.textContent = t; };
+  const sayCode = () => { // コードが出ている時：説明＋ニックネーム＋大きな「スクリーンショット推奨」
+    msg.textContent = '';
+    const info = document.createElement('div'); info.textContent = 'このコードを別の端末で入力すると同期します' + (syncGetNick() ? '\nニックネーム：' + syncGetNick() : '');
+    const big = document.createElement('div'); big.className = 'syncBig'; big.textContent = SHOT;
+    msg.appendChild(info); msg.appendChild(big);
+  };
+  const onKey = e => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+  const close = () => { ov.style.display = 'none'; ov.onclick = null; document.removeEventListener('keydown', onKey, true); };
+  const mk = (label, cls, fn) => {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = label; if (cls) b.className = cls;
+    b.onclick = async () => { if (busy) return; busy = true; [...btns.children].forEach(x => { x.disabled = true; }); try { await fn(); } finally { busy = false; [...btns.children].forEach(x => { x.disabled = false; }); } };
+    return b;
+  };
+  const NETERR = '通信できませんでした。電波の良いところで、もう一度押してください。';
+  const render = (text, big) => {
+    const code = syncGetCode();
+    btns.innerHTML = '';
+    codeEl.style.display = code ? 'block' : 'none'; codeEl.textContent = code ? syncFormatCode(code) : '';
+    if (big && code) sayCode();
+    else if (text) say(text);
+    else if (code) sayCode();
+    else say('記録（最高階層・装飾品など）を、別の端末やブラウザでも共有できます。\n・はじめて：ニックネームを決めて「コードを発行」を押し、出たコードを控える\n・2台目以降：コードを入力して「読み込む」');
+    if (!code) {
+      const el = (tag, cls, text) => { const x = document.createElement(tag); if (cls) x.className = cls; if (text) x.textContent = text; return x; };
+      const nick = el('input'); nick.type = 'text'; nick.maxLength = 20; nick.autocomplete = 'off'; nick.spellcheck = false; nick.placeholder = '例：raypei（日本語も使用可）'; nick.style.textTransform = 'none'; nick.setAttribute('autocapitalize', 'off'); // 他の入力欄（コード）は大文字表示だが、ニックネームは打った通りに出す（日本語もそのまま使える）
+      const code2 = el('input'); code2.type = 'text'; code2.maxLength = 24; code2.autocomplete = 'off'; code2.spellcheck = false; code2.setAttribute('autocapitalize', 'characters'); code2.placeholder = 'XXXX-XXXX-XXXX-XXXX';
+      btns.appendChild(el('div', 'syncLabel', '回復用のニックネームを設定'));
+      btns.appendChild(nick);
+      btns.appendChild(mk('コードを発行して保存', '', async () => {
+        const nn = syncCleanNick(nick.value);
+        if (!nn) { say('回復用のニックネームを入力してください。'); return; }
+        const c = syncMakeCode();
+        say('保存しています…');
+        try { await syncRun(c, { nickname: nn }); syncSetCode(c); syncSetNick(nn); render('', true); }
+        catch (e) { say(NETERR); }
+      }));
+      btns.appendChild(el('div', 'syncLabel', '2台目以降の端末'));
+      btns.appendChild(code2);
+      btns.appendChild(mk('このコードで読み込む', '', async () => {
+        const c = syncNormalizeCode(code2.value);
+        if (!syncValidCode(c)) { say('コードの形式が違います（16文字の英数字）。'); return; }
+        say('読み込んでいます…');
+        try {
+          const r = await syncRun(c, { mustExist: true });
+          if (r && r.notFound) { say('そのコードは見つかりませんでした。入力を確かめてください。'); return; }
+          syncSetCode(c); syncSetNick(r && r.nick); say('読み込みました。画面を更新します…'); setTimeout(() => location.reload(), 900);
+        } catch (e) { say(NETERR); }
+      }));
+    } else {
+      btns.appendChild(mk('データ更新', '', async () => {
+        say('データを更新しています…');
+        try { const r = await syncRun(syncGetCode()); if (r && r.changedLocal) { say('読み込みました。画面を更新します…'); setTimeout(() => location.reload(), 900); } else render('データを更新しました。'); }
+        catch (e) { say(NETERR); }
+      }));
+      btns.appendChild(mk('連携を解除（この端末だけ）', 'sub', async () => {
+        if (await askConfirm('この端末の連携を解除します。\nクラウドのデータは残ります（コードを入れ直せば、また使えます）。', { ok: '解除する', cancel: 'やめる' })) { syncSetCode(''); render('連携を解除しました。'); }
+      }));
+      btns.appendChild(mk('クラウドのデータを削除', 'danger', async () => {
+        if (!(await askConfirm('クラウドに保存した記録を削除します。\n別の端末でこのコードを使っていても、読み込めなくなります（その端末が連携したままだと、次の同期でまた保存されます）。\nこの端末のセーブは消えません。', { ok: '削除する', cancel: 'やめる' }))) return;
+        try { await netInstance.signIn(); await netInstance.db.ref('saves/' + syncGetCode()).remove(); syncSetCode(''); render('クラウドのデータを削除しました。'); }
+        catch (e) { say(NETERR); }
+      }));
+    }
+    btns.appendChild(mk('閉じる', 'sub', async () => close()));
+  };
+  render();
+  ov.onclick = e => { if (e.target === ov) close(); };
+  document.addEventListener('keydown', onKey, true);
+  ov.style.display = 'flex';
+}
+
 // メニュー最上部に、記録（ソロの最高到達階層など）を表示する
 // 記録の項目は items に足していけば、バーに並んで表示される
 (function showLobbyStats() {
@@ -27189,11 +27428,14 @@ function askConfirm(message, opts) {
   ];
   document.getElementById('lobbyStats').innerHTML = items.map(it =>
     '<span>' + escapeHtml(it[0]) + '<b>' + escapeHtml(it[1]) + '</b></span>').join('') +
-    '<button type="button" id="resetSaveBtn">リセット</button>';
+    '<button type="button" id="syncBtn">☁ 引き継ぎ</button><button type="button" id="resetSaveBtn">リセット</button>';
+  document.getElementById('syncBtn').addEventListener('click', openSyncDialog);
   document.getElementById('resetSaveBtn').addEventListener('click', async () => {
-    const ok = await askConfirm('セーブデータ（装飾品の解放・記録）をすべて消します。\nよろしいですか？', { ok: '消す', cancel: 'やめる' });
+    const linked = !!syncGetCode(); // 引き継ぎ中なら、連携も解除する（解除しないと、次の起動でクラウドから戻ってしまう）。クラウドのデータは残す
+    const ok = await askConfirm('セーブデータ（装飾品の解放・記録）をすべて消します。' + (linked ? '\n（この端末の引き継ぎ連携も解除します。クラウドのデータは残るので、コードを入れ直せば戻せます）' : '') + '\nよろしいですか？', { ok: '消す', cancel: 'やめる' });
     if (ok) {
       try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+      syncSetCode('');
       location.reload();
     }
   });
