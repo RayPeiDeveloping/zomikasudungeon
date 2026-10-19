@@ -29,6 +29,7 @@
   /* 📌 武器の「固定」ボタン：オンの間は、違う武器の黄色の宝箱を取らない */
   #weaponFixBtn { margin-left: 1.5vh; padding: 0 1.8vh; font-size: 2.6vh; line-height: 1.5; font-family: inherit; border-radius: 1.2vh; border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.1); color: #e8e8f0; cursor: pointer; vertical-align: middle; touch-action: manipulation; }
   #weaponFixBtn.on { background: #f6c945; border-color: #f6c945; color: #1b1b22; font-weight: bold; }
+  #weaponFixBtn.on.rl { background: #e03c3c; border-color: #e03c3c; color: #fff; } /* 🎰 ルーレット赤：棍棒固定の間は、固定ボタンが赤く押された状態になる */
   #hpBarBg { width: 40vh; height: 3vh; background: #2a2a33; border-radius: 1.5vh; overflow: hidden; margin-top: 1vh; }
   #hpBarFill { height: 100%; background: linear-gradient(90deg,#ff5b5b,#ff9b5b); width: 100%; transition: width 0.15s; }
   /* 🪖 鎧の追加HPバー：通常のHPバー（最大100）の下に、鎧で増えた分（最大HPの100を超える分）を別バーで出す。被ダメージは鎧のバーから先に減る見た目 */
@@ -3855,7 +3856,7 @@ class GameScene extends Phaser.Scene {
     this._initAccKey = this.accKey; // 「もう一度」でやり直す時に、この状態（ロビーで付けていた装飾品）へ戻すために覚えておく
     this._paused = false; this._pauseAt = 0; this._pbChkAt = null; { const po = document.getElementById('pauseOverlay'); if (po) po.style.display = 'none'; const pb = document.getElementById('pauseBtn'); if (pb) { pb.style.display = 'none'; if (pb.firstChild) pb.firstChild.textContent = '⏸'; } } // ⏸ ポーズは、始めるたびに解除しておく
     this.fixYellow = false; // 📌 武器の「固定」：オンの間は、今持っているのと違う武器の黄色の宝箱を取らない（「もう一度」では保つ。ロビーへ戻ると切れる）
-    { const fb = document.getElementById('weaponFixBtn'); if (fb) { fb.classList.remove('on'); fb.setAttribute('aria-pressed', 'false'); const fixToggle = () => { this.fixYellow = !this.fixYellow; fb.classList.toggle('on', this.fixYellow); fb.setAttribute('aria-pressed', this.fixYellow ? 'true' : 'false'); fb.blur(); };
+    { const fb = document.getElementById('weaponFixBtn'); if (fb) { fb.classList.remove('on'); fb.setAttribute('aria-pressed', 'false'); const fixToggle = () => { if (this._rlEffect === 'red') { this._syncFixBtn(); return; } this.fixYellow = !this.fixYellow; fb.classList.toggle('on', this.fixYellow); fb.setAttribute('aria-pressed', this.fixYellow ? 'true' : 'false'); fb.blur(); };
       let fixTouchAt = 0; // スティックを押さえたまま別の指で押すと、スマホでは click が発火しないことがある。touchstart で切り替える（時計ボタンと同じ）。touchstart で処理した時は、続けて来る click を無視する
       fb.ontouchstart = (ev) => { ev.preventDefault(); ev.stopPropagation(); fixTouchAt = Date.now(); fixToggle(); };
       fb.onclick = () => { if (Date.now() - fixTouchAt < 700) return; fixToggle(); };
@@ -3892,7 +3893,7 @@ class GameScene extends Phaser.Scene {
     this._resumeWorld = (this._resume && this._resume.world) ? this._resume.world : null; // 💾 敵・宝箱・ポーション・位置の控え
     // デベロッパーモード（名前を「developer」にすると使える）では、指定した階から
     // テストプレイを始められる。協力プレイでは部屋側の階を優先する。
-    this._rlEffect = !this.mp ? (app.rouletteEffect || null) : null; this._rlWisps = this._rlEffect === 'cyan' ? 3 : 0; /* 👻 水色：亡霊の鬼火の数＝あと何回、HP全回復で生き返れるか */ this._ghostFloorOn = !this.mp && !!app.ghostFloor; this._gf = null; // 👻 ロビーの番号が library/ghostfloor と同じなら、1階に隠しゴースト（ソロ専用）
+    this._rlEffect = !this.mp ? (app.rouletteEffect || null) : null; this._rlWisps = this._rlEffect === 'cyan' ? 3 : 0; /* 👻 水色：亡霊の鬼火の数＝あと何回、HP全回復で生き返れるか */ this._syncFixBtn(); this._ghostFloorOn = !this.mp && !!app.ghostFloor; this._gf = null; // 👻 ロビーの番号が library/ghostfloor と同じなら、1階に隠しゴースト（ソロ専用）
     this.bossRush = !this.mp && !!app.bossRush; // ボスラッシュ（ソロ専用）
     this.nightmare = !this.mp && !!app.nightmare; // ナイトメア（ソロ専用）：通常のダンジョンに「壁の裏が見えない」視界をつける
     this.pvp = !!app.pvp && this.mp; // PvPモード（協力ルーム専用）
@@ -10261,6 +10262,12 @@ class GameScene extends Phaser.Scene {
     return !this.mp && !this.pvp && !this.bossRush && !this.frontline && !this.arms4Ritual && !this.isDevMode && !this._demonTest && !this._endingNext && !this._endTest && !this._warpHut;
   }
   // 今この場で中断できない理由（できる時は ''）
+  // 📌 武器の「固定」ボタンの見た目を合わせる：ルーレット赤の間は、棍棒固定なので赤く押された状態にする
+  _syncFixBtn() {
+    const fb = document.getElementById('weaponFixBtn'); if (!fb) return;
+    const red = this._rlEffect === 'red', on = red || !!this.fixYellow;
+    fb.classList.toggle('rl', red); fb.classList.toggle('on', on); fb.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
   suspendBlockReason() {
     if (!this.suspendModeOk()) return 'このモードでは、中断セーブは使えません';
     if (this.snowfield || this.hell || this.sanctuary) return 'ここでは中断セーブできません。ダンジョンの階に戻ってからお試しください';
@@ -26184,7 +26191,7 @@ class GameScene extends Phaser.Scene {
     try {
       this.resetS2ForRestart(); // 降魔術：調伏の儀の途中経過・解放済みの技・技の状態を全て初期化
       this.clearAllies();
-      this._rlEffect = null; this._rlWisps = 0; // 🎰 ルーレットの色の効果は、次のダンジョン1回だけ：やり直したら消える
+      this._rlEffect = null; this._rlWisps = 0; this._syncFixBtn(); // 🎰 ルーレットの色の効果は、次のダンジョン1回だけ：やり直したら消える
       // 🎁 やり直したら、装飾品まわりも1回目の挑戦の始まり（ロビーで付けていた状態）に戻す：チェストで拾った装飾品・鬼火の数・時計・リザルトの「新しい装飾品」
       this.equipRunAccessory(this._initAccKey || ''); // 拾った装飾品を外して、元の装飾品へ（鎧の最大HPもここで戻る）
       this.skullRevives = this.accKey === 'skull' ? SKULL_WISPS : 0; // 同じ装飾品のままだと上は何もしないので、鬼火の数はここで必ず満タンに戻す
