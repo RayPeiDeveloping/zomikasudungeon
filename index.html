@@ -2122,10 +2122,10 @@ const ROULETTE_SEGS = [
   { key: 'black',  n: '黒',   c: '#1c1c22', t: '#ffffff', p: 10, d: '全てのモンスター（ミミック・ボスも）がシマハルになる' },
   { key: 'white',  n: '白',   c: '#f4f4f4', t: '#222222', p: 5, d: '全てのモンスター（ミミック・ボスも）がゴーストになる' },
   { key: 'cyan',   n: '水色', c: '#4fd0f0', t: '#06323d', p: 20, d: '亡霊の鬼火（水色の鬼火が3つ。力尽きても、HP全回復で3回まで生き返る）' },
-  { key: 'yellow', n: '黄色', c: '#ffd93b', t: '#4a3a00', p: 25 },
-  { key: 'purple', n: '紫',   c: '#9a5be0', t: '#ffffff', p: 20 },
-  { key: 'red',    n: '赤',   c: '#e03c3c', t: '#ffffff', p: 10 },
-  { key: 'green',  n: '緑',   c: '#3cc864', t: '#06310f', p: 10 },
+  { key: 'yellow', n: '黄色', c: '#ffd93b', t: '#4a3a00', p: 25, d: 'ミミックの出現率と宝箱の出現数が2倍' },
+  { key: 'purple', n: '紫',   c: '#9a5be0', t: '#ffffff', p: 20, d: '敵全員（ボス・ミミックも）のHPが半分' },
+  { key: 'red',    n: '赤',   c: '#e03c3c', t: '#ffffff', p: 10, d: '武器は棍棒固定。敵を一撃で倒せるが、自分も一撃で死ぬ' },
+  { key: 'green',  n: '緑',   c: '#3cc864', t: '#06310f', p: 10, d: '全ての敵が倒した時に必ず回復（包帯）をドロップする' },
 ];
 // 🎰 ルーレットで当たった色を、ロビーの「ダンジョン」ボタンのふちに付ける。次にそのボタンを押すまで残る（再読み込みしても残るよう localStorage に控える）
 function applySoloBtnBorder() {
@@ -3992,7 +3992,7 @@ class GameScene extends Phaser.Scene {
     this.attackCooldown = 0;
     this.playerInvuln = 0;
     this.weaponLevels = {}; // 武器key -> 所持レベル（同じ武器を再度拾うと強化される）
-    const startWeaponType = (this.limitedKey && limitedWeaponBase(this.limitedKey)) || (this.devWeaponKey && WEAPON_TYPES.find(w => w.key === this.devWeaponKey)) || WEAPON_TYPES[0]; // 限定武器の装飾品を付けていれば、最初からその限定武器（外していれば、ふつうの剣）
+    const startWeaponType = (this._rlEffect === 'red' && WEAPON_TYPES.find(w => w.key === 'club')) || (this.limitedKey && limitedWeaponBase(this.limitedKey)) || (this.devWeaponKey && WEAPON_TYPES.find(w => w.key === this.devWeaponKey)) || WEAPON_TYPES[0]; // 限定武器の装飾品を付けていれば、最初からその限定武器（外していれば、ふつうの剣）
     // デベロッパーモード（とボスラッシュ）では、選んだ武器がいきなり高いレベルからスタートする（通常プレイは常にレベル1から）。
     // 開始時のレベルはデベロッパーモードの「武器レベル」で決める（ボスラッシュや、レベル未指定の場合は5）。
     const startWeaponLevel = (this.devWeaponKey ? Math.max(1, Math.floor(this.devWeaponLevel) || 5) : 1) + (this.accKey === 'trophy' ? ACC_TROPHY.levelBonus : 0); // 🏆 トロフィー：開始時の武器レベル+1
@@ -5060,6 +5060,7 @@ class GameScene extends Phaser.Scene {
     this.rt = null; if (this._rtGfx && this._rtGfx.scene) this._rtGfx.clear(); // 前の階の調伏の儀の進行は持ち越さない
     this.dungeon = dungeon;
     this._rushCleared = false;
+    this._bossDone = {}; // 💾 この階で倒したボスのグループ（中断セーブ用）
     if (this.bossRush || this.frontline || this.pvp || this.bossFloor) this.hideBossUi();
     if (this.rushExitLabel) { this.rushExitLabel.destroy(); this.rushExitLabel = null; }
 
@@ -5133,6 +5134,7 @@ class GameScene extends Phaser.Scene {
       this.enemies = []; this.chests = []; this.potions = [];
     } else {
       this.spawnEnemies();
+      if (this._rlEffect === 'purple') this.enemies.forEach(e => { e.maxHp = Math.max(1, Math.round(e.maxHp / 2)); e.hp = Math.max(1, Math.round(e.hp / 2)); }); // 🎰 紫：敵全員（ボス・ミミックも）のHPが半分
       if (this.bossFloor) { this.chests = []; this.potions = []; } // ボス階は宝箱・ポーションなし
       else if (this.snowfield || this.hell) { this.chests = []; this.potions = []; } // 雪原は宝箱もポーションも最初から置かない（敵を倒した時のドロップは通常どおり）
       else { this.spawnChests(); this.spawnPotions(); this._markInitLoot(); }
@@ -5262,7 +5264,7 @@ class GameScene extends Phaser.Scene {
     if (!this.snowfield && !this.hell && !this.bossFloor && !this.bossRush && !this.frontline && !this.pvp && candidateRooms.length) {
       const mrand = mulberry32(this.baseSeed + this.floor * 7919 + 303);
       const mt = ENEMY_TYPES.find(t => t.key === 'mimic');
-      if (mt && mt.minFloor <= this.floor && mrand() < MIMIC.chance) {
+      if (mt && mt.minFloor <= this.floor && mrand() < Math.min(1, MIMIC.chance * (this._rlEffect === 'yellow' ? 2 : 1))) { // 🎰 黄色：ミミックの出現率2倍
         // ふだんは1体。ごくまれに（multiChance）、数体まとめて出る
         let mn = 1;
         if (mrand() < MIMIC.multiChance) mn = MIMIC.minCount + Math.floor(mrand() * (MIMIC.maxCount - MIMIC.minCount + 1));
@@ -9228,6 +9230,7 @@ class GameScene extends Phaser.Scene {
   // 結果（場所・種類）を全員に配信する。仕組みは最北戦線のドロップ配信（fdrops）を流用する。
   onDungeonKillDrop(e) {
     if (this.mp && !this.isHost) return; // 協力プレイ：ドロップの抽選はホストだけ
+    if (this._rlEffect === 'green') { this.emitDungeonDrop('potion', e.gfx.x, e.gfx.y, null); return; } // 🎰 緑：全ての敵が必ず回復（包帯）をドロップする
     if (Math.random() >= DUNGEON_KILL_DROP.chance) return;
     const kind = Math.random() < DUNGEON_KILL_DROP.potionShare ? 'potion' : 'chest';
     // 宝箱の場合、さらに低確率でピンク（激レア・仲間全員の今の武器がLv+1）を抽選する。それ以外は緑（自分だけLv+1）。
@@ -9364,7 +9367,7 @@ class GameScene extends Phaser.Scene {
     this.chests = [];
     if (candidateRooms.length === 0 || eligible.length === 0) return;
 
-    const chestCount = Math.min(1 + Math.floor(this.floor / 2), 3, candidateRooms.length);
+    const chestCount = Math.min(1 + Math.floor(this.floor / 2), 3, candidateRooms.length) * (this._rlEffect === 'yellow' ? 2 : 1); // 🎰 黄色：宝箱の数2倍
     const usedRooms = [];
     for (let i = 0; i < chestCount; i++) {
       let room, attempts = 0;
@@ -9654,7 +9657,7 @@ class GameScene extends Phaser.Scene {
 
   // ===== 装飾品の特殊効果 =====
   // 盾：受けるダメージ-1（1以下のダメージはそのまま。0にはしない）
-  accDmgTaken(d) { if (this.hell && d > 0) return Math.max(d, this.playerMaxHp * 10); return this.accKey === 'shield' ? Math.max(Math.min(d, 1), d - 5) : d; }
+  accDmgTaken(d) { if (this._rlEffect === 'red' && d > 0) return Math.max(d, this.playerMaxHp * 10); /* 🎰 赤：どんな攻撃でも一撃で力尽きる */ if (this.hell && d > 0) return Math.max(d, this.playerMaxHp * 10); return this.accKey === 'shield' ? Math.max(Math.min(d, 1), d - 5) : d; }
 
   // 王冠：この敵が、王冠を付けた誰か（自分・協力プレイの仲間）の魔法陣に触れているか。
   // 敵を動かすのはホスト（ソロは自分）だけなので、ホストが仲間の王冠も見て判定する。PvPの相手プレイヤーは対象外（別処理）。
@@ -10334,7 +10337,7 @@ class GameScene extends Phaser.Scene {
     (this.chests || []).forEach(c => { if (c && c._init && !c.taken) ch.push([c.idx, c.broken ? 1 : 0, r(c.hp == null ? 0 : c.hp)]); });
     const po = [];
     (this.potions || []).forEach(p => { if (p && p._init && !p.taken) po.push(p.idx); });
-    return { floor: this.floor, px: this.player ? r(this.player.x) : null, py: this.player ? r(this.player.y) : null, enemies: en.slice(0, 400), chests: ch.slice(0, 100), potions: po.slice(0, 30) };
+    return { floor: this.floor, px: this.player ? r(this.player.x) : null, py: this.player ? r(this.player.y) : null, enemies: en.slice(0, 400), chests: ch.slice(0, 100), potions: po.slice(0, 30), bossDone: Object.assign({}, this._bossDone || {}) };
   }
   // 💾 再開時：create() の buildFloor() の直後に呼ぶ。階は初期配置で作られているので、控えに無い敵・宝箱・ポーションは「倒した／取った」ものとして消し、残っているものは HP・位置・壊れた状態を戻す。
   // ボスは、倒していても復活させる（出口が開く条件などを壊さないため）。戦闘中に増えた敵・弾・時間で消えるドロップは戻らない。
@@ -10345,7 +10348,14 @@ class GameScene extends Phaser.Scene {
       const kill = o => { if (o && o.destroy) { try { o.destroy(); } catch (e) { /* すでに無い */ } } };
       if (Array.isArray(w.enemies)) {
         const m = {}; w.enemies.forEach(a => { if (Array.isArray(a)) m[String(a[0])] = a; });
+        const allClearFloor = this.floor >= 25 || (this.nightmare && this.floor >= 10); // オールクリアになる階は、ボス撃破を戻さない
+        const bd = (!allClearFloor && w.bossDone && typeof w.bossDone === 'object') ? w.bossDone : {};
+        this._bossDone = Object.assign({}, bd);
         this.enemies = (this.enemies || []).filter(e => {
+          if (e.bossGroupId != null && bd[String(e.bossGroupId)]) { // 💾 倒してあったボスは、復活させずに消す
+            kill(e.gfx); kill(e.hpBar); kill(e.label); if (this.enemyById) delete this.enemyById[e.id];
+            return false;
+          }
           const a = m[String(e.id)], isBoss = !!(e.type && e.type.isBoss);
           if (!a) {
             if (isBoss) return true; // ボスは復活
@@ -10357,6 +10367,12 @@ class GameScene extends Phaser.Scene {
           if (!isBoss && Number.isFinite(x) && Number.isFinite(y) && e.gfx) { e.gfx.x = x; e.gfx.y = y; if (e.hpBar) { e.hpBar.x = x; e.hpBar.y = y - ((e.type && e.type.radius) || 10) - 8; } }
           return true;
         });
+      }
+      if (Object.keys(this._bossDone || {}).length) { // 💾 ボスを倒してあった：残りのボスがいなければ、ボスUIを消して、ボス階なら出口を開ける
+        if (!this.enemies.some(e => e.hp > 0 && e.bossGroupId != null)) {
+          this.hideBossUi();
+          if (this.bossFloor && !this.mp) { const k = Object.keys(this._bossDone)[0], bp = this._bossDone[k] || [0, 0]; this.openBossRushExit({ x: bp[0], y: bp[1] }, true); }
+        }
       }
       if (Array.isArray(w.chests)) {
         const m = {}; w.chests.forEach(a => { if (Array.isArray(a)) m[a[0]] = a; });
@@ -12621,6 +12637,7 @@ class GameScene extends Phaser.Scene {
       if (this.pvpOnHit(enemy, damage) && this.accKey === 'flame' && damage > 0 && !isBurn) this.igniteEnemy(enemy);
       return;
     }
+    if (this._rlEffect === 'red' && damage > 0 && enemy.hp > 0) damage = Math.max(damage, enemy.hp + 1); // 🎰 赤：敵は一撃で倒れる
     if (!this._quietHit) this.spawnBurst(enemy.gfx.x, enemy.gfx.y, enemy.type.color, 7); // シリアルキラーの斬撃は見た目を出さない
 
     // 溜め中に呼び寄せたゴーストだけは特別に脆い：普通のゴーストは完全無敵だが、こちらは
@@ -23341,8 +23358,8 @@ class GameScene extends Phaser.Scene {
         // かなり近づかないと反応しない判定距離にしてある（宝箱自体の当たり半径14pxに近い16px）。
         const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, chest.x, chest.y);
         if (d < 16) {
-          if (this.fixYellow && chest.lootType === 'yellow' && chest.weapon && this.weapon && chest.weapon.key !== this.weapon.key) { // 📌 「固定」がオンの間は、今持っているのと違う武器の黄色の宝箱は取らない（触れても反応せず、宝箱はそのまま残る）。同じ武器の黄色・緑・ピンク・青は取れる
-            if (!(this._fixMsgT > this.time.now)) { this._fixMsgT = this.time.now + 1500; this.showBanner('固定中：違う武器を取りません', 1400); }
+          if ((this.fixYellow || this._rlEffect === 'red') && chest.lootType === 'yellow' && chest.weapon && this.weapon && chest.weapon.key !== this.weapon.key) { // 📌 「固定」がオンの間は、今持っているのと違う武器の黄色の宝箱は取らない（触れても反応せず、宝箱はそのまま残る）。同じ武器の黄色・緑・ピンク・青は取れる
+            if (!(this._fixMsgT > this.time.now)) { this._fixMsgT = this.time.now + 1500; this.showBanner(this._rlEffect === 'red' ? '🎰 赤：武器は棍棒固定です' : '固定中：違う武器を取りません', 1400); }
             return true;
           }
           const lw = this.limitedKey && limitedWeaponBase(this.limitedKey); // 限定武器の装飾品を付けている間は、他の武器の宝箱は取れない（触れても反応せず、宝箱はそのまま残る）。今の武器の強化（緑・ピンク）やエフェクトは取れる
@@ -26440,6 +26457,7 @@ class GameScene extends Phaser.Scene {
       return;
     }
     if (!this.mp) this.runStats.bosses++; // リザルト用：倒したボス数
+    if (gid != null) (this._bossDone || (this._bossDone = {}))[String(gid)] = pos ? [Math.round(pos.x), Math.round(pos.y)] : [0, 0]; // 💾 倒したボスを控える（中断セーブ用）
     if (this.frontline) {
       // 最北戦線：確率で宝箱（HPは回復しない）。次のボスは倒してから bossInterval 秒後に出る
       this.hideBossUi();
