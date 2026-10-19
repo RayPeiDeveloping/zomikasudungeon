@@ -3893,7 +3893,9 @@ class GameScene extends Phaser.Scene {
     this._resumeWorld = (this._resume && this._resume.world) ? this._resume.world : null; // 💾 敵・宝箱・ポーション・位置の控え
     // デベロッパーモード（名前を「developer」にすると使える）では、指定した階から
     // テストプレイを始められる。協力プレイでは部屋側の階を優先する。
-    this._rlEffect = !this.mp ? (app.rouletteEffect || null) : null; this._rlWisps = this._rlEffect === 'cyan' ? 3 : 0; /* 👻 水色：亡霊の鬼火の数＝あと何回、HP全回復で生き返れるか */ this._syncFixBtn(); this._ghostFloorOn = !this.mp && !!app.ghostFloor; this._gf = null; // 👻 ロビーの番号が library/ghostfloor と同じなら、1階に隠しゴースト（ソロ専用）
+    this._rlEffect = !this.mp ? (app.rouletteEffect || null) : null; this._rlWisps = this._rlEffect === 'cyan' ? 3 : 0; /* 👻 水色：亡霊の鬼火の数＝あと何回、HP全回復で生き返れるか */ this._syncFixBtn();
+    if (this._rlEffect === 'purple') { this._rlBarFn = () => this._rlPurpleBars(); this.events.on('postupdate', this._rlBarFn); this.events.once('shutdown', () => this.events.off('postupdate', this._rlBarFn)); } // 🎰 紫：実際のHPは半分だが、HPバーは「通常の最大HPに対する割合」で見せる（最大値そのものは変えない＝回復する敵などの処理に影響しない）
+    this._ghostFloorOn = !this.mp && !!app.ghostFloor; this._gf = null; // 👻 ロビーの番号が library/ghostfloor と同じなら、1階に隠しゴースト（ソロ専用）
     this.bossRush = !this.mp && !!app.bossRush; // ボスラッシュ（ソロ専用）
     this.nightmare = !this.mp && !!app.nightmare; // ナイトメア（ソロ専用）：通常のダンジョンに「壁の裏が見えない」視界をつける
     this.pvp = !!app.pvp && this.mp; // PvPモード（協力ルーム専用）
@@ -5886,6 +5888,14 @@ class GameScene extends Phaser.Scene {
 
   // ボスのHPバーを更新する。カルテットのように分裂するボスは、同じグループ全員の
   // HPの合計で表示する（分裂で合計HPが増えるので、最大値は「生存中の合計最大HP」の最大値を使う）。
+  // 🎰 紫：敵のHPバーを、通常の最大HP（今の最大HPの2倍）に対する割合で描く＝満タンでも半分の長さに見える
+  _rlPurpleBars() {
+    if (this._rlEffect !== 'purple') return;
+    for (const e of this.enemies) {
+      if (!e || !e.hpBar || !e.hpBar.scene || !e.type || !(e.maxHp > 0) || e._rt) continue;
+      e.hpBar.width = Math.max(0, Math.min(1, e.hp / e.maxHp)) * e.type.radius * 2 * 0.5;
+    }
+  }
   updateBossBar() {
     if (!this._bossUiGroup) return;
     if (this._bossUiPending) {
@@ -5903,7 +5913,8 @@ class GameScene extends Phaser.Scene {
       cur += e.hp; max += e.maxHp;
     }
     if (max > this._bossBarMax) this._bossBarMax = max;
-    const ratio = this._bossBarMax > 0 ? Math.max(0, Math.min(1, cur / this._bossBarMax)) : 0;
+    let ratio = this._bossBarMax > 0 ? Math.max(0, Math.min(1, cur / this._bossBarMax)) : 0;
+    if (this._rlEffect === 'purple') ratio *= 0.5; // 🎰 紫：ボスのバーも、通常の最大HPに対する割合で見せる
     document.getElementById('bossHpFill').style.width = (ratio * 100) + '%';
   }
 
@@ -12739,6 +12750,13 @@ class GameScene extends Phaser.Scene {
     // ゾートロープ：攻撃を受けるたびにプレイヤーの近くへ飛ぶ（実際の移動は updateEnemy 側）
     if (damage > 0 && t.teleportOnHit && enemy.hp > 0 && !isBurn) this.requestTeleport(enemy); // 燃焼ダメージではテレポートさせない
     if (wasAlive && enemy.hp <= 0 && !enemy._skipBossReward) this.creditKill(enemy);
+    // 🎰 赤：複数体で1体のボス（カルテット・スネークなど）は、1つ倒したら同じグループの全員が一緒に倒れる
+    if (this._rlEffect === 'red' && !this._rlGroupKill && damage > 0 && enemy.bossGroupId != null) {
+      this._rlGroupKill = true;
+      try {
+        this.enemies.slice().forEach(o => { if (o !== enemy && o.bossGroupId === enemy.bossGroupId && o.hp > 0 && !o._pvp) this.damageEnemy(o, o.hp + 1, angle, 0, true); });
+      } finally { this._rlGroupKill = false; }
+    }
   }
 
   // 分裂ボス（カルテット等）が初撃を受けた瞬間、その場で4体の子に分裂させる。
