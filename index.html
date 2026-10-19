@@ -1733,7 +1733,7 @@ const GOD_END = { hold: 1.5, fade: 2.5 };
 //   startWait＝両目が閉じてから歩き出すまで(秒)／walkSpeed＝歩く速さ(px/秒)／holdTime＝真ん中に着いてから根が復活し始めるまで(秒)／reviveTime＝根が浮かび上がる秒／redTime・redHold＝根全体が赤く輝いていく秒・輝いたまま待つ秒
 //   thrustTime＝根が一斉に壁へ伸びて、刺さるまでの秒（距離が違っても、全部が同時に刺さる）／extendStagger＝根ごとの伸び始めのばらつき(秒。0＝一斉)／extendMax＝全部が刺さらなくても、この秒で先へ進む／stabDepth＝壁の中へ食い込む深さ(px)／rootsFallback＝根が出ていない時に使う本数
 //   crackTime＝根が刺さってから、赤い亀裂が画面の外から真ん中近くまで伸びてくる秒／crackCount＝画面の外のまわりから伸びてくる亀裂の本数（枝分かれは別）／redDelay・redTime＝根が刺さってから画面が赤くなり始めるまでの秒・そこから真っ赤になるまでの秒／crimson＝画面の赤の色／stabShake・stabShakeTime＝根が刺さった瞬間の、大きめの揺れの強さ・秒／shakeStart・shakeEnd＝そのあと真っ赤になるまでに、揺れが高まっていく強さ（始まり・最後）／blastHold＝真っ赤になってから、暗転が始まるまでの秒／darkTime＝そこから、ゆっくり暗転していく秒（真っ暗になりきったら、コンプリート画面へ）／redShake・redShakeTime＝根が赤く輝き始める瞬間の、画面の揺れの強さ・秒（一瞬だけ揺れる。根を伸ばしている間は揺れない）
-const GOD_ROOTFIN = { startWait: 0.6, walkSpeed: 55, redFlash: 0.22, holdTime: 0.5, reviveTime: 1.2, redTime: 1.5, redHold: 0.6, thrustTime: 0.35, extendStagger: 0, extendMax: 2.4, stabDepth: 14, rootsFallback: 18, stabShake: 0.06, stabShakeTime: 0.5, shakeStart: 0.008, crackTime: 3.5, crackCount: 16, redDelay: 1, redTime: 3.5, crimson: 0xff0000, shakeEnd: 0.03, blastHold: 1.2, darkTime: 6, redShake: 0.007, redShakeTime: 0.25 }; // 🎬 エンディングの最後：両目が閉じてから暗転が始まるまでの間(秒)／暗くなっていく時間(秒)。暗転のあと、オールクリア画面（GAME CLEAR）へ
+const GOD_ROOTFIN = { startWait: 0.6, walkSpeed: 55, redFlash: 0.22, holdTime: 0.5, ringTime: 1.6, ringScale: 3.2, reviveTime: 1.2, redTime: 1.5, redHold: 0.6, thrustTime: 0.35, extendStagger: 0, extendMax: 2.4, stabDepth: 14, rootsFallback: 18, stabShake: 0.06, stabShakeTime: 0.5, shakeStart: 0.008, crackTime: 3.5, crackCount: 16, redDelay: 1, redTime: 3.5, crimson: 0xff0000, shakeEnd: 0.03, blastHold: 1.2, darkTime: 6, redShake: 0.007, redShakeTime: 0.25 }; // 🎬 エンディングの最後：両目が閉じてから暗転が始まるまでの間(秒)／暗くなっていく時間(秒)。暗転のあと、オールクリア画面（GAME CLEAR）へ
 const SANCTUARY_GOD = { nearRadius: 120, interval: 0.5, growTime: 0.35, holdTime: 2, fadeTime: 0.6, maxWidth: 56, length: 1400, color: 0x000000, orbR: 14, scale: 2, speed: 45, pauseMin: 0.6, pauseMax: 2.2, bodyR: 22, lines: false, punishHits: 3, hitGap: 0.45 };
 // ✨ 神には当たり判定がないが、狙って攻撃した回数を数える：punishHits＝この回数に達すると罰（目の演出）／hitGap＝同じ攻撃を連続で数えない間隔（秒）。罰＝HPは減らさず、装飾品を剥いで（このゲーム中だけ）、雪原のランダムな点へテレポート。
 // ✨ scale＝神全体の大きさの倍率（体・輪・目・光・攻撃の判定・歩く時の壁との距離がぜんぶこれで変わる）。bodyR＝神の体（宇宙への窓）の基本の半径（px）。 lines＝黒い線（宇宙への窓）を出すか（false で一時的に消す／true で戻る）。
@@ -11668,7 +11668,7 @@ class GameScene extends Phaser.Scene {
       if (rvOn) { // ✨ 復活の最中：根は、天使の金／悪魔の紫の光（根ごとに交互）として現れ、光が薄れるのと入れ替わりに、黒い体と赤いふちが現れて、根の形になる
         const sm = (a, b, x) => { const u = Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
         LA = Math.min(1, rv / 0.15) * (1 - sm(0.55, 1, rv)); BA = sm(0.3, 0.95, rv);
-        const gold = ri % 2 === 0; lc = gold ? 0xffffff : 0xb36bff; lc2 = gold ? 0xffffff : 0xe8d2ff; // 天使側（根ごとに交互）は白／悪魔側は紫
+        const gold = ri % 2 === 0; lc = gold ? 0xffffff : 0x0c0710; lc2 = gold ? 0xffffff : 0x1e1826; // 天使側（根ごとに交互）は白／悪魔側は紫
         wingPasses = [{ col: lc, al: 0.28 * LA, ex: 30 }, { col: lc, al: 0.7 * LA, ex: 14 }, { col: lc2, al: 0.95 * LA, ex: 3 }].concat(wingPasses.map(ps => ({ col: ps.col, al: ps.al * BA, ex: ps.ex })));
       }
       for (const pass of wingPasses) {
@@ -25544,7 +25544,8 @@ class GameScene extends Phaser.Scene {
       if (R.fa != null && this._wings) { this._wings.face = R.fa; this._wings.px = pl.x; this._wings.py = pl.y; } // 根が身体の向きに合わせて（背中側に）復活するよう、向きと前の位置をそろえる
       if (R.phase === 'walkX') { if (walk(cx, pl.y)) { R.phase = 'walkY'; R.t = 0; } } // 右へ歩いて、聖域の真ん中の列まで
       else if (R.phase === 'walkY') { if (walk(pl.x, cy)) { R.phase = 'hold'; R.t = 0; } } // 次に下へ歩いて、聖域の真ん中辺りまで
-      else if (R.phase === 'hold') { if (R.fa == null) R.fa = this._autoFace != null ? this._autoFace : Math.PI / 2; /* 今の身体の向き */ if (R.t >= C.holdTime) { R.phase = 'revive'; R.t = 0; this._wingA = 1; this._rootRevive = 0; this._rootReviveOn = true; this._spWings = true; this._godAuraMerge(C.reviveTime); } } // 根が復活する（二色の光の輪が根の光へ溶けていく）
+      else if (R.phase === 'hold') { if (R.fa == null) R.fa = this._autoFace != null ? this._autoFace : Math.PI / 2; /* 今の身体の向き */ if (R.t >= C.holdTime) { R.phase = 'ring'; R.t = 0; this._godAuraGrow(C.ringTime); } } // 先に、天使と悪魔の二色の光の輪が大きく広がる（ringTime＝広がる秒／ringScale＝輪の大きさの倍率）
+      else if (R.phase === 'ring') { if (R.t >= C.ringTime) { R.phase = 'revive'; R.t = 0; this._wingA = 1; this._rootRevive = 0; this._rootReviveOn = true; this._spWings = true; this._godAuraMerge(C.reviveTime); } } // 根が復活する（二色の光の輪が根の光へ溶けていく）
       else if (R.phase === 'revive') { this._rootRevive = Math.min(1, R.t / C.reviveTime); if (R.t >= C.reviveTime) { R.phase = 'red'; R.t = 0; cam.flash(C.redFlash * 1000, 255, 40, 40); cam.shake(C.redShakeTime * 1000, C.redShake, true); } } // 根が赤く輝き始める：赤いフラッシュと、輝いている間の画面揺れ
       else if (R.phase === 'red') { // 根の全体が赤く輝いていく
         this._rootRed = R.t >= C.redFlash ? 1 : 0; // 赤いフラッシュのあいだはそのまま。フラッシュが明けた瞬間に、一気に全部赤くなっている（redFlash＝フラッシュの長さ(秒)）
@@ -25709,11 +25710,11 @@ class GameScene extends Phaser.Scene {
   // ✨ 主人公のまわりに残る光の輪を作る（吸収の終わりに呼ぶ。テストでは、最初に呼んで再現する）。神の目（深さ7）より上、主人公（深さ7.5）より下に描く
   _godAuraSpawn(kind, col, col2) {
     const A = this._endAct, pl = this.player, W = kind === 'angel'; if (!A || !pl) return;
-      const aura = this.add.graphics().setDepth(7.2); A.objs.push(aura); const t0 = this.time.now, ao = { t: 0 }, st = { merge: 0 }; (A.auras = A.auras || []).push(st); // st.merge＝根が復活する時に、輪が外へ広がりながら根の光へ溶けていく度合い(0→1)
+      const aura = this.add.graphics().setDepth(7.2); A.objs.push(aura); const t0 = this.time.now, ao = { t: 0 }, st = { merge: 0, grow: 0 }; (A.auras = A.auras || []).push(st); // st.merge＝根が復活する時に、輪が外へ広がりながら根の光へ溶けていく度合い(0→1)
       const tw = this.tweens.add({ targets: ao, t: 1, duration: 1000, repeat: -1, onUpdate: () => { // 主人公のまわりに残る光の輪（ゆっくり脈打ち、光の粒が周りを回る。ふわっと現れる）
         if (!aura.scene || !pl.scene) { tw.stop(); return; }
         if (st.merge >= 1) { aura.destroy(); tw.stop(); return; }
-        const now = this.time.now, k = Math.min(1, (now - t0) / 800) * (1 - st.merge), pu = 0.5 + 0.5 * Math.sin(now / 220 + (W ? 0 : 1.7)), R = (38 + 6 * pu) * (1 + 1.6 * st.merge);
+        const now = this.time.now, k = Math.min(1, (now - t0) / 800) * (1 - st.merge * st.merge), pu = 0.5 + 0.5 * Math.sin(now / 220 + (W ? 0 : 1.7)), R = (38 + 6 * pu) * (1 + (GOD_ROOTFIN.ringScale - 1) * st.grow) * (1 + 0.25 * st.merge); // 根が出る前に輪が大きく広がり（grow）、その輪の中で根が現れる
         aura.clear();
         aura.lineStyle(10, col, (0.22 + 0.12 * pu) * k); aura.strokeCircle(pl.x, pl.y, R + 8);
         aura.lineStyle(3, col2, (0.55 + 0.25 * pu) * k); aura.strokeCircle(pl.x, pl.y, R);
@@ -25722,6 +25723,10 @@ class GameScene extends Phaser.Scene {
       } });
   }
   // ✨ 根が復活し始める時：主人公のまわりの二色の光の輪が、外へ広がりながら薄れていく（その光が、復活する根の光になる。根の描画は _drawWings の rvOn）
+  _godAuraGrow(sec) { // 根が復活する前：二色の光の輪が、大きく広がる
+    const A = this._endAct; if (!A || !A.auras) return;
+    for (const st of A.auras) this.tweens.add({ targets: st, grow: 1, duration: sec * 1000, ease: 'Sine.easeOut' });
+  }
   _godAuraMerge(sec) {
     const A = this._endAct; if (!A || !A.auras) return;
     for (const st of A.auras) this.tweens.add({ targets: st, merge: 1, duration: sec * 900, ease: 'Sine.easeInOut' });
