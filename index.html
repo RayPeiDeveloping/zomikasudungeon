@@ -2118,6 +2118,13 @@ function generatePvpMap() {
   };
 }
 
+// ⏸ ポーズボタンの中の絵：文字（絵文字）ではなく、SVGのコードで描く（paused=true なら▶、false なら⏸）
+function setPauseIcon(btn, paused) {
+  if (!btn) return;
+  btn.innerHTML = '<svg viewBox="0 0 24 24" style="width:5.2vh;height:5.2vh;pointer-events:none;display:block;" aria-hidden="true">' + (paused
+    ? '<polygon points="7,4 20,12 7,20" fill="#fff"/>'
+    : '<rect x="6" y="4.5" width="4.2" height="15" fill="#fff"/><rect x="13.8" y="4.5" width="4.2" height="15" fill="#fff"/>') + '</svg>';
+}
 // 🎰 隠し部屋のルーレット：色と確率（p＝%。合計100にする）。ここを書き換えれば確率を変えられる。d＝次のダンジョン1回だけに効く効果の説明（効果は spawnEnemies など、this._rlEffect を見ている所に書く）
 const ROULETTE_SEGS = [
   { key: 'black',  n: '黒',   c: '#1c1c22', t: '#ffffff', p: 10, d: '全てのモンスター（ミミック・ボスも）がシマハルになる' },
@@ -3854,7 +3861,7 @@ class GameScene extends Phaser.Scene {
     this.limitedKey = limitedEquippedKey(); // 限定武器の装飾品を付けていれば、その装飾品のkey（付けている間、武器はその限定武器で固定される）
     this.skullRevives = this.accKey === 'skull' ? SKULL_WISPS : 0; // ドクロ：残りの鬼火の数＝あと何回生き返れるか（1回の挑戦ごとに SKULL_WISPS 個）
     this._initAccKey = this.accKey; // 「もう一度」でやり直す時に、この状態（ロビーで付けていた装飾品）へ戻すために覚えておく
-    this._paused = false; this._pauseAt = 0; this._pbChkAt = null; { const po = document.getElementById('pauseOverlay'); if (po) po.style.display = 'none'; const pb = document.getElementById('pauseBtn'); if (pb) { pb.style.display = 'none'; if (pb.firstChild) pb.firstChild.textContent = '⏸'; } } // ⏸ ポーズは、始めるたびに解除しておく
+    this._paused = false; this._pauseAt = 0; this._pbChkAt = null; { const po = document.getElementById('pauseOverlay'); if (po) po.style.display = 'none'; const pb = document.getElementById('pauseBtn'); if (pb) { pb.style.display = 'none'; setPauseIcon(pb, false); } } // ⏸ ポーズは、始めるたびに解除しておく
     this.fixYellow = false; // 📌 武器の「固定」：オンの間は、今持っているのと違う武器の黄色の宝箱を取らない（「もう一度」では保つ。ロビーへ戻ると切れる）
     { const fb = document.getElementById('weaponFixBtn'); if (fb) { fb.classList.remove('on'); fb.setAttribute('aria-pressed', 'false'); const fixToggle = () => { if (this._rlEffect === 'red') { this._syncFixBtn(); return; } this.fixYellow = !this.fixYellow; fb.classList.toggle('on', this.fixYellow); fb.setAttribute('aria-pressed', this.fixYellow ? 'true' : 'false'); fb.blur(); };
       let fixTouchAt = 0; // スティックを押さえたまま別の指で押すと、スマホでは click が発火しないことがある。touchstart で切り替える（時計ボタンと同じ）。touchstart で処理した時は、続けて来る click を無視する
@@ -4058,7 +4065,7 @@ class GameScene extends Phaser.Scene {
     this.events.once('shutdown', _hutBookCleanup); this.events.once('destroy', _hutBookCleanup);
     const _clkCleanup = () => { try { this.endClock(); } catch (e) {} const cb = document.getElementById('clockBtn'); if (cb) cb.style.display = 'none'; };
     this.events.once('shutdown', _clkCleanup); this.events.once('destroy', _clkCleanup);
-    const _pauseCleanup = () => { this._paused = false; const po = document.getElementById('pauseOverlay'); if (po) po.style.display = 'none'; const pb = document.getElementById('pauseBtn'); if (pb) { pb.style.display = 'none'; if (pb.firstChild) pb.firstChild.textContent = '⏸'; } };
+    const _pauseCleanup = () => { this._paused = false; const po = document.getElementById('pauseOverlay'); if (po) po.style.display = 'none'; const pb = document.getElementById('pauseBtn'); if (pb) { pb.style.display = 'none'; setPauseIcon(pb, false); } };
     this.events.once('shutdown', _pauseCleanup); this.events.once('destroy', _pauseCleanup);
     if (A4_TEST_FORM_KEYS) { // テスト用：四つ腕の戦闘中、Z＝次の形態へ（演出つき） / X＝第1形態に戻す
       this.input.keyboard.on('keydown-Z', () => {
@@ -10169,8 +10176,8 @@ class GameScene extends Phaser.Scene {
       b = document.createElement('div');
       b.id = 'pauseBtn';
       b.setAttribute('role', 'button'); b.setAttribute('aria-label', 'ポーズ');
-      b.style.cssText = 'position:fixed;right:2.5vh;bottom:2.5vh;z-index:26;width:9vh;height:9vh;border-radius:50%;background:rgba(10,10,16,0.75);border:0.35vh solid rgba(255,255,255,0.35);display:none;align-items:center;justify-content:center;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;';
-      b.innerHTML = '<span style="font-size:4.6vh;line-height:1;color:#fff;pointer-events:none;">⏸</span>';
+      b.style.cssText = 'position:fixed;right:max(4.5vh,calc(env(safe-area-inset-right,0px) + 2.5vh));bottom:max(4.5vh,calc(env(safe-area-inset-bottom,0px) + 2.5vh));z-index:26;width:9vh;height:9vh;border-radius:1.2vh;background:rgba(10,10,16,0.75);border:0.35vh solid rgba(255,255,255,0.35);display:none;align-items:center;justify-content:center;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;';
+      setPauseIcon(b, false);
       document.body.appendChild(b);
       // マウスは click で切り替える。タッチで拾った直後（700ms以内）に来る click は無視する（二重に切り替わらないように）
       b.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); if (Date.now() - (window._pauseTouchAt || 0) < 700) return; if (b._scene) b._scene.togglePause(); });
@@ -10255,7 +10262,7 @@ class GameScene extends Phaser.Scene {
     try { this.time.timeScale = 0; this.tweens.timeScale = 0; } catch (e) { /* シーン終了時 */ } // 遅延処理（delayedCall）と演出（tween）も止める
     this.pauseOverlayEl().style.display = 'flex';
     { const sb = document.getElementById('pauseSuspendBtn'); if (sb) sb.style.display = this.suspendModeOk() ? '' : 'none'; const sm = document.getElementById('pauseSuspendMsg'); if (sm) sm.textContent = ''; } // 💾 中断セーブできるモードの時だけ、ボタンを出す
-    const b = this.pauseBtnEl(); b.style.display = 'flex'; if (b.firstChild) b.firstChild.textContent = '▶';
+    const b = this.pauseBtnEl(); b.style.display = 'flex'; setPauseIcon(b, true);
   }
   endPause() {
     if (!this._paused) return;
@@ -10266,7 +10273,7 @@ class GameScene extends Phaser.Scene {
     if (this._hellT0) this._hellT0 += dur;
     try { if (!this._clkOn) { this.time.timeScale = 1; this.tweens.timeScale = 1; } } catch (e) { /* シーン終了時 */ } // 時計で止めている最中なら、止めたまま戻す
     const o = document.getElementById('pauseOverlay'); if (o) o.style.display = 'none';
-    const b = document.getElementById('pauseBtn'); if (b && b.firstChild) b.firstChild.textContent = '⏸';
+    const b = document.getElementById('pauseBtn'); if (b) setPauseIcon(b, false);
   }
   // 💾 中断セーブ：ダンジョン（ソロ）とナイトメアだけ。ボスラッシュ・最北戦線・調伏の儀・開発者モード・協力／PvPでは使えない
   suspendModeOk() {
