@@ -10326,6 +10326,7 @@ class GameScene extends Phaser.Scene {
   // 💾 中断データから再開する時に、create() の buildFloor() の直前に呼ぶ。階を作る前に、武器・HP・装飾品などを戻しておく
   _applyResume() {
     const d = this._resume; if (!d) return; this._resume = null;
+    this._neckFloor = this.floor; // 📿 中断から再開した時は、金銀のネックレスを発動させない（その階の分は、中断する前にもう出ている）
     try {
       const okAcc = k => typeof k === 'string' && !!accessoryByKey(k);
       const wantAcc = okAcc(d.accKey) ? d.accKey : '';
