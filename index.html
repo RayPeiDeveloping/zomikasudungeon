@@ -11663,15 +11663,15 @@ if (r._pinch) { cx = 2 * r._pinch.x - (sx + tx) / 2; cy = 2 * r._pinch.y - (sy +
       let thornK = reviveLook ? bigK : Math.min(bigK, absK); // とげ（赤）：吸い取って強化されてから
       if (!reviveLook && absK > 0.02) { // 🪽 天使と悪魔の力を吸った根：悪魔側へ伸ばしていた根（偶数番）は真っ黒に輝き、天使側へ伸ばしていた根（奇数番）は白く輝く
       const pu2 = 0.5 + 0.5 * Math.sin(this.time.now / 90 + r.ph);
-      if (r.i % 2 === 0) wingPasses = [{ col: 0x2a1038, al: 0.7 * (1 - absK), ex: 7 }, { col: 0x000000, al: absK, ex: 26 }, { col: 0x12061a, al: absK, ex: 11 }, { col: 0x000000, al: 1, ex: 0 }];
-      else { const v = Math.round(255 * absK); wingPasses = [{ col: 0x2a1038, al: 0.7 * (1 - absK), ex: 7 }, { col: 0xffffff, al: absK, ex: 26 }, { col: 0xfff2c8, al: absK, ex: 11 }, { col: (v << 16) | (v << 8) | v, al: 1, ex: 0 }]; }
+      if (r.i % 2 === 0) wingPasses = [{ col: 0x2a1038, al: 0.7 * (1 - absK), ex: 7 }, { col: 0x000000, al: (0.3 + 0.25 * pu2) * absK, ex: 26 }, { col: 0x000000, al: absK, ex: 11, top: true }, { col: 0x000000, al: 1, ex: 0, top: true }]; // top＝棘より上に描く（中間の層も本体と同じ色）
+      else { const v = Math.round(255 * absK); wingPasses = [{ col: 0x2a1038, al: 0.7 * (1 - absK), ex: 7 }, { col: 0xffffff, al: (0.3 + 0.25 * pu2) * absK, ex: 26 }, { col: (v << 16) | (v << 8) | v, al: absK, ex: 11, top: true }, { col: (v << 16) | (v << 8) | v, al: 1, ex: 0, top: true }]; }
       }
       const rr = this._rootRed || 0;
       if (rr > 0) { // 🔴 エンディングの最後：根の全体が真っ赤に輝く（ぼんやりにじませず、はっきりした真っ赤な根。どくどく明るさが脈打つ）
         const pu = 0.5 + 0.5 * Math.sin(this.time.now / 90);
         wingPasses = [{ col: 0xff1428, al: (0.32 + 0.18 * pu) * rr, ex: 22 }, { col: 0xff0000, al: rr, ex: 11 }, { col: (Math.round(255 * rr) << 16) | (Math.round(rr * (24 + 56 * pu)) << 8) | Math.round(rr * (24 + 36 * pu)), al: 1, ex: 0 }];
       }
-      for (const pass of wingPasses) {
+      const drawPass = (pass) => {
         g.fillStyle(pass.col, pass.al);
         const Lp = [], Rp = [];
         for (let k = 0; k <= N; k++) {
@@ -11686,7 +11686,8 @@ if (r._pinch) { cx = 2 * r._pinch.x - (sx + tx) / 2; cy = 2 * r._pinch.y - (sy +
         }
         g.fillCircle(pts[0].x, pts[0].y, (pts[0].th + pass.ex) / 2); // 根元を丸く（背中になじませる）
         g.fillCircle(pts[N].x, pts[N].y, (pts[N].th + pass.ex) / 2); // 先端も丸く（悪魔の根の頭の丸みと同じ）
-      }
+      };
+      for (const pass of wingPasses) if (!pass.top) drawPass(pass);
       if (thornK > 0.3) { // とげ：体の左右から、後ろ向きにとがった赤いとげ（悪魔の根と同じ形）
         g.fillStyle(0xff2a3c, 1);
         for (let k = 2; k < N - 1; k += 2) {
@@ -11698,6 +11699,7 @@ if (r._pinch) { cx = 2 * r._pinch.x - (sx + tx) / 2; cy = 2 * r._pinch.y - (sy +
           }
         }
       }
+      for (const pass of wingPasses) if (pass.top) drawPass(pass); // 棘より上の層（根本体）
     }
   }
   // 📿 金銀のネックレスを付けている間は、身体に金と銀の輝きが乗る／♾️ 不死の紋章を付けている間は、身体から紫色の炎が出る（見た目だけ）
@@ -24973,7 +24975,8 @@ this.time.delayedCall(C.absorbDelay * 1000, () => { if (this._endAct === A) this
     A.grab = false; A.spread = false; A.hold = true;
     const W0 = this._wings; if (W0) for (const r of W0.roots) { r._grab = false; r._pinch = null; }
     const arm = ENEMY_TYPES.find(t => t.key === 'arms4'), has = !!(this.textures.exists('armUp') && arm && arm.arms);
-    const k0 = has ? arm.arms.len / this.textures.getFrame('armUp').height : 1, L0 = has ? arm.arms.len * 0.92 : 200;
+    const k0 = has ? arm.arms.len / this.textures.getFrame('armUp').height : 1, L0 = has ? arm.arms.len * 0.92 : 200, TW0 = has ? this.textures.getFrame('armUp').width : 1;
+    const bodyF = i => { const b = bodies[i], R = ((b.radius || (i ? arm.radius : 56) || 50)) * (b.scaleX || 1); return has ? Math.max(1.2, Math.min(6, R * 2.4 / (TW0 * k0 * 1.2))) : 1; }; // 手の幅が、体の直径の1.2倍ほどになる大きさ
     const live = b => !!(b && b.scene && b.visible !== false);
     const H = this._godHold = { hands: [], last: [null, null], R: [50, 50], pin: [null, null], t: 0, upd: null };
     const mk = (kind, r0, sx, tgt, f) => { // r0＝向き（0＝真下へ伸びる）／sx＝左右の反転／tgt()＝手の先が行く位置
@@ -24981,10 +24984,10 @@ this.time.delayedCall(C.absorbDelay * 1000, () => { if (this._endAct === A) this
       H.hands.push({ kind, r0, sx, k, L: L0 * 1.2 * (f || 1), ph: Math.random() * 6.283, tgt, rot: r0, x: 0, y: 0, dx: 0, dy: 0, gone: false, img: has ? this.add.image(0, 0, 'armUp').setOrigin(0.593, 0).setDepth(6.2).setAlpha(0) : null });
     };
     mk('player', PI, 1, () => ({ x: pl.x, y: pl.y + 2 })); // 主人公：下から
-    mk('body0', demonSide < 0 ? -PI / 2 : PI / 2, demonSide < 0 ? 1 : -1, () => live(bodies[0]) ? { x: bodies[0].x, y: bodies[0].y } : null); // 悪魔：その外側（左）から
-    mk('body1', demonSide < 0 ? PI / 2 : -PI / 2, demonSide < 0 ? -1 : 1, () => live(bodies[1]) ? { x: bodies[1].x, y: bodies[1].y } : null); // 天使：その外側（右）から
-    mk('pin0', demonSide < 0 ? -0.25 : 0.25, 1, () => H.P[0], 0.85); // 悪魔側の根の束：真ん中を上から
-    mk('pin1', demonSide < 0 ? 0.25 : -0.25, 1, () => H.P[1], 0.85); // 天使側の根の束：真ん中を上から
+    mk('body0', demonSide < 0 ? -PI / 2 : PI / 2, demonSide < 0 ? 1 : -1, () => live(bodies[0]) ? { x: bodies[0].x, y: bodies[0].y } : null, bodyF(0)); // 悪魔：その外側（左）から。体に合わせた大きさ
+    mk('body1', demonSide < 0 ? PI / 2 : -PI / 2, demonSide < 0 ? -1 : 1, () => live(bodies[1]) ? { x: bodies[1].x, y: bodies[1].y } : null, bodyF(1)); // 天使：その外側（右）から。体に合わせた大きさ
+    mk('pin0', demonSide < 0 ? PI + 0.2 : PI - 0.2, 1, () => H.P[0], 1.6); // 悪魔側の根の束：真ん中を下から（大きな手）
+    mk('pin1', demonSide < 0 ? PI - 0.2 : PI + 0.2, 1, () => H.P[1], 1.6); // 天使側の根の束：真ん中を下から（大きな手）
     H.P = [null, null];
     H.upd = () => {
       if (this._godHold !== H) return;
@@ -25475,12 +25478,17 @@ this.time.delayedCall(C.absorbDelay * 1000, () => { if (this._endAct === A) this
       if (!tg0) { if (F0.rootsOn) { F0.rootsOn = false; for (const r of W.roots) { r.st = 'idle'; r.cd = 0; r._slow = true; r.straight = false; } } return; }
       F0.rootsOn = true; const n = W.roots.length, fr = v => v - Math.floor(v);
       for (const r of W.roots) {
-        const u = F0.t / 0.9 + r.i / n, cyc = Math.floor(u), ph = u - cyc; // 根ごとにずらして、次々に刺す
-        const h1 = fr(Math.sin(cyc * 12.9898 + r.i * 78.233) * 43758.5453), ex = tg0.x + Math.cos(h1 * TAU) * F.eyeSlashR * 0.5 * fr(h1 * 7.13), ey = tg0.y + Math.sin(h1 * TAU) * F.eyeSlashR * 0.5 * fr(h1 * 7.13);
-        const w = ph < 0.2 ? 0.55 + 0.45 * (ph / 0.2) : ph < 0.45 ? 1 : 0.55 + 0.45 * (1 - (ph - 0.45) / 0.55); // 突く → 刺したまま → 少し引く
+        const u = F0.t / 1.2 + r.i / n, cyc = Math.floor(u), ph = u - cyc; // 根ごとにずらして、次々に刺す
+        const h1 = fr(Math.sin(cyc * 12.9898 + r.i * 78.233) * 43758.5453), ja = h1 * TAU, jr = F.eyeSlashR * 0.5 * fr(h1 * 7.13);
+        const ex = tg0.x + Math.cos(ja) * jr, ey = tg0.y + Math.sin(ja) * jr;
+        let w, es; // メリハリ：①ぐっと引いて溜める → ②一瞬で突き刺す（目を突き抜ける） → ③刺さったまま止まる → ④ゆっくり抜く
+        if (ph < 0.4) { const q = ph / 0.4; w = 0.6 - 0.28 * q * q; es = 7; }
+        else if (ph < 0.5) { w = 1.18; es = 70; }
+        else if (ph < 0.78) { w = 1.1 - 0.08 * ((ph - 0.5) / 0.28); es = 12; }
+        else { const q = (ph - 0.78) / 0.22; w = 1.02 - 0.42 * q; es = 6; }
         if (r._cyc !== cyc) { r._cyc = cyc; r._hit = false; }
-        if (ph >= 0.2 && !r._hit) { r._hit = true; this.spawnBurst(ex, ey, 0xff3040, 3); }
-        r.st = 'end'; r.es = 20; r.straight = true; r._grab = false; r._pinch = null;
+        if (ph >= 0.5 && !r._hit) { r._hit = true; this.spawnBurst(ex, ey, 0xff3040, 5); this.spawnBurst(ex, ey, 0xffffff, 3); cam.shake(70, 0.004); }
+        r.st = 'end'; r.es = es; r.straight = true; r._grab = false; r._pinch = null;
         r.ex = pl.x + (ex - pl.x) * w; r.ey = pl.y + (ey - pl.y) * w;
       }
     };
