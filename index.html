@@ -11784,7 +11784,8 @@ class GameScene extends Phaser.Scene {
       if (Math.abs(diff) > arcRad + angularRadius) continue;
       if (!this.meleeCanReach(enemy.gfx.x, enemy.gfx.y, enemy.type.radius)) continue; // 壁の向こうには届かない
       const ex = enemy.gfx.x, ey = enemy.gfx.y, er = enemy.type.radius; // 倒れて消える前の位置と大きさを控えておく
-      this.damageEnemy(enemy, w.damage, a, w.knockback);
+      this._rlClubHit = (w.key === 'club'); // 🎰 赤：一撃で倒せるのは、棍棒の攻撃だけ
+      try { this.damageEnemy(enemy, w.damage, a, w.knockback); } finally { this._rlClubHit = false; }
       if (w.bloodFx && !(enemy.type.key === 'ghost' || isChargeGhostId(enemy.id))) this.knifeBlood(ex, ey, enemy.hp <= 0 ? angle : a, er, enemy.hp <= 0); // ナイフ：当たった敵から血しぶき（倒した時は、ナイフの向いていた方向へスプレー）
     }
 
@@ -12663,7 +12664,7 @@ class GameScene extends Phaser.Scene {
       if (this.pvpOnHit(enemy, damage) && this.accKey === 'flame' && damage > 0 && !isBurn) this.igniteEnemy(enemy);
       return;
     }
-    if (this._rlEffect === 'red' && damage > 0 && enemy.hp > 0) damage = Math.max(damage, enemy.hp + 1); // 🎰 赤：敵は一撃で倒れる
+    if (this._rlEffect === 'red' && this._rlClubHit && damage > 0 && enemy.hp > 0) damage = Math.max(damage, enemy.hp + 1); // 🎰 赤：棍棒の攻撃は、敵を一撃で倒す（他の攻撃は通常のダメージ）
     if (!this._quietHit) this.spawnBurst(enemy.gfx.x, enemy.gfx.y, enemy.type.color, 7); // シリアルキラーの斬撃は見た目を出さない
 
     // 溜め中に呼び寄せたゴーストだけは特別に脆い：普通のゴーストは完全無敵だが、こちらは
@@ -12759,7 +12760,7 @@ class GameScene extends Phaser.Scene {
     if (damage > 0 && t.teleportOnHit && enemy.hp > 0 && !isBurn) this.requestTeleport(enemy); // 燃焼ダメージではテレポートさせない
     if (wasAlive && enemy.hp <= 0 && !enemy._skipBossReward) this.creditKill(enemy);
     // 🎰 赤：複数体で1体のボス（カルテット・スネークなど）は、1つ倒したら同じグループの全員が一緒に倒れる
-    if (this._rlEffect === 'red' && !this._rlGroupKill && damage > 0 && enemy.bossGroupId != null) {
+    if (this._rlEffect === 'red' && this._rlClubHit && !this._rlGroupKill && damage > 0 && enemy.bossGroupId != null) {
       this._rlGroupKill = true;
       try {
         this.enemies.slice().forEach(o => { if (o !== enemy && o.bossGroupId === enemy.bossGroupId && o.hp > 0 && !o._pvp) this.damageEnemy(o, o.hp + 1, angle, 0, true); });
@@ -27583,9 +27584,11 @@ const VOICE = {
   // ----- 響き（洞窟のようなリバーブ）。遠いほど、声のあとに響きが長く残って「奥の方から聞こえる」感じになる。 -----
   // 響きの波形は短い・中くらい・長いの3つ。いる場所（下の env）に合わせて、混ぜる割合を変える。使っていない波形は、無音になるので負荷がほぼかからない
   reverbMax: 0.9,        // 遠い時に響きへ送る量の最大(0〜1)。大きいほど、遠い声が響きだらけになる（現実より少し大げさ）。0で響きなし
-  reverbStart: 0.5,      // この距離（半径＝1）から、響きが増え始める。これより近いと、ほぼ響かない
+  reverbStart: 0.8,      // この距離（半径＝1）から、響きが増え始める。これより近いと、ほぼ響かない
   reverbFull: 1.8,       // この距離で、響きの送る量が最大(reverbMax)になる。outRatio に近づくと、声と一緒に消える
-  wallReverb: 0.55,      // 壁越しの時の、響きの最低の割合(0〜1)。近くても、壁の向こうの声は響いて聞こえる。0で壁の影響なし
+  wallReverb: 0.5,      // 壁越しの時の、響きの最低の割合(0〜1)。近くても、壁の向こうの声は響いて聞こえる。0で壁の影響なし
+  downCutoff: 500,   // ダウンしている間の、声の上限周波数(Hz)。低いほど、くぐもって聞こえる
+  downVolume: 0.75,  // ダウンしている間の、声の音量にかける割合(0〜1)
   reverbGain: 1,         // 響き全体の音量。響きが大きすぎる時は下げる
   reverbTypes: [         // sec＝響きの長さ(秒)、decay＝消えていく速さ(大きいほどすぐ小さくなる)、pre＝声から響きが始まるまでの間(秒)、bright→dark＝響きの明るさ(Hz)。最初から終わりにかけて、だんだん暗く（こもって）消える
     { sec: 0.5, decay: 2.4, pre: 0.008, bright: 7000, dark: 2500 },  // 短い：通路・小部屋
@@ -27868,6 +27871,7 @@ class VoiceChat {
           wet = wetOf(vP > vW ? dEff : d, true);
         }
       }
+      if (sc.isDowned) { cut = Math.min(cut, VOICE.downCutoff); v *= VOICE.downVolume; } // ダウン中：周りの声が水の中のようにくぐもって、少し小さく聞こえる
       if (e.lp) e.lp.frequency.setTargetAtTime(cut, ct, 0.08);
       if (e.shelf) e.shelf.gain.setTargetAtTime(bass, ct, 0.1);
       e.gain.gain.setTargetAtTime(v * VOICE.maxVolume, ct, 0.08);
