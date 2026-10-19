@@ -591,7 +591,7 @@
       </label>
       <button id="soloBtn">ダンジョン</button>
       <button id="hutWarpBtn" style="background:#6b8fa8; margin-top:0.8vh; display:none !important;">🛠 テスト：小屋の入り口へワープ</button>
-      <button id="endingTestBtn" style="display:none; background:#ffd77a; color:#222; margin-top:0.8vh;">🛠 テスト：エンディング（宇宙が壊れて聖域に戻ったところから）</button>
+      <button id="endingTestBtn" style="background:#ffd77a; color:#222; margin-top:0.8vh;">🛠 テスト：エンディング（神の左目を倒す直前から）</button>
       <button id="endingFullTestBtn" style="display:none; background:#ff7a7a; color:#222; margin-top:0.8vh;">🛠 テスト：エンディング（最初から）</button>
       <button id="demonTestBtn" style="background:#3a2450; color:#fff; margin-top:0.8vh; display:none !important;">🛠 テスト：悪魔（25階）</button>
       <button id="hellTestBtn" style="background:#8a2a1a; color:#fff; margin-top:0.8vh; display:none !important;">🛠 テスト：地獄（扉から出ると1階）</button> <!-- テスト用：最初から地獄で始める。奥の扉に入ると1階に出る --> <!-- テスト用：ソロで25階から始めて、悪魔の問答を必ず出す --> <!-- テスト用：雪原の小屋の入り口から始める（表示中。デベロッパーモードでも使える） -->
@@ -11636,8 +11636,10 @@ class GameScene extends Phaser.Scene {
   // 根の描画：背中から先端まで、ゆるく曲がる先細りの線（根元は太く、先端は鋭く）
   _drawWings(W, px, py, bigK) {
     bigK = bigK || 0;
-    const g = W.gfx; g.clear(); g.setAlpha(Math.max(this._godAccK(), this._rootReviveOn ? this._rootRevive : 0) * (this._wingA == null ? 1 : this._wingA)); /* 🌹 復活中は _rootRevive の分だけ見える */ // ✨ エンディング：悪魔の爆発のあと、薄くなって消える／影でワープする時は、身体と一緒に薄れる（_wingA）
-    for (const r of W.roots) {
+    const rvOn = !!this._rootReviveOn && this._rootRevive < 1, rv = rvOn ? this._rootRevive : 1; // rvOn＝根が復活している最中（光が広がって根の形になる）
+    const g = W.gfx; g.clear(); g.setAlpha((rvOn ? 1 : Math.max(this._godAccK(), this._rootReviveOn ? this._rootRevive : 0)) * (this._wingA == null ? 1 : this._wingA)); /* 🌹 復活中は _rootRevive の分だけ見える */ // ✨ エンディング：悪魔の爆発のあと、薄くなって消える／影でワープする時は、身体と一緒に薄れる（_wingA）
+    for (let ri = 0; ri < W.roots.length; ri++) {
+      const r = W.roots[ri];
       const sx = px + Math.cos(W.face + Math.PI) * 8, sy = py + Math.sin(W.face + Math.PI) * 8; // 背中の付け根
       const tx = r.tx, ty = r.ty, dx = tx - sx, dy = ty - sy, dist = Math.hypot(dx, dy) || 1, nx = -dy / dist, ny = dx / dist;
       const fast = r.st === 'stab' || (r.st === 'end' && r.straight);
@@ -11649,6 +11651,8 @@ class GameScene extends Phaser.Scene {
         const wob = Math.sin(W.s * 7 + r.ph + u * 6) * 2.6 * Math.sin(u * Math.PI) * (fast ? 0.2 : 1);
         pts.push({ x: a0 * sx + a1 * cx + a2 * tx + nx * wob, y: a0 * sy + a1 * cy + a2 * ty + ny * wob, th: 12 * (1 + ENDING.wingThick * bigK) * (0.2 + 0.8 * Math.pow(1 - u, 0.75)) }); // 太さ：根元12px→先端2.4px（悪魔の根と同じ割合で細くなり、先端は丸い）
       }
+      let N2 = N;
+      if (rvOn) { N2 = Math.max(2, Math.ceil(N * (1 - Math.pow(1 - rv, 2.2)))); pts.length = N2 + 1; } // 根が、背中から外へ光が広がるように伸びて形になる
       // 悪魔の根と同じ色：ふちの暗い紫（太め）の上に、真っ黒な体を重ねる。先端は悪魔の根と同じく丸くする
       // 大きくなった翼：悪魔のHPが半分以下の根と同じ、赤く光る縁ととげ付きの見た目（光はどくどく脈打つ）
       const glowW = (0.25 + 0.1 * Math.sin(this.time.now / 90)) * Math.min(1, bigK);
@@ -11660,25 +11664,36 @@ class GameScene extends Phaser.Scene {
         const pu = 0.5 + 0.5 * Math.sin(this.time.now / 90);
         wingPasses = [{ col: 0xff1428, al: (0.32 + 0.18 * pu) * rr, ex: 22 }, { col: 0xff0000, al: rr, ex: 11 }, { col: (Math.round(255 * rr) << 16) | (Math.round(rr * (24 + 56 * pu)) << 8) | Math.round(rr * (24 + 36 * pu)), al: 1, ex: 0 }];
       }
+      let LA = 0, BA = 1, lc = 0xffffff, lc2 = 0xffffff;
+      if (rvOn) { // ✨ 復活の最中：根は、天使の金／悪魔の紫の光（根ごとに交互）として現れ、光が薄れるのと入れ替わりに、黒い体と赤いふちが現れて、根の形になる
+        const sm = (a, b, x) => { const u = Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
+        LA = Math.min(1, rv / 0.15) * (1 - sm(0.55, 1, rv)); BA = sm(0.3, 0.95, rv);
+        const gold = ri % 2 === 0; lc = gold ? 0xffffff : 0xb36bff; lc2 = gold ? 0xffffff : 0xe8d2ff; // 天使側（根ごとに交互）は白／悪魔側は紫
+        wingPasses = [{ col: lc, al: 0.28 * LA, ex: 30 }, { col: lc, al: 0.7 * LA, ex: 14 }, { col: lc2, al: 0.95 * LA, ex: 3 }].concat(wingPasses.map(ps => ({ col: ps.col, al: ps.al * BA, ex: ps.ex })));
+      }
       for (const pass of wingPasses) {
         g.fillStyle(pass.col, pass.al);
         const Lp = [], Rp = [];
-        for (let k = 0; k <= N; k++) {
-          const p0 = pts[Math.max(0, k - 1)], p1 = pts[Math.min(N, k + 1)];
+        for (let k = 0; k <= N2; k++) {
+          const p0 = pts[Math.max(0, k - 1)], p1 = pts[Math.min(N2, k + 1)];
           let ddx = p1.x - p0.x, ddy = p1.y - p0.y; const dl = Math.hypot(ddx, ddy) || 1; ddx /= dl; ddy /= dl;
           const hw = (pts[k].th + pass.ex) / 2; // ふちも悪魔の根と同じ太さのまま、先端まで続く
           Lp.push({ x: pts[k].x - ddy * hw, y: pts[k].y + ddx * hw }); Rp.push({ x: pts[k].x + ddy * hw, y: pts[k].y - ddx * hw });
         }
-        for (let k = 0; k < N; k++) {
+        for (let k = 0; k < N2; k++) {
           g.fillTriangle(Lp[k].x, Lp[k].y, Rp[k].x, Rp[k].y, Lp[k + 1].x, Lp[k + 1].y);
           g.fillTriangle(Rp[k].x, Rp[k].y, Rp[k + 1].x, Rp[k + 1].y, Lp[k + 1].x, Lp[k + 1].y);
         }
         g.fillCircle(pts[0].x, pts[0].y, (pts[0].th + pass.ex) / 2); // 根元を丸く（背中になじませる）
-        g.fillCircle(pts[N].x, pts[N].y, (pts[N].th + pass.ex) / 2); // 先端も丸く（悪魔の根の頭の丸みと同じ）
+        g.fillCircle(pts[N2].x, pts[N2].y, (pts[N2].th + pass.ex) / 2); // 先端も丸く（悪魔の根の頭の丸みと同じ）
+      }
+      if (rvOn && LA > 0.02) { // ✨ 光の粒：根のまわりで、金・紫の粒がきらきら舞う
+        g.fillStyle(lc2, LA);
+        for (let j = 0; j < 3; j++) { const kk = Math.floor(((this.time.now / 600 + ri * 0.37 + j * 0.33) % 1) * N2), c = pts[Math.min(N2, kk)]; g.fillCircle(c.x + Math.sin(this.time.now / 130 + j + ri) * 7, c.y + Math.cos(this.time.now / 110 + j * 2 + ri) * 7, 2 + 2 * ((j + ri) % 2)); }
       }
       if (bigK > 0.3) { // とげ：体の左右から、後ろ向きにとがった赤いとげ（悪魔の根と同じ形）
-        g.fillStyle(0xff2a3c, 1);
-        for (let k = 2; k < N - 1; k += 2) {
+        g.fillStyle(0xff2a3c, BA);
+        for (let k = 2; k < N2 - 1; k += 2) {
           const p0 = pts[k - 1], p1 = pts[k + 1]; let ddx = p1.x - p0.x, ddy = p1.y - p0.y; const dl = Math.hypot(ddx, ddy) || 1; ddx /= dl; ddy /= dl;
           const nx2 = -ddy, ny2 = ddx, hw = pts[k].th / 2, len = (6 + hw * 0.9) * Math.min(1, bigK), c = pts[k];
           for (const sg of [1, -1]) {
@@ -24824,6 +24839,33 @@ class GameScene extends Phaser.Scene {
       this.time.delayedCall(GOD_ROOTFIN.startWait * 1000, () => this._godRootFinale());
       return;
     }
+    const TEST_START = 'lefteye'; // 🛠 テストの始まり：'lefteye'（神の左目を倒す直前から。標準）／'space'（宇宙空間から）／'afterSpace'（宇宙が割れて聖域に戻った直後から）
+    if (TEST_START === 'space') { // 🛠 宇宙空間から：神の前に立ち、目はひらいて話し終えた状態 → 悪魔と天使が現れ（約4秒）→ 攻撃と同時に、神の体（宇宙）が広がり始める（本編の、神が話し終えたあとの流れ。装飾品はまだ付いたまま）
+      this.player.x = gx; this.player.y = stopY; this.cameras.main.centerOn(this.player.x, this.player.y);
+      this._autoWalk = { pts: [], i: 0, speed: 0.55, keep: true }; this._autoFace = -Math.PI / 2; // 操作は効かない／神（上）のほうを向いて立つ
+      const E = this._godEyes = { t0: -100, spoke: true, acted: true }; // 目は最初から全部ひらいて主人公のほうを向く／神は話し終えた／悪魔・天使の登場は、下で始める
+      const goAct = (n) => { if (this._godEyes !== E || !this.sanctuary) return; if (this._god) this._godAct(); else if (n < 10) this.time.delayedCall(300, () => goAct(n + 1)); }; // 神の体ができてから始める
+      this.time.delayedCall(400, () => goAct(0));
+      this.time.delayedCall(4800, () => { const A = this._endAct; if (this._godEyes === E && A && A.angel && A.demon) { this._godActAttack(A); this._godSpaceStart(); } }); // 悪魔と天使が現れたら、すぐ攻撃＋宇宙が広がり始める（本編は、攻撃のあと数秒してから広がる）
+      return;
+    }
+    if (TEST_START === 'lefteye') { // 🛠 神の左目を倒す直前から：本編でそこまでに変わっている状態（神の体は消えて目だけが残り、赤い目は閉じ、装飾品は外れ、主人公のまわりには天使の金と悪魔の紫の光の輪が残っている）にして、左の目が水色に光り始めるところ（→ 壁のブロックと斬撃で左の目を倒す → 根が復活 → …）から始める
+      this.player.x = gx; this.player.y = stopY; this.cameras.main.centerOn(this.player.x, this.player.y);
+      this._autoWalk = { pts: [], i: 0, speed: 0.55, keep: true }; this._autoFace = -Math.PI / 2; // 操作は効かない／神（上）のほうを向いて立つ
+      if (this.sanctuary) {
+        const E = this._godEyes = { t0: -100, spoke: true, acted: true }; // 目は最初から全部ひらいて主人公のほうを向く／神は話し終えた
+        this._godAccGone = false; this._godStripAccs(); // 聖域に戻った時点で、シリアルキラー以外の装飾は外れている
+        if (!this._endAct) this._endAct = { objs: [], projs: [], tick: null, angel: null, demon: null, fired: 0, spread: false }; // 光の輪の置き場（吸収の演出は飛ばすので、輪だけここで作る）
+        this._godAuraSpawn('demon', 0xb36bff, 0xe8d2ff); this._godAuraSpawn('angel', 0xffd45a, 0xffffff);
+        this.time.delayedCall(300, () => { // 目の位置が決まってから、本編と同じ _godFinaleStart を始めて、赤い目が閉じたあとの「左の目が光る」へ進める
+          if (!(this.sanctuary && this._godEyes === E)) return;
+          this._godFinaleStart(); const F0 = this._godFin, F = GOD_FINALE; if (!F0) return;
+          F0.next = F.armCount; F0.phase = 'blue'; F0.pt = 0; // 腕は出さない
+          E.lidTo = { [F.redSide]: 0 }; E.lidDur = 0.05; E.blue = { side: -F.redSide, t0: null, ramp: F.blueRamp }; // 赤い目は閉じていて、左の目が水色に光り始める
+        });
+      }
+      return;
+    }
     // 宇宙が割れて聖域に戻った直後から始める：神の前（本編で歩き終わる位置）に立ち、神の目はもう全部ひらいて主人公を見ていて（話し終えた扱い）、
     //   悪魔の装飾は外れている。そこから本編と同じ _godFinaleStart（神の体が消えて目だけ残る → 片目が赤くチカチカ → 天使の腕 → …）を始める
     this.player.x = gx; this.player.y = stopY; this.cameras.main.centerOn(this.player.x, this.player.y);
@@ -24924,6 +24966,7 @@ class GameScene extends Phaser.Scene {
   _godActAttack(A) {
     const god = this._god, a = A.angel, d = A.demon, C = GOD_ACT, TAU = Math.PI * 2;
     if (!god || !a || a.dead || !a.gfx.scene || !d || !d.gfx.scene) return;
+    if (A.attacked) return; A.attacked = true; // 二重に始めない（テストでは、先に呼ぶことがある）
     this.time.delayedCall(GOD_SPACE.delay * 1000, () => { if (this._endAct === A) this._godSpaceStart(); }); // 🌌 少しして、カメラが神へ → 神の体（宇宙）が広がる
     // 😈 悪魔：赤い強い根（天使を刺す根と同じ見た目）を、全方位へ一斉に伸ばす
     const dT = ENEMY_TYPES.find(t => t.key === 'demon');
@@ -25501,7 +25544,7 @@ class GameScene extends Phaser.Scene {
       if (R.fa != null && this._wings) { this._wings.face = R.fa; this._wings.px = pl.x; this._wings.py = pl.y; } // 根が身体の向きに合わせて（背中側に）復活するよう、向きと前の位置をそろえる
       if (R.phase === 'walkX') { if (walk(cx, pl.y)) { R.phase = 'walkY'; R.t = 0; } } // 右へ歩いて、聖域の真ん中の列まで
       else if (R.phase === 'walkY') { if (walk(pl.x, cy)) { R.phase = 'hold'; R.t = 0; } } // 次に下へ歩いて、聖域の真ん中辺りまで
-      else if (R.phase === 'hold') { if (R.fa == null) R.fa = this._autoFace != null ? this._autoFace : Math.PI / 2; /* 今の身体の向き */ if (R.t >= C.holdTime) { R.phase = 'revive'; R.t = 0; this._wingA = 1; this._rootRevive = 0; this._rootReviveOn = true; this._spWings = true; } } // 根が復活する
+      else if (R.phase === 'hold') { if (R.fa == null) R.fa = this._autoFace != null ? this._autoFace : Math.PI / 2; /* 今の身体の向き */ if (R.t >= C.holdTime) { R.phase = 'revive'; R.t = 0; this._wingA = 1; this._rootRevive = 0; this._rootReviveOn = true; this._spWings = true; this._godAuraMerge(C.reviveTime); } } // 根が復活する（二色の光の輪が根の光へ溶けていく）
       else if (R.phase === 'revive') { this._rootRevive = Math.min(1, R.t / C.reviveTime); if (R.t >= C.reviveTime) { R.phase = 'red'; R.t = 0; cam.flash(C.redFlash * 1000, 255, 40, 40); cam.shake(C.redShakeTime * 1000, C.redShake, true); } } // 根が赤く輝き始める：赤いフラッシュと、輝いている間の画面揺れ
       else if (R.phase === 'red') { // 根の全体が赤く輝いていく
         this._rootRed = R.t >= C.redFlash ? 1 : 0; // 赤いフラッシュのあいだはそのまま。フラッシュが明けた瞬間に、一気に全部赤くなっている（redFlash＝フラッシュの長さ(秒)）
@@ -25602,6 +25645,7 @@ class GameScene extends Phaser.Scene {
       if (onBoom) onBoom();
       if (W && !d.dead) this.expireAlly(d, true); // 天使は爆発と同時に消える
       if (body.scene) body.setVisible(false);
+      this._godAbsorb(kind, x, y); // ✨ 天使／悪魔の力が、光の粒になって主人公へ吸い込まれる
       cam.shake(900, 0.016); cam.flash(160, P.flash[0], P.flash[1], P.flash[2]);
       const g = this.add.graphics().setDepth(9); A.objs.push(g);
       const o = { r: 0, a: 1 };
@@ -25626,6 +25670,62 @@ class GameScene extends Phaser.Scene {
         this.tweens.add({ targets: c, x: x + Math.cos(a) * dist, y: y + Math.sin(a) * dist, scale: 0.2, alpha: 0, duration: 900 + Math.random() * 900, ease: 'Cubic.easeOut', onComplete: () => { if (c.scene) c.destroy(); } });
       }
     });
+  }
+  // ✨ 天使／悪魔の力の吸収：爆発の瞬間、天使（金・白）／悪魔（紫）のいた所から光の粒が渦を巻いて主人公へ吸い込まれる → 主人公が光り、衝撃の輪と閃光 → そのあとも、主人公のまわりに天使の金の輪／悪魔の紫の輪が残り続ける（両方吸収すると、2色の輪が重なる）。爆発の黒／白の円より手前に描くので、画面が覆われている間も見える
+  _godAbsorb(kind, x, y) {
+    const A = this._endAct, pl = this.player; if (!A || !pl || !pl.scene) return;
+    const W = kind === 'angel', TAU = Math.PI * 2;
+    const col = W ? 0xffd45a : 0xb36bff, col2 = W ? 0xffffff : 0xe8d2ff, rgb = W ? [255, 230, 150] : [150, 90, 230]; // col・col2＝主人公のまわりの輪／衝撃の輪の色
+    const pc = W ? 0xffdd55 : col, pc2 = W ? 0xfff0a0 : col2; // pc・pc2＝光の粒と主人公の光の色。天使は、白い爆発の上でも見えるよう、濃い金色（白は使わない）
+    const N = 30, GAP = 30, BASE = 150, FLY = 1000, DONE = BASE + (N - 1) * GAP + FLY * 1.2; // N＝粒の数／GAP＝粒が出る間隔(ms)／FLY＝1粒が飛ぶ時間(ms)／DONE＝全部吸い込まれる頃(ms)
+    for (let k = 0; k < N; k++) { // 光の粒：天使／悪魔の周りから、渦を巻きながら主人公へ
+      const c = this.add.circle(x, y, (W ? 6 : 4) + Math.random() * (W ? 8 : 6), k % 3 === 0 ? pc2 : pc, 1).setDepth(9.3); if (!W) c.setBlendMode(Phaser.BlendModes.ADD); A.objs.push(c); // 悪魔：光る加算／天使：白に沈まない、濃い金の粒（ふちなし）
+      const a0 = Math.random() * TAU, r0 = 30 + Math.random() * 90, sw = (Math.random() < 0.5 ? -1 : 1) * (80 + Math.random() * 120);
+      const sx = x + Math.cos(a0) * r0, sy = y + Math.sin(a0) * r0, o = { t: 0 };
+      c.setPosition(sx, sy);
+      this.tweens.add({ targets: o, t: 1, delay: BASE + k * GAP, duration: FLY * (0.8 + Math.random() * 0.4), ease: 'Cubic.easeIn', onUpdate: () => {
+        if (!c.scene || !pl.scene) return;
+        const u = o.t, tx = pl.x, ty = pl.y, dx = tx - sx, dy = ty - sy, dl = Math.hypot(dx, dy) || 1, bend = Math.sin(Math.PI * u) * sw * (1 - u * 0.3);
+        c.setPosition(sx + dx * u - dy / dl * bend, sy + dy * u + dx / dl * bend); c.setScale(1 - 0.5 * u);
+      }, onComplete: () => { if (c.scene) c.destroy(); } });
+    }
+    const glow = this.add.circle(pl.x, pl.y, 26, pc, 0).setDepth(9.25); if (!W) glow.setBlendMode(Phaser.BlendModes.ADD); A.objs.push(glow); // 主人公の体が、吸い込むほどに光る
+    const go = { v: 0 };
+    this.tweens.add({ targets: go, v: 1, duration: DONE, ease: 'Sine.easeIn', onUpdate: () => {
+      if (!glow.scene || !pl.scene) return;
+      const pu = 0.5 + 0.5 * Math.sin(this.time.now / 80);
+      glow.setPosition(pl.x, pl.y); glow.setRadius(24 + 30 * go.v + 6 * pu); glow.setFillStyle(pc, (0.25 + 0.4 * go.v) * (0.8 + 0.2 * pu) * (W ? 1.25 : 1));
+    }, onComplete: () => { if (glow.scene) glow.destroy(); } });
+    this.time.delayedCall(DONE, () => { // 吸い込み終わり：衝撃の輪＋閃光 → 光の輪が主人公のまわりに残る
+      if (this._endAct !== A || !pl.scene) return;
+      this.cameras.main.flash(260, rgb[0], rgb[1], rgb[2]); this.cameras.main.shake(300, 0.008);
+      const ring = this.add.graphics().setDepth(9.3); A.objs.push(ring); const ro = { r: 20, a: 1 };
+      this.tweens.add({ targets: ro, r: 300, a: 0, duration: 700, ease: 'Cubic.easeOut', onUpdate: () => {
+        if (!ring.scene) return; ring.clear(); ring.lineStyle(10, col, 0.8 * ro.a); ring.strokeCircle(pl.x, pl.y, ro.r); ring.lineStyle(4, col2, ro.a); ring.strokeCircle(pl.x, pl.y, ro.r * 0.93);
+      }, onComplete: () => { if (ring.scene) ring.destroy(); } });
+      this._godAuraSpawn(kind, col, col2);
+    });
+  }
+  // ✨ 主人公のまわりに残る光の輪を作る（吸収の終わりに呼ぶ。テストでは、最初に呼んで再現する）。神の目（深さ7）より上、主人公（深さ7.5）より下に描く
+  _godAuraSpawn(kind, col, col2) {
+    const A = this._endAct, pl = this.player, W = kind === 'angel'; if (!A || !pl) return;
+      const aura = this.add.graphics().setDepth(7.2); A.objs.push(aura); const t0 = this.time.now, ao = { t: 0 }, st = { merge: 0 }; (A.auras = A.auras || []).push(st); // st.merge＝根が復活する時に、輪が外へ広がりながら根の光へ溶けていく度合い(0→1)
+      const tw = this.tweens.add({ targets: ao, t: 1, duration: 1000, repeat: -1, onUpdate: () => { // 主人公のまわりに残る光の輪（ゆっくり脈打ち、光の粒が周りを回る。ふわっと現れる）
+        if (!aura.scene || !pl.scene) { tw.stop(); return; }
+        if (st.merge >= 1) { aura.destroy(); tw.stop(); return; }
+        const now = this.time.now, k = Math.min(1, (now - t0) / 800) * (1 - st.merge), pu = 0.5 + 0.5 * Math.sin(now / 220 + (W ? 0 : 1.7)), R = (38 + 6 * pu) * (1 + 1.6 * st.merge);
+        aura.clear();
+        aura.lineStyle(10, col, (0.22 + 0.12 * pu) * k); aura.strokeCircle(pl.x, pl.y, R + 8);
+        aura.lineStyle(3, col2, (0.55 + 0.25 * pu) * k); aura.strokeCircle(pl.x, pl.y, R);
+        aura.fillStyle(col2, 0.8 * k);
+        for (let j = 0; j < 6; j++) { const a = now / (W ? 700 : -600) + j * Math.PI / 3, rr = R + 10 * Math.sin(now / 300 + j); aura.fillCircle(pl.x + Math.cos(a) * rr, pl.y + Math.sin(a) * rr, 2.5); }
+      } });
+  }
+  // ✨ 根が復活し始める時：主人公のまわりの二色の光の輪が、外へ広がりながら薄れていく（その光が、復活する根の光になる。根の描画は _drawWings の rvOn）
+  _godAuraMerge(sec) {
+    const A = this._endAct; if (!A || !A.auras) return;
+    for (const st of A.auras) this.tweens.add({ targets: st, merge: 1, duration: sec * 900, ease: 'Sine.easeInOut' });
+    A.auras = [];
   }
   _godSpaceClear() {
     this._godTimeStop = false; this._godAccFade = null; // ⏸ 神以外の時間停止を解く／装飾品エフェクトの消去を戻す
@@ -27587,8 +27687,10 @@ const VOICE = {
   reverbStart: 0.8,      // この距離（半径＝1）から、響きが増え始める。これより近いと、ほぼ響かない
   reverbFull: 1.8,       // この距離で、響きの送る量が最大(reverbMax)になる。outRatio に近づくと、声と一緒に消える
   wallReverb: 0.5,      // 壁越しの時の、響きの最低の割合(0〜1)。近くても、壁の向こうの声は響いて聞こえる。0で壁の影響なし
-  downCutoff: 500,   // ダウンしている間の、声の上限周波数(Hz)。低いほど、くぐもって聞こえる
-  downVolume: 0.75,  // ダウンしている間の、声の音量にかける割合(0〜1)
+  downCutoff: 160,   // ダウンしている間の、声の上限周波数(Hz)。低いほど、くぐもって聞こえる（160だと、ほぼ何を言っているか分からない低いうなりになる）
+  downVolume: 0.4,   // ダウンしている間の、声の音量にかける割合(0〜1)
+  tinnitusHz: 6000,  // ダウンしている間に鳴る、耳鳴り（キーンという高い音）の高さ(Hz)
+  tinnitusVolume: 0.08, // 耳鳴りの音量(0〜1)。大きいと耳に痛いので、上げすぎない
   reverbGain: 1,         // 響き全体の音量。響きが大きすぎる時は下げる
   reverbTypes: [         // sec＝響きの長さ(秒)、decay＝消えていく速さ(大きいほどすぐ小さくなる)、pre＝声から響きが始まるまでの間(秒)、bright→dark＝響きの明るさ(Hz)。最初から終わりにかけて、だんだん暗く（こもって）消える
     { sec: 0.5, decay: 2.4, pre: 0.008, bright: 7000, dark: 2500 },  // 短い：通路・小部屋
@@ -27640,7 +27742,7 @@ class VoiceChat {
 
   start() {
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (AC) { this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = this.deaf ? 0 : 1; this.master.connect(this.ctx.destination); try { this._makeReverb(); } catch (err) { this.revTaps = null; } }
+    if (AC) { this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = this.deaf ? 0 : 1; this.master.connect(this.ctx.destination); try { const o = this.ctx.createOscillator(), tg = this.ctx.createGain(); o.type = 'sine'; o.frequency.value = VOICE.tinnitusHz; tg.gain.value = 0; o.connect(tg); tg.connect(this.master); o.start(); this.tinGain = tg; } catch (err) { this.tinGain = null; } try { this._makeReverb(); } catch (err) { this.revTaps = null; } }
     // ブラウザは、操作する前の音を止めるので、最初の操作で音を出せる状態にする
     this._resume = () => { if (this.ctx && this.ctx.state !== 'running') this.ctx.resume().catch(() => {}); };
     ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, this._resume, true));
@@ -27805,6 +27907,7 @@ class VoiceChat {
     if (this.stopped) return;
     const net = this.net, sc = this.scene;
     if (!net.roomId || net._leftRoom || net.roomId !== this.roomId) { this.stop(); return; }
+    if (this.tinGain && this.ctx) this.tinGain.gain.setTargetAtTime((sc && sc.isDowned) ? VOICE.tinnitusVolume : 0, this.ctx.currentTime, 0.4); // 🔔 ダウン中：耳鳴りがじわっと鳴り、起き上がると消える
     const players = (sc && sc.latestPlayers) || {};
     const now = Date.now();
     for (const uid in players) {
