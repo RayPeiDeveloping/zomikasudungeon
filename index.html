@@ -357,15 +357,6 @@
   #libPick { display: none; flex-wrap: wrap; justify-content: center; gap: 6px; }
   #libPick button { padding: 5px 10px; font-size: 12px; background: #3a2c1e; color: #e8d9bd; border: 1px solid #6a5238; border-radius: 3px; cursor: pointer; }
   #libBookText { width: min(92vw, 480px); max-height: 52vh; overflow-y: auto; white-space: pre-wrap; line-height: 1.7; font-size: 14px; color: #e8d9bd; background: #20170f; border: 2px solid #5a4330; border-radius: 4px; padding: 14px; box-sizing: border-box; text-align: left; }
-  #chestChoiceOverlay {
-    display: none; position: fixed; left: 50%; top: max(8px, env(safe-area-inset-top));
-    transform: translateX(-50%); z-index: 116; width: min(92vw, 380px); box-sizing: border-box;
-  }
-  #chestChoiceOverlay .lobbyBox { box-sizing: border-box; width: 100%; text-align: center; padding: 10px 14px; }
-  #chestChoiceOverlay h1 { font-size: 15px; }
-  #chestChoiceOverlay h2 { margin: 6px 0 4px; font-size: 12px; }
-  #chestChoiceList { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-  #chestChoiceList button { margin-top: 0; padding: 10px; font-size: 14px; }
   /* 装飾品の選択欄（旧：色の選択）。先頭は一覧を開くアイコン。未入手は灰色 */
   #accPicker { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; }
   .accItem {
@@ -649,13 +640,6 @@
     <h2>武器を選んでください（Lv.5でスタート）</h2>
     <div id="weaponSelectList"></div>
     <button id="weaponSelectBack" style="background:#333; color:#fff;">戻る</button>
-  </div>
-</div>
-<div id="chestChoiceOverlay">
-  <div class="lobbyBox">
-    <h1>🟡 宝箱</h1>
-    <h2>武器を1つ選んでください</h2>
-    <div id="chestChoiceList"></div>
   </div>
 </div>
 <div id="ui">
@@ -2133,6 +2117,98 @@ function generatePvpMap() {
   };
 }
 
+// 🎰 隠し部屋のルーレット：色と確率（p＝%。合計100にする）。ここを書き換えれば確率を変えられる。d＝次のダンジョン1回だけに効く効果の説明（効果は spawnEnemies など、this._rlEffect を見ている所に書く）
+const ROULETTE_SEGS = [
+  { key: 'black',  n: '黒',   c: '#1c1c22', t: '#ffffff', p: 10, d: '全てのモンスター（ミミック・ボスも）がシマハルになる' },
+  { key: 'white',  n: '白',   c: '#f4f4f4', t: '#222222', p: 5, d: '全てのモンスター（ミミック・ボスも）がゴーストになる' },
+  { key: 'cyan',   n: '水色', c: '#4fd0f0', t: '#06323d', p: 20, d: '亡霊の鬼火（水色の鬼火が3つ。力尽きても、HP全回復で3回まで生き返る）' },
+  { key: 'yellow', n: '黄色', c: '#ffd93b', t: '#4a3a00', p: 25 },
+  { key: 'purple', n: '紫',   c: '#9a5be0', t: '#ffffff', p: 20 },
+  { key: 'red',    n: '赤',   c: '#e03c3c', t: '#ffffff', p: 10 },
+  { key: 'green',  n: '緑',   c: '#3cc864', t: '#06310f', p: 10 },
+];
+// 🎰 ルーレットで当たった色を、ロビーの「ダンジョン」ボタンのふちに付ける。次にそのボタンを押すまで残る（再読み込みしても残るよう localStorage に控える）
+function applySoloBtnBorder() {
+  const b = document.getElementById('soloBtn'); if (!b) return;
+  let c = null; try { c = localStorage.getItem('soloBtnBorder'); } catch (e) { /* 保存できない環境では、その場だけ */ }
+  if (c) { b.style.border = '0.5vh solid ' + c; b.style.boxShadow = '0 0 1.2vh ' + c; } else { b.style.border = ''; b.style.boxShadow = ''; }
+}
+function setSoloBtnBorder(c) { try { localStorage.setItem('soloBtnBorder', c); } catch (e) { /* 保存できない環境では、その場だけ */ } const b = document.getElementById('soloBtn'); if (b) { b.style.border = '0.5vh solid ' + c; b.style.boxShadow = '0 0 1.2vh ' + c; } }
+function getRouletteEffect() { // 次のダンジョンに効く効果（ふちの色から決まる）。なければ null
+  let c = null; try { c = localStorage.getItem('soloBtnBorder'); } catch (e) { /* なし */ }
+  const sg = c && ROULETTE_SEGS.find(x => x.c === c); return sg ? sg.key : null;
+}
+function clearSoloBtnBorder() { try { localStorage.removeItem('soloBtnBorder'); } catch (e) { /* 何もしない */ } applySoloBtnBorder(); }
+applySoloBtnBorder(); // 読み込み時：前回の色が残っていれば付ける
+// 👻 隠しゴースト：奥の部屋の壁際にゴーストを置き、そこから壁の中（まだ何もない所）へまっすぐ隠し通路を掘って、突き当たりに小さな隠し部屋を作る。
+// 通路と隠し部屋は「歩ける（grid=1）」が、床としては描かない（dungeon.ghostFloor.tiles に印をつけて、_paintFloorTiles が飛ばす）ので、見た目は壁のまま。
+// 隠し部屋は、中に入った時だけ専用の描画（_ghostFloorUpdate）で浮かび上がる。
+// 専用の乱数（seed から別に作る）を使い、ほかの階・番号のマップには一切触らない。置ける場所が無ければ null（ゴーストは出ない）。
+// byDist：スタートから遠い順の部屋の一覧（{ room, d }）。奥の部屋から順に試す。
+function ghostSearch(grid, width, height, byDist, seed, LENS) {
+  const rnd = mulberry32(seed * 37 + 91177);
+  const DIRS = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
+  const ALONG = 5, ACROSS = 4; // 隠し部屋の中の広さ：通路の向きに5マス×横に4マス（小さめ）
+  const wall = (x, y) => x >= 0 && y >= 0 && x < width && y < height && grid[y][x] === 0;
+  const rectFree = (x0, y0, x1, y1) => { // 長方形と、そのまわり1マスが、すべて壁（何も掘られていない）か
+    if (x0 < 1 || y0 < 1 || x1 > width - 2 || y1 > height - 2) return false;
+    for (let y = y0 - 1; y <= y1 + 1; y++) for (let x = x0 - 1; x <= x1 + 1; x++) if (!wall(x, y)) return false;
+    return true;
+  };
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; };
+  for (const entry of byDist) {
+    const room = entry.room;
+    for (const d of shuffle(DIRS.slice())) {
+      // 部屋のふち（d の向きの端）の床のマスを、ゴーストが浮かぶ候補にする
+      const edge = [];
+      if (d.dx !== 0) { const ex = d.dx > 0 ? room.x + room.w - 1 : room.x; for (let y = room.y; y < room.y + room.h; y++) edge.push({ x: ex, y }); }
+      else { const ey = d.dy > 0 ? room.y + room.h - 1 : room.y; for (let x = room.x; x < room.x + room.w; x++) edge.push({ x, y: ey }); }
+      for (const E of shuffle(edge)) {
+        const Sx = E.x + d.dx, Sy = E.y + d.dy; // 壁側の最初のマス（通路の入口）
+        for (const L of LENS) {
+          const cor = [];
+          let ok = true;
+          for (let i = 0; i < L; i++) {
+            const cx = Sx + d.dx * i, cy = Sy + d.dy * i;
+            if (cx < 1 || cy < 1 || cx > width - 2 || cy > height - 2 || !wall(cx, cy)) { ok = false; break; }
+            if (!wall(cx + d.dy, cy + d.dx) || !wall(cx - d.dy, cy - d.dx)) { ok = false; break; } // 左右も壁（ほかの通路や部屋とくっつかない）
+            cor.push({ x: cx, y: cy });
+          }
+          if (!ok) continue;
+          const last = cor[L - 1];
+          let x0, y0, x1, y1;
+          if (d.dx !== 0) {
+            y0 = last.y - 1; y1 = y0 + ACROSS - 1;
+            if (d.dx > 0) { x0 = last.x + 1; x1 = x0 + ALONG - 1; } else { x1 = last.x - 1; x0 = x1 - ALONG + 1; }
+          } else {
+            x0 = last.x - 1; x1 = x0 + ACROSS - 1;
+            if (d.dy > 0) { y0 = last.y + 1; y1 = y0 + ALONG - 1; } else { y1 = last.y - 1; y0 = y1 - ALONG + 1; }
+          }
+          if (!rectFree(x0, y0, x1, y1)) continue;
+          // 掘る：通路と隠し部屋（歩ける。床としては描かない）
+          const tiles = new Uint8Array(width * height);
+          for (const c of cor) { grid[c.y][c.x] = 1; tiles[c.y * width + c.x] = 1; }
+          for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { grid[y][x] = 1; tiles[y * width + x] = 1; }
+          return { ghost: { x: E.x, y: E.y }, path: cor, room: { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }, tiles, dir: d };
+        }
+      }
+    }
+  }
+  return null;
+}
+function carveGhostPassage(grid, width, height, byDist, seed) {
+  let r = ghostSearch(grid, width, height, byDist, seed, [10, 8, 12, 7, 6, 5, 4]); // 通路の長さ（長めを先に試して、置けなければ短くする）
+  if (r) return r;
+  // 今のマップの中に置ける所が無い時：マップの右と下に壁の余白を足して、そこへ向かう長めの通路で、もう一度探す（余白は壁のまま。置けなければ元に戻す）
+  const PADW = 14, PADH = 10, nw = width + PADW, nh = height + PADH;
+  for (const row of grid) for (let i = 0; i < PADW; i++) row.push(0);
+  for (let j = 0; j < PADH; j++) grid.push(Array(nw).fill(0));
+  r = ghostSearch(grid, nw, nh, byDist, seed, [14, 12, 10, 16, 18, 20, 8, 6, 4]);
+  if (r) { r.newW = nw; r.newH = nh; return r; }
+  for (const row of grid) row.length = width;
+  grid.length = height;
+  return null;
+}
 function generateDungeon(seed, floor, opts) {
   const rand = mulberry32(seed);
   const width = Math.min(40 + floor * 3, 90);
@@ -2273,8 +2349,11 @@ function generateDungeon(seed, floor, opts) {
     }
   }
 
+  // 👻 隠しゴースト（ロビーで指定した番号が library/ghostfloor の1階だけ）：最後に、壁の中へ隠し通路と小さな隠し部屋を掘る。専用の乱数なので、ほかの階・番号のマップは変わらない
+  let ghostFloor = null;
+  if (opts && opts.ghostFloor && others.length > 0) ghostFloor = carveGhostPassage(grid, width, height, byDist, seed);
   return {
-    grid, width, height, rooms, exitPos: exit.exitPos, secretDoor, whiteDoor,
+    grid, width: (ghostFloor && ghostFloor.newW) || width, height: (ghostFloor && ghostFloor.newH) || height, rooms, exitPos: exit.exitPos, secretDoor, whiteDoor, ghostFloor,
     exitRoom, // 出口のある部屋（部屋の中に出口がある場合はその部屋、端の出口の場合は通路がつながっている部屋）。ボスはここに出す
     playerStart: { x: Math.floor(sx), y: Math.floor(sy) },
     // フロアが広くなるほど敵も比例して増やす（広いのに敵が少なくて簡単すぎる、を防ぐ）。
@@ -3308,6 +3387,23 @@ function writeSave(obj) {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(obj)); } catch (e) { /* 保存できなくてもゲームは続行 */ }
   try { cloudSyncSchedule(); } catch (e) { /* 引き継ぎ（クラウド同期）の準備がまだ／失敗しても、ゲームは続行 */ }
 }
+// ============== 中断セーブ（ポーズ →「セーブして中断」） ==============
+// ダンジョン（ソロ／ナイトメア）の途中で、ポーズ画面の「セーブして中断」を押すと、いまの状態をここに控えてロビーへ戻る。
+// 次にページを開いた時、ロビーで「続きから始める」か「データを削除する」かを選ぶ。続きから始めた時点で、控えは消える（1回きり）。
+// 控えるもの：階層・ダンジョンのシード・HP・武器とレベル・装飾品・降魔術の解放・成績。敵や宝箱の位置は控えないので、再開すると、その階の入口からになる。
+// 通常のセーブ（SAVE_KEY）とは別のキー。端末ごとの控えで、引き継ぎ（クラウド同期）はしない。
+const SUSPEND_KEY = 'zomikasudungeon_suspend';
+function loadSuspend() {
+  try {
+    const raw = localStorage.getItem(SUSPEND_KEY); if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (!d || typeof d !== 'object' || d.v !== 1) return null;
+    if (!Number.isFinite(d.baseSeed) || !(Math.floor(d.floor) >= 1) || Math.floor(d.floor) > 999) return null;
+    return d;
+  } catch (e) { return null; }
+}
+function writeSuspend(d) { try { localStorage.setItem(SUSPEND_KEY, JSON.stringify(d)); return true; } catch (e) { return false; } }
+function clearSuspend() { try { localStorage.removeItem(SUSPEND_KEY); } catch (e) { /* 何もしない */ } }
 // ============== 装飾品 ==============
 // 入手条件は「save[stat] が goal 以上」。項目を足す時は、この表に1行足せばロビーの選択欄と一覧に出る（keyは変えないこと）。
 // 記録できる項目(stat)は DEFAULT_SAVE を参照。unit は一覧の進捗表示に付ける単位。
@@ -3584,6 +3680,41 @@ const ACC_FX = {
       accFxEmit(fx, dt, 14 * rage, () => ({ x: x + accR(-18, 18), y: y + accR(-16, 10), vx: accR(-30, 30), vy: accR(-90, -40), life: accR(0.4, 0.7), size: accR(3, 5), color: 0xe6ccff, kind: 'spark' }));
     }
   },
+  // 👻 亡霊の鬼火（ルーレットの水色）：ドクロの鬼火と同じ動き・見た目で、色だけ水色系。残りの復活回数ぶんの鬼火が周りをうろつく
+  ghostwisp(g, fx, x, y, t, dt, a) {
+    const wisps = fx.wisps == null ? SKULL_WISPS : fx.wisps; // 残りの鬼火の数（自分のキャラは復活するたびに減る。他のプレイヤー分は届いた skw の値。届いていなければ最大数）
+    const rage = fx.rage || 0; // 復活直後の無敵時間中は 1（終わり際に 0 へ薄れる）：暗黒のオーラが増えて燃え盛る
+    fx.maxParts = rage > 0 ? 150 : ACC_FX_MAX_PARTS;
+    if (rage > 0) { // 暗黒のオーラ：脈打つ黒紫の球と、燃えるように揺らぐ外周
+      const pulse = Math.sin(t * 14);
+      g.fillStyle(0x001a22, 0.38 * rage * a); g.fillCircle(x, y, 34 + pulse * 3);
+      g.fillStyle(0x0a4a66, 0.3 * rage * a); g.fillCircle(x, y, 24 + pulse * 2);
+      g.lineStyle(2, 0x3fd0ff, (0.55 + 0.25 * pulse) * rage * a); g.strokeCircle(x, y, 30 + pulse * 3);
+    }
+    // 鬼火の動きはブラックホールの黒い星と同じ：周りをうろついて（進んだり戻ったり）、体からの距離もふらふら変わり、小刻みに伸び縮みして震える。
+    // 燃え盛っている間は動きが速くなる。時間を足し込んで進めるので、速さが変わっても位置が飛ばない。
+    fx.wt = (fx.wt || 0) + dt * (1 + 1.6 * rage);
+    const wt = fx.wt;
+    for (let i = 0; i < wisps; i++) {
+      const dir = i % 2 === 0 ? 1 : -1;
+      const ang = wt * (0.9 + (i % 3) * 0.35) * dir + Math.sin(wt * 1.7 + i * 2.1) * 0.9 + i * 2.4; // 回る速さは3段階まで（数が増えても速くなりすぎない）。i*2.4 で位置をばらけさせる
+      const r = 22 + Math.sin(wt * 1.1 + i * 2.6) * 7 + 6 * rage;
+      const wx = x + Math.cos(ang) * r, wy = y + Math.sin(ang) * r * 0.85;
+      const k = (1 + 0.32 * Math.sin(wt * 42 + i * 1.9)) * (1 + 0.1 * Math.sin(wt * 2.3 + i)) * (1 + 0.5 * rage);
+      const gw = fx.gt || g; // 鬼火は身体より上の層に描く
+      gw.fillStyle(0x3fd0ff, (0.35 + 0.25 * rage) * a); gw.fillCircle(wx, wy, 6 * k);
+      gw.fillStyle(0xd8f6ff, 0.9 * a); gw.fillCircle(wx, wy, 3 * k);
+    }
+    accFxEmit(fx, dt, 7, () => ({ x: x + accR(-12, 12), y: y + accR(0, 12), vx: accR(-5, 5), vy: accR(-22, -10), life: accR(1.0, 1.6), size: accR(3, 5), color: 0x2a7fa0, kind: 'dot' }));
+    if (rage > 0) {
+      // 暗い煙を大量に（黒紫）
+      accFxEmit(fx, dt, 40 * rage, () => ({ x: x + accR(-16, 16), y: y + accR(-4, 14), vx: accR(-14, 14), vy: accR(-70, -30), life: accR(0.7, 1.2), size: accR(4, 8), color: Math.random() < 0.5 ? 0x06202a : 0x0f3d4d, kind: 'dot' }));
+      // 燃え盛る紫の炎（芯は明るく）
+      const fire = [0x1e8fc0, 0x3fd0ff, 0x9fe8ff, 0xd8f6ff];
+      accFxEmit(fx, dt, 70 * rage, () => ({ x: x + accR(-14, 14), y: y + accR(0, 14), vx: accR(-16, 16), vy: accR(-120, -55), life: accR(0.4, 0.8), size: accR(3, 6), color: fire[(Math.random() * fire.length) | 0], kind: 'dot' }));
+      accFxEmit(fx, dt, 14 * rage, () => ({ x: x + accR(-18, 18), y: y + accR(-16, 10), vx: accR(-30, 30), vy: accR(-90, -40), life: accR(0.4, 0.7), size: accR(3, 5), color: 0xd8f6ff, kind: 'spark' }));
+    }
+  },
   // ⚔️ 交差した剣：2本の剣が外側を向いたまま周回する
   swords(g, fx, x, y, t, dt, a) {
     const R = 25;
@@ -3722,6 +3853,7 @@ class GameScene extends Phaser.Scene {
     this.limitedKey = limitedEquippedKey(); // 限定武器の装飾品を付けていれば、その装飾品のkey（付けている間、武器はその限定武器で固定される）
     this.skullRevives = this.accKey === 'skull' ? SKULL_WISPS : 0; // ドクロ：残りの鬼火の数＝あと何回生き返れるか（1回の挑戦ごとに SKULL_WISPS 個）
     this._initAccKey = this.accKey; // 「もう一度」でやり直す時に、この状態（ロビーで付けていた装飾品）へ戻すために覚えておく
+    this._paused = false; this._pauseAt = 0; this._pbChkAt = null; { const po = document.getElementById('pauseOverlay'); if (po) po.style.display = 'none'; const pb = document.getElementById('pauseBtn'); if (pb) { pb.style.display = 'none'; if (pb.firstChild) pb.firstChild.textContent = '⏸'; } } // ⏸ ポーズは、始めるたびに解除しておく
     this.fixYellow = false; // 📌 武器の「固定」：オンの間は、今持っているのと違う武器の黄色の宝箱を取らない（「もう一度」では保つ。ロビーへ戻ると切れる）
     { const fb = document.getElementById('weaponFixBtn'); if (fb) { fb.classList.remove('on'); fb.setAttribute('aria-pressed', 'false'); const fixToggle = () => { this.fixYellow = !this.fixYellow; fb.classList.toggle('on', this.fixYellow); fb.setAttribute('aria-pressed', this.fixYellow ? 'true' : 'false'); fb.blur(); };
       let fixTouchAt = 0; // スティックを押さえたまま別の指で押すと、スマホでは click が発火しないことがある。touchstart で切り替える（時計ボタンと同じ）。touchstart で処理した時は、続けて来る click を無視する
@@ -3740,7 +3872,7 @@ class GameScene extends Phaser.Scene {
           const pad = Math.max(6, r.height * 0.25);
           if (x < r.left - pad || x > r.right + pad || y < r.top - pad || y > r.bottom + pad) return false;
           const top = document.elementFromPoint(x, y);
-          return !(top && !el.contains(top) && top.closest && top.closest('#lobby, .lobbyBox, #chestChoiceOverlay, #resultScreen, #wwGuideBox, #hutBookOverlay, #wwChatPanel'));
+          return !(top && !el.contains(top) && top.closest && top.closest('#lobby, .lobbyBox, #resultScreen, #wwGuideBox, #hutBookOverlay, #wwChatPanel'));
         };
         let lastAt = 0;
         const fire = (ev, x, y) => {
@@ -3755,8 +3887,12 @@ class GameScene extends Phaser.Scene {
 
     this.fixedSeed = (!this.mp && app.soloSeed != null) ? app.soloSeed : null; // ロビーで指定したシード値（ソロのダンジョンのみ。nullならランダム）
     this.baseSeed = this.mp ? app.baseSeed : (this.fixedSeed != null ? this.fixedSeed : ((Math.random() * 1e9) | 0));
+    this._resume = (!this.mp && app.resume) ? app.resume : null; this._resumedNote = null; // 💾 中断データから再開する時の控え（ソロ専用）
+    if (this._resume) this.baseSeed = this._resume.baseSeed; // 💾 中断した時と同じダンジョン
+    this._resumeWorld = (this._resume && this._resume.world) ? this._resume.world : null; // 💾 敵・宝箱・ポーション・位置の控え
     // デベロッパーモード（名前を「developer」にすると使える）では、指定した階から
     // テストプレイを始められる。協力プレイでは部屋側の階を優先する。
+    this._rlEffect = !this.mp ? (app.rouletteEffect || null) : null; this._rlWisps = this._rlEffect === 'cyan' ? 3 : 0; /* 👻 水色：亡霊の鬼火の数＝あと何回、HP全回復で生き返れるか */ this._ghostFloorOn = !this.mp && !!app.ghostFloor; this._gf = null; // 👻 ロビーの番号が library/ghostfloor と同じなら、1階に隠しゴースト（ソロ専用）
     this.bossRush = !this.mp && !!app.bossRush; // ボスラッシュ（ソロ専用）
     this.nightmare = !this.mp && !!app.nightmare; // ナイトメア（ソロ専用）：通常のダンジョンに「壁の裏が見えない」視界をつける
     this.pvp = !!app.pvp && this.mp; // PvPモード（協力ルーム専用）
@@ -3799,6 +3935,7 @@ class GameScene extends Phaser.Scene {
     // 😈 25階の悪魔：1階から全階を全滅させて進んでいる間だけ true。ソロのダンジョン本編だけが対象（ボスラッシュ・最北戦線・PvP・四つ腕の儀式・開発者モードの階指定では対象外）
     this._demonEligible = !this.mp && !this.bossRush && !this.frontline && !this.pvp && !app.arms4Ritual && !app.devMode; // デベロッパーモードは、1階から始めても対象外
     this._demonRun = this._demonEligible && this.floor === 1; this._demonRedOn = false; this._demonSeenEnemy = false; // 😈 赤表示は、1階で敵残りが0になった時から
+    if (this._resume) { const r = this._resume; this.floor = Math.max(1, Math.floor(r.floor) || 1); this._demonRun = !!this._demonEligible && r.demonRun === true; this._demonRedOn = this._demonRun && r.demonRedOn === true; this._demonSeenEnemy = this._demonRun && r.demonSeen === true; this._demonMetResumed = r.demonMet === true; } // 💾 中断した階から再開（「1階から全滅で来ている」記録は、中断した時のものを引き継ぐ＝25階の悪魔が出る。「もう一度」は今まで通り1階から）
     if (app.hellTest) { // 🛠 テスト用：最初から地獄で始める（扉から出ると、今の階に出る）
       app.hellTest = false;
       if (!this.mp && !this.pvp && !this.frontline && !this.bossRush) { this.hell = true; this._hellDest = this.floor; this._hellT0 = performance.now(); }
@@ -3914,10 +4051,12 @@ class GameScene extends Phaser.Scene {
     this.clockKey = this.input.keyboard.addKey('Q'); // 🕒 時計の発動
     this.hutBookKey = this.input.keyboard.addKey('E'); // 📖 小屋の本を読む
     this._hutReading = false; this._hutBook = null; this._hutBookState = 'idle'; // 本は小屋に入るたびにFirebaseから読み直す
-    const _hutBookCleanup = () => { this._hutReading = false; const o = document.getElementById('hutBookOverlay'); if (o) o.remove(); const pb = document.getElementById('hutBookPrompt'); if (pb) pb.style.display = 'none'; };
+    const _hutBookCleanup = () => { this._hutReading = false; const o = document.getElementById('hutBookOverlay'); if (o) o.remove(); const pb = document.getElementById('hutBookPrompt'); if (pb) pb.style.display = 'none'; const ro = document.getElementById('rouletteOverlay'); if (ro) ro.remove(); const rp = document.getElementById('roulettePrompt'); if (rp) rp.style.display = 'none'; };
     this.events.once('shutdown', _hutBookCleanup); this.events.once('destroy', _hutBookCleanup);
     const _clkCleanup = () => { try { this.endClock(); } catch (e) {} const cb = document.getElementById('clockBtn'); if (cb) cb.style.display = 'none'; };
     this.events.once('shutdown', _clkCleanup); this.events.once('destroy', _clkCleanup);
+    const _pauseCleanup = () => { this._paused = false; const po = document.getElementById('pauseOverlay'); if (po) po.style.display = 'none'; const pb = document.getElementById('pauseBtn'); if (pb) { pb.style.display = 'none'; if (pb.firstChild) pb.firstChild.textContent = '⏸'; } };
+    this.events.once('shutdown', _pauseCleanup); this.events.once('destroy', _pauseCleanup);
     if (A4_TEST_FORM_KEYS) { // テスト用：四つ腕の戦闘中、Z＝次の形態へ（演出つき） / X＝第1形態に戻す
       this.input.keyboard.on('keydown-Z', () => {
         const o = this.a4FormTestBoss(); if (!o) return;
@@ -3936,6 +4075,7 @@ class GameScene extends Phaser.Scene {
     // PC: クリックした方向にその場で攻撃。スマホは右ジョイスティックを離した時に攻撃するため、
     // タッチ操作可能な端末では通常タップでの攻撃は行わない（ジョイスティックのオーバーレイと競合させない）。
     this.input.on('pointerdown', () => {
+      if (this._paused) return; // ⏸ ポーズ中は攻撃しない
       if (this._autoWalk) return; // エンディングの続き：操作は効かない
       if (IS_TOUCH_DEVICE) return;
       // マジックボム（chargeBomb）：押している間はupdate()側のupdateMagicBombCharge()で溜めて、
@@ -3957,6 +4097,7 @@ class GameScene extends Phaser.Scene {
     // スマホ: 右ジョイスティックを離した瞬間に、離す直前の方向へ攻撃する
     // 連射武器（マシンガン）は倒している間に撃ち続けるので、離した時の追加の1発は撃たない
     this._onWeaponRelease = (e) => {
+      if (this._paused) return; // ⏸ ポーズ中は攻撃しない
       if (this._autoWalk) return; // エンディングの続き：操作は効かない
       if (this.weapon && this.weapon.autoFire && !this.isGhost) return;
       // マジックボムも同様に、離した時の発射はupdateMagicBombCharge()側で溜め時間込みで処理する
@@ -3971,8 +4112,11 @@ class GameScene extends Phaser.Scene {
     };
     window.addEventListener('weaponRelease', this._onWeaponRelease);
 
+    this._applyResume(); // 💾 中断データから再開：階を作る前に、武器・HP・装飾品などを戻す
     this.buildFloor();
+    this._applyResumeWorld(); // 💾 敵・宝箱・ポーション・位置を、中断した時の状態へ
     this.autoStartArms4Ritual();
+    this._resumeAnnounce(); // 💾 再開のお知らせとHP表示の更新
 
     if (this.mp && this.net) {
       // 自分自身の登録が完了する（＝サーバーに書き込まれた）前にプレイヤー一覧の監視を
@@ -4911,7 +5055,7 @@ class GameScene extends Phaser.Scene {
     this.hideClearTime(); // 前の階のクリア時間表示を消す
     const seed = this.baseSeed + this.floor * 7919;
     this.bossFloor = !this.snowfield && !this.hell && !this.sanctuary && !this.bossRush && !this.frontline && !this.pvp && this.isBossFloor(this.floor); // ダンジョンの5階ごと（10・15・20…）はボス階
-    const dungeon = this._snowRestore ? this._snowRestore.dungeon : this.sanctuary ? generateSanctuaryMap() : this.hell ? generateHellMap() : this.snowfield ? generateSnowfieldMap(this._godExiled) : (this.bossRush || this.bossFloor) ? generateBossArena() : (this.pvp ? generatePvpMap() : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor, { secretLibrary: !this.mp, whiteDoor: !this.mp && !this.isDevMode && isGodFloorSeed(this.baseSeed) && this.floor === 6 })));
+    const dungeon = this._snowRestore ? this._snowRestore.dungeon : this.sanctuary ? generateSanctuaryMap() : this.hell ? generateHellMap() : this.snowfield ? generateSnowfieldMap(this._godExiled) : (this.bossRush || this.bossFloor) ? generateBossArena() : (this.pvp ? generatePvpMap() : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor, { secretLibrary: !this.mp, whiteDoor: !this.mp && !this.isDevMode && isGodFloorSeed(this.baseSeed) && this.floor === 6, ghostFloor: !this.mp && !!this._ghostFloorOn && this.floor === 1 })));
     if (this.mp && !this.bossRush && !this.pvp && !this.frontline) addRitualRoom(dungeon); // 協力プレイ：調伏の儀の部屋を遠くに足す
     this.rt = null; if (this._rtGfx && this._rtGfx.scene) this._rtGfx.clear(); // 前の階の調伏の儀の進行は持ち越さない
     this.dungeon = dungeon;
@@ -4929,6 +5073,7 @@ class GameScene extends Phaser.Scene {
       }).setOrigin(0.5).setDepth(3);
     }
     this.attackFx = this.add.graphics();
+    this._ghostFloorSetup(); // 👻 隠しゴースト（番号が合う1階だけ）
 
     const warpDoor = (this._warpHut && dungeon.hut) ? dungeon.hut.door : null; // 🛠 テスト用：小屋の入り口に立って始める
     this._warpHut = false;
@@ -4990,7 +5135,7 @@ class GameScene extends Phaser.Scene {
       this.spawnEnemies();
       if (this.bossFloor) { this.chests = []; this.potions = []; } // ボス階は宝箱・ポーションなし
       else if (this.snowfield || this.hell) { this.chests = []; this.potions = []; } // 雪原は宝箱もポーションも最初から置かない（敵を倒した時のドロップは通常どおり）
-      else { this.spawnChests(); this.spawnPotions(); }
+      else { this.spawnChests(); this.spawnPotions(); this._markInitLoot(); }
     }
 
     this.enemyById = {};
@@ -5051,6 +5196,17 @@ class GameScene extends Phaser.Scene {
     if (e.hpBar && e.hpBar.scene) e.hpBar.setVisible(true);
   }
 
+  // 🎰 ルーレットの色の効果で、モンスターを別の種類に置き換える：黒＝シマハル／白＝ゴースト。置き換えない時は null。boss＝true なら、ボス枠（倒すと「ボス撃破」になる）用の型を返す
+  _rlMonsterType(boss) {
+    const e = this._rlEffect;
+    if (e === 'black') return ENEMY_TYPES.find(t => t.key === 'simahar') || null;
+    if (e === 'white') {
+      const g = ENEMY_TYPES.find(t => t.key === 'ghost'); if (!g) return null;
+      if (!boss) return g;
+      return this._rlGhostBoss || (this._rlGhostBoss = Object.assign({}, g, { isBoss: true, bossLabel: 'ボス', displayName: 'GHOST' })); // ボス枠のゴースト：見た目・強さはゴーストのまま、倒したらボス撃破になる
+    }
+    return null;
+  }
   spawnEnemies() {
     const rand = mulberry32(this.baseSeed + this.floor * 104729);
     const d = this.dungeon;
@@ -5070,7 +5226,9 @@ class GameScene extends Phaser.Scene {
     const count = this.hell ? 0 : Math.min(Math.round(d.enemyBudget * this.dungeonPartyMult().count), candidateRooms.length * 3); // 🔥 地獄は、ふつうの敵を出さない
     for (let i = 0; i < count; i++) {
       const room = candidateRooms[Math.floor(rand() * candidateRooms.length)] || startRoom;
-      const type = pickWeightedEnemyType(eligible, rand);
+      const picked = pickWeightedEnemyType(eligible, rand); // 抽選は常に行う（乱数の順序・配置を変えないため）
+      const rlSim = this._rlMonsterType(false); // 🎰 黒＝全部シマハル／白＝全部ゴースト
+      const type = rlSim || picked;
       const ex = room.x + 1 + rand() * Math.max(1, room.w - 2);
       const ey = room.y + 1 + rand() * Math.max(1, room.h - 2);
       const wx = ex * TILE, wy = ey * TILE;
@@ -5093,6 +5251,7 @@ class GameScene extends Phaser.Scene {
         timer: rand() * 2,
         dirX: 0, dirY: 0,
         hitCooldown: 0,
+        _skipBossReward: !!rlSim, // 🎰 ふつうのモンスターがシマハルになった分は、ボス撃破の報酬にしない
       });
     }
 
@@ -5113,6 +5272,13 @@ class GameScene extends Phaser.Scene {
           const mroom = pool.splice(Math.floor(mrand() * pool.length), 1)[0];
           const mx = (mroom.x + 1 + mrand() * Math.max(1, mroom.w - 2)) * TILE;
           const my = (mroom.y + 1 + mrand() * Math.max(1, mroom.h - 2)) * TILE;
+          const rlT = this._rlMonsterType(false); // 🎰 ミミックも、黒ならシマハル・白ならゴーストになる（宝箱に化けず、最初から敵として出る）
+          if (rlT) {
+            const rg = this.add.circle(mx, my, rlT.radius, rlT.color).setDepth(4); rg.setStrokeStyle(2, 0x000000, 0.3); if (typeof rlT.alpha === 'number') rg.setAlpha(rlT.alpha);
+            const rh = this.add.rectangle(mx, my - rlT.radius - 8, rlT.radius * 2, 4, 0xff5b5b).setDepth(4); if (rlT.hideHpBar) rh.setVisible(false);
+            this.enemies.push({ id: this.floor + '_mimic' + (k || ''), type: rlT, gfx: rg, hpBar: rh, hp: Math.round(rlT.hp * hpMult), maxHp: Math.round(rlT.hp * hpMult), damage: Math.round(rlT.damage * dmgMult), state: 'idle', timer: 0, dirX: 0, dirY: 0, hitCooldown: 0, _skipBossReward: true });
+            continue;
+          }
           const mgfx = this.makeMimicGfx(mx, my);
           const mhpBar = this.add.rectangle(mx, my - mt.radius - 8, mt.radius * 2, 4, 0xff5b5b).setDepth(4);
           mhpBar.setVisible(false); // 寝ている間は宝箱と見分けが付かないよう、HPバーを出さない
@@ -5164,7 +5330,7 @@ class GameScene extends Phaser.Scene {
         for (let bi = 0; bi < bossCount; bi++) {
         if (!remainingPool.length) remainingPool.push(...bossPool);
         const picked = remainingPool.splice(Math.floor(brand() * remainingPool.length), 1)[0]; // 抽選は常に行う（乱数の順序を保つ）
-        const bossType = (this.bossFloor && this.floor >= 25) ? (demonType || ENEMY_TYPES.find(t => t.key === 'simahar') || picked) : picked; // 25階はシマハル確定（条件を満たした時だけ、シマハルの代わりに悪魔）
+        const bossType = (!demonType && this._rlMonsterType(true)) || ((this.bossFloor && this.floor >= 25) ? (demonType || ENEMY_TYPES.find(t => t.key === 'simahar') || picked) : picked); // 25階はシマハル確定（🎰 黒＝どのボスもシマハル／白＝どのボスもゴースト）（条件を満たした時だけ、シマハルの代わりに悪魔）
         if (demonType) { this._demonTalkStart(startRoom); continue; } // 😈 悪魔はここでは出さない。一定時間後にプレイヤーの上に現れて問答をし、そのあと戦いになる（_demonTalkUpdate）
         let bx, by;
         if (this.bossFloor) {
@@ -5193,6 +5359,7 @@ class GameScene extends Phaser.Scene {
         const gfx = this.add.circle(bx, by, bossType.radius, bossType.color).setDepth(4);
         gfx.setStrokeStyle(3, 0xffd54c, 0.9);
         const hpBar = this.add.rectangle(bx, by - bossType.radius - 10, bossType.radius * 2, 6, 0xff5b5b).setDepth(4);
+        if (bossType.hideHpBar) hpBar.setVisible(false); // 🎰 白：ゴーストのボスは、普通のゴーストと同じでHPバーを出さない（無敵）
         const label = this.add.text(bx, by - bossType.radius - 22, bossType.bossLabel || 'ボス', {
           fontSize: '12px', color: '#ffd54c', fontStyle: 'bold', fontFamily: 'sans-serif',
         }).setOrigin(0.5).setDepth(4);
@@ -5224,7 +5391,7 @@ class GameScene extends Phaser.Scene {
         }
         bossUiTypes.push(bossType); if (firstBossId == null) firstBossId = bossId;
         } // for (bossCount)
-        if (this.bossFloor && bossUiTypes.length) this.showBossUiMulti(bossUiTypes, firstBossId); // ボス階だけ、画面上部にボス名とHPバー
+        if (this.bossFloor && bossUiTypes.length && !bossUiTypes[0].invulnerable) this.showBossUiMulti(bossUiTypes, firstBossId); // ボス階だけ、画面上部にボス名とHPバー
       }
     }
   }
@@ -5524,7 +5691,7 @@ class GameScene extends Phaser.Scene {
     scene.events.once('shutdown', stop);
   }
   _countDemonMeet() { // 悪魔に会った：会った回数を1つ増やす（1回の挑戦で1回だけ。ロビーのテストボタンは数えない）。台本は、この回数で切り替わる
-    if (this._demonMetCounted || this._demonTest) return; this._demonMetCounted = true;
+    if (this._demonMetCounted || this._demonMetResumed || this._demonTest) return; this._demonMetCounted = true; // 💾 中断前に数え済みなら、再開後に同じ回として二重には数えない
     const sv = loadSave(); sv.demonMeets = (sv.demonMeets || 0) + 1; writeSave(sv);
     this._demonMeetNo = sv.demonMeets; // 📝 このプレイヤーが何回目に会ったか（願いの記録に付ける）
     if (this._demonLogOk()) logDemonMeet(); // 📝 管理用：Firebaseの analytics/demonLog/meetCount を1増やす
@@ -9376,31 +9543,6 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  // （昔の黄色い宝箱用。今は一択なので呼ばれていない）3択のUIを小さく出す（ゲームは止めない。ジョイスティック操作もそのまま使える）。
-  openChestChoice(choices) {
-    const listEl = document.getElementById('chestChoiceList');
-    listEl.innerHTML = '';
-    choices.forEach(base => {
-      const btn = document.createElement('button');
-      const nextLevel = (this.weaponLevels[base.key] || 0) + 1;
-      btn.textContent = base.name + ' (Lv.' + nextLevel + ')';
-      btn.addEventListener('click', () => {
-        document.getElementById('chestChoiceOverlay').style.display = 'none';
-        this.grantWeaponLevel(base);
-      });
-      listEl.appendChild(btn);
-    });
-    const skipBtn = document.createElement('button');
-    skipBtn.textContent = '取らない';
-    skipBtn.style.background = '#333';
-    skipBtn.style.color = '#aaa';
-    skipBtn.addEventListener('click', () => {
-      document.getElementById('chestChoiceOverlay').style.display = 'none';
-    });
-    listEl.appendChild(skipBtn);
-    document.getElementById('chestChoiceOverlay').style.display = 'block';
-  }
-
   resetAmmoForWeapon(w) {
     this.ammo = w.maxAmmo ? w.maxAmmo : null; // null = 弾数の概念がない武器（近接）
   }
@@ -9866,6 +10008,393 @@ class GameScene extends Phaser.Scene {
     if (btn.lastChild.textContent !== txt) btn.lastChild.textContent = txt;
   }
 
+  // 👻 隠しゴースト：ロビーで指定した番号が Firebase の library/ghostfloor と同じダンジョンの1階だけ。
+  // 奥の部屋の壁際にゴーストが浮かんでいる（攻撃してこない）。触れると、壁の中へ向かって飛んでいき、隠し部屋の中で消える。
+  // 飛んでいった先（generateDungeon の carveGhostPassage が掘った隠し通路）は、見た目は壁のままだが、実は歩ける。通路の先に小さな隠し部屋がある。
+  // 隠し部屋は、中に入るまで見えない（床を描かない）。中に入ると、ゆっくり床が浮かび上がる。まだ中には何も置かない。
+  _ghostFloorSetup() {
+    const old = this._gf;
+    if (old) { try { if (old.ghost) old.ghost.destroy(); if (old.roomG) old.roomG.destroy(); if (old.rl && old.rl.obj) old.rl.obj.destroy(); } catch (e) { /* 既に破棄済み */ } this._gf = null; }
+    const pbOld = document.getElementById('roulettePrompt'); if (pbOld) pbOld.style.display = 'none';
+    const gf = this.dungeon && this.dungeon.ghostFloor;
+    if (!gf) return;
+    const c = t => t * TILE + TILE / 2;
+    const gx = c(gf.ghost.x) + gf.dir.dx * TILE * 0.22, gy = c(gf.ghost.y) + gf.dir.dy * TILE * 0.22; // 壁のほうへ、少し寄せて浮かべる
+    // 見た目は通常のモンスターのゴースト（ENEMY_TYPES の 'ghost'）と同じ：白い丸・半透明・うすい黒のふち
+    const gt = ENEMY_TYPES.find(t => t.key === 'ghost') || { radius: 15, color: 0xffffff, alpha: 0.4 }, galpha = typeof gt.alpha === 'number' ? gt.alpha : 1;
+    const ghost = this.add.circle(gx, gy, gt.radius, gt.color).setDepth(4);
+    ghost.setStrokeStyle(2, 0x000000, 0.3); ghost.setAlpha(galpha);
+    // 隠し部屋の床：入るまでは alpha 0（見えない）。通常の床と同じ色合いに、少しだけ紫を足して、ふちを細い線で囲う
+    const R = gf.room, g = this.add.graphics().setDepth(1).setAlpha(0);
+    for (let y = R.y; y < R.y + R.h; y++) for (let x = R.x; x < R.x + R.w; x++) {
+      g.fillStyle(0x38344a, 1); g.fillRect(x * TILE, y * TILE, TILE, TILE);
+      g.lineStyle(1, 0x26262e, 1); g.strokeRect(x * TILE, y * TILE, TILE, TILE);
+    }
+    g.lineStyle(2, 0x8a7fd0, 0.7); g.strokeRect(R.x * TILE, R.y * TILE, R.w * TILE, R.h * TILE);
+    // ゴーストが飛ぶ道：隠し通路のマスの中心を順に通って、隠し部屋の中心まで
+    const pts = gf.path.map(p => ({ x: c(p.x), y: c(p.y) }));
+    pts.push({ x: (R.x + R.w / 2) * TILE, y: (R.y + R.h / 2) * TILE });
+    // 🎰 隠し部屋の中心にルーレット台（部屋と一緒に浮かび上がる）。1回だけ回せる
+    const rlx = (R.x + R.w / 2) * TILE, rly = (R.y + R.h / 2) * TILE;
+    const rlObj = this.add.text(rlx, rly, '🎰', { fontSize: '44px' }).setOrigin(0.5).setDepth(2).setAlpha(0);
+    this._gf = { rl: { x: rlx, y: rly, obj: rlObj, used: false, result: null }, ghost, roomG: g, room: R, x: gx, y: gy, gx, gy, galpha, pts, seg: 0, state: 'idle', t: 0, fade: 0, speed: 130, revealed: false, roomA: 0 };
+  }
+  _ghostFloorUpdate(dt) {
+    const G = this._gf; if (!G || !this.player) return;
+    G.t += dt;
+    const px = this.player.x, py = this.player.y;
+    if (G.state === 'idle') { // 壁際でふわふわ浮かぶ。触れると壁の中へ飛んでいく
+      G.ghost.setPosition(G.x, G.y + Math.sin(G.t * 2.2) * 3);
+      if (Math.hypot(px - G.x, py - G.y) < TILE * 0.8) G.state = 'flying';
+    } else if (G.state === 'flying') {
+      let step = G.speed * dt;
+      while (step > 0 && G.seg < G.pts.length) {
+        const tg = G.pts[G.seg], dx = tg.x - G.gx, dy = tg.y - G.gy, dist = Math.hypot(dx, dy);
+        if (dist <= step) { G.gx = tg.x; G.gy = tg.y; step -= dist; G.seg++; }
+        else { G.gx += dx / dist * step; G.gy += dy / dist * step; step = 0; }
+      }
+      G.ghost.setPosition(G.gx, G.gy + Math.sin(G.t * 7) * 2);
+      if (G.seg >= G.pts.length) { G.state = 'fading'; G.fade = 0; }
+    } else if (G.state === 'fading') { // 隠し部屋の中で、すっと消える
+      G.fade += dt;
+      G.ghost.setAlpha(Math.max(0, G.galpha * (1 - G.fade / 0.8)));
+      if (G.fade >= 0.8) { G.ghost.destroy(); G.ghost = null; G.state = 'gone'; }
+    }
+    // 隠し部屋：中に入った時に、ゆっくり浮かび上がる（いちど見えたら、そのまま）
+    const R = G.room, tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+    if (!G.revealed && tx >= R.x && tx < R.x + R.w && ty >= R.y && ty < R.y + R.h) G.revealed = true;
+    if (G.revealed && G.roomA < 1) { G.roomA = Math.min(1, G.roomA + dt * 1.6); G.roomG.setAlpha(G.roomA); if (G.rl && G.rl.obj) G.rl.obj.setAlpha(G.roomA); }
+    this._updateRoulette(G); // 🎰 ルーレットに近づくと「プレイ」が出る
+  }
+
+  // 🎰 隠し部屋のルーレット：台に近づくと「プレイ」ボタンが出る（キーボードは E、スマホはタップ）。1回だけ回せる。回す間は画面いっぱいに大きく出て、ゲームは止まる
+  _updateRoulette(G) {
+    let pb = document.getElementById('roulettePrompt');
+    const rl = G && G.rl;
+    const near = !!(rl && !rl.used && G.revealed && this.player && Phaser.Math.Distance.Between(this.player.x, this.player.y, rl.x, rl.y) <= TILE * 1.8);
+    const ok = near && !this._hutReading && !this.transitioning && !this.isGhost && !this.isDowned && !this._resultOpen;
+    if (!ok) { if (pb) pb.style.display = 'none'; return; }
+    if (!pb) {
+      pb = document.createElement('div'); pb.id = 'roulettePrompt';
+      pb.style.cssText = 'position:fixed;bottom:14vh;left:50%;transform:translateX(-50%);z-index:25;padding:1.2vh 2.6vh;border-radius:999px;background:rgba(10,10,16,0.82);border:0.3vh solid #d9b3ff;color:#e8d4ff;font:bold 2.6vh sans-serif;cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent;touch-action:manipulation;';
+      pb.textContent = '🎰 プレイ' + (IS_TOUCH_DEVICE ? '' : '  [E]');
+      const go = ev => { ev.preventDefault(); ev.stopPropagation(); if (pb._scene && pb._scene.openRoulette) pb._scene.openRoulette(); };
+      pb.addEventListener('pointerdown', go); pb.addEventListener('touchstart', go, { passive: false });
+      document.body.appendChild(pb);
+    }
+    pb._scene = this; pb.style.display = 'block';
+    if (this.hutBookKey && Phaser.Input.Keyboard.JustDown(this.hutBookKey)) this.openRoulette();
+  }
+  openRoulette() {
+    const G = this._gf; if (!G || !G.rl || G.rl.used || this._hutReading) return;
+    G.rl.used = true; // 回し始めた時点で使用済み（1回だけ）
+    this._hutReading = true; // 読み物と同じ扱い：回している間はゲームを止める（ポーズも出さない）
+    const pb = document.getElementById('roulettePrompt'); if (pb) pb.style.display = 'none';
+    const SEG = ROULETTE_SEGS, total = SEG.reduce((a, s) => a + s.p, 0), TAU = Math.PI * 2;
+    // 各色の角度の範囲（上から時計回り）
+    let acc = 0; const rng = SEG.map(s => { const a0 = acc / total * TAU; acc += s.p; return [a0, acc / total * TAU]; });
+    // 先に結果を確率で決めて、その色の中のどこかに針が止まるように回す
+    let r = Math.random() * total, idx = 0; for (; idx < SEG.length - 1; idx++) { if (r < SEG[idx].p) break; r -= SEG[idx].p; }
+    const theta = rng[idx][0] + (rng[idx][1] - rng[idx][0]) * (0.12 + 0.76 * Math.random());
+    const target = TAU * (5 + Math.floor(Math.random() * 3)) + (TAU - theta); // 5〜7回転して止まる
+    const ov = document.createElement('div'); ov.id = 'rouletteOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.88);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.5vh;padding:16px;box-sizing:border-box;font-family:sans-serif;touch-action:manipulation;';
+    const S = Math.max(260, Math.floor(Math.min(window.innerWidth, window.innerHeight) * 0.78)), dpr = window.devicePixelRatio || 1;
+    const cv = document.createElement('canvas'); cv.width = Math.round(S * dpr); cv.height = Math.round(S * dpr); cv.style.cssText = 'width:' + S + 'px;height:' + S + 'px;';
+    const res = document.createElement('div'); res.style.cssText = 'min-height:5vh;font-size:4.4vh;font-weight:bold;color:#fff;text-shadow:0 0 1.2vh rgba(217,179,255,0.9);'; res.textContent = '🎰 ルーレット';
+    const hint = document.createElement('div'); hint.style.cssText = 'min-height:2.4vh;font-size:2vh;color:#a89cc0;';
+    const desc = document.createElement('div'); desc.style.cssText = 'min-height:2.6vh;font-size:2.4vh;color:#e8d4ff;'; ov.append(cv, res, desc, hint); document.body.appendChild(ov);
+    const ctx = cv.getContext('2d'), CX = cv.width / 2, CY = cv.height / 2, R = cv.width * 0.44;
+    const draw = rot => {
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      ctx.save(); ctx.translate(CX, CY); ctx.rotate(rot);
+      SEG.forEach((s, i) => {
+        const a0 = rng[i][0] - Math.PI / 2, a1 = rng[i][1] - Math.PI / 2;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, R, a0, a1); ctx.closePath();
+        ctx.fillStyle = s.c; ctx.fill(); ctx.lineWidth = R * 0.012; ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.stroke();
+        ctx.save(); ctx.rotate((a0 + a1) / 2); ctx.fillStyle = s.t; ctx.font = 'bold ' + Math.round(R * 0.11) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(s.n, R * 0.66, 0); ctx.restore();
+      });
+      ctx.beginPath(); ctx.arc(0, 0, R * 0.1, 0, TAU); ctx.fillStyle = '#2a2236'; ctx.fill(); ctx.lineWidth = R * 0.02; ctx.strokeStyle = '#d9b3ff'; ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.lineWidth = R * 0.035; ctx.strokeStyle = '#d9b3ff'; ctx.stroke();
+      ctx.restore();
+      // 針（上・固定）
+      ctx.beginPath(); ctx.moveTo(CX - R * 0.07, CY - R - R * 0.1); ctx.lineTo(CX + R * 0.07, CY - R - R * 0.1); ctx.lineTo(CX, CY - R + R * 0.06); ctx.closePath();
+      ctx.fillStyle = '#ff5a5a'; ctx.fill(); ctx.lineWidth = R * 0.015; ctx.strokeStyle = '#fff'; ctx.stroke();
+    };
+    draw(0);
+    const t0 = performance.now(), DUR = 5200; let done = false, closed = false, doneAt = 0;
+    const tick = now => {
+      if (closed || !ov.isConnected) return;
+      const k = Math.min(1, (now - t0) / DUR), e = 1 - Math.pow(1 - k, 3); // だんだん遅くなる
+      draw(target * e);
+      if (k < 1) { requestAnimationFrame(tick); return; }
+      done = true; doneAt = performance.now(); G.rl.result = SEG[idx].n; setSoloBtnBorder(SEG[idx].c); // ダンジョンボタンのふちを当たった色に
+      res.textContent = '結果：' + SEG[idx].n + '！'; if (SEG[idx].d) desc.textContent = '次のダンジョン：' + SEG[idx].d; res.style.color = SEG[idx].c === '#1c1c22' ? '#cfcfe0' : SEG[idx].c;
+      hint.textContent = IS_TOUCH_DEVICE ? 'タップして閉じる' : 'E・Esc・クリックで閉じる';
+    };
+    requestAnimationFrame(tick);
+    const close = () => { if (closed) return; closed = true; document.removeEventListener('keydown', onKey, true); ov.remove(); this._hutReading = false; };
+    const onKey = ev => {
+      const k = (ev.key || '').toLowerCase();
+      if (k === 'e' || k === ' ' || k === 'enter' || k === 'escape') { ev.preventDefault(); ev.stopPropagation(); if (!ev.repeat && done && performance.now() - doneAt > 250) close(); }
+    };
+    document.addEventListener('keydown', onKey, true);
+    ov.addEventListener('click', () => { if (done && performance.now() - doneAt > 250) close(); }); // 回っている間は閉じられない
+  }
+
+  // ⏸ ポーズ：画面右下のボタン（Pキー／Escキーでも）で、ゲームを止める。もう一度押すと再開する。
+  // ・止まるもの：update() 全体（敵・弾・プレイヤーの動き・経過時間）、遅延処理（delayedCall）、演出（tween）
+  // ・ソロ専用。協力プレイ／PvPでは他の人の時間は止められないので出さない
+  // ・演出中（エンディング・調伏の儀・聖域・リザルト・階の移動中・宝箱の選択・小屋の本など）は出さない
+  // ・スティックを押さえたまま別の指で押せるように、ボタンは document のキャプチャ段階で「指の位置」を見て拾う（📌固定ボタンと同じ方式。Chromebookのタッチでも届く）
+  pauseBtnEl() {
+    let b = document.getElementById('pauseBtn');
+    if (!b) {
+      b = document.createElement('div');
+      b.id = 'pauseBtn';
+      b.setAttribute('role', 'button'); b.setAttribute('aria-label', 'ポーズ');
+      b.style.cssText = 'position:fixed;right:2.5vh;bottom:2.5vh;z-index:26;width:9vh;height:9vh;border-radius:50%;background:rgba(10,10,16,0.75);border:0.35vh solid rgba(255,255,255,0.35);display:none;align-items:center;justify-content:center;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;';
+      b.innerHTML = '<span style="font-size:4.6vh;line-height:1;color:#fff;pointer-events:none;">⏸</span>';
+      document.body.appendChild(b);
+      // マウスは click で切り替える。タッチで拾った直後（700ms以内）に来る click は無視する（二重に切り替わらないように）
+      b.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); if (Date.now() - (window._pauseTouchAt || 0) < 700) return; if (b._scene) b._scene.togglePause(); });
+      if (!window._pauseHookInstalled) {
+        window._pauseHookInstalled = true;
+        const hitTest = (x, y) => {
+          const el = document.getElementById('pauseBtn'); if (!el) return false;
+          const cs = getComputedStyle(el); if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+          const r = el.getBoundingClientRect(); if (r.width < 1 || r.height < 1) return false;
+          const pad = Math.max(6, r.height * 0.2);
+          return !(x < r.left - pad || x > r.right + pad || y < r.top - pad || y > r.bottom + pad);
+        };
+        let lastAt = 0;
+        const fire = (ev, x, y) => {
+          if (!hitTest(x, y)) return false;
+          if (ev.cancelable) ev.preventDefault(); ev.stopPropagation();
+          const now = Date.now(); window._pauseTouchAt = now;
+          if (now - lastAt > 350) { lastAt = now; const el = document.getElementById('pauseBtn'); if (el && el._scene) el._scene.togglePause(); }
+          return true;
+        };
+        document.addEventListener('touchstart', ev => { for (const t of ev.changedTouches) { if (fire(ev, t.clientX, t.clientY)) return; } }, { passive: false, capture: true });
+        document.addEventListener('pointerdown', ev => { if (ev.pointerType === 'mouse') return; fire(ev, ev.clientX, ev.clientY); }, { passive: false, capture: true });
+        // キーボード：P または Esc（文字入力中は無視）
+        document.addEventListener('keydown', ev => {
+          if (ev.repeat || (ev.key !== 'p' && ev.key !== 'P' && ev.key !== 'Escape')) return;
+          const t = ev.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+          const el = document.getElementById('pauseBtn');
+          if (!el || !el._scene || el.style.display === 'none') return; // ボタンが出ていない（ポーズできない）時は何もしない
+          ev.preventDefault(); el._scene.togglePause();
+        }, true);
+      }
+    }
+    b._scene = this;
+    return b;
+  }
+  pauseOverlayEl() {
+    let o = document.getElementById('pauseOverlay');
+    if (!o) {
+      o = document.createElement('div');
+      o.id = 'pauseOverlay';
+      o.style.cssText = 'position:fixed;inset:0;z-index:24;display:none;flex-direction:column;align-items:center;justify-content:center;gap:3vh;background:rgba(6,6,12,0.72);color:#fff;touch-action:none;user-select:none;-webkit-user-select:none;';
+      o.innerHTML = '<div style="font-size:7vh;font-weight:bold;letter-spacing:0.6vh;">⏸ ポーズ中</div>'
+        + '<button type="button" id="pauseResumeBtn" tabindex="-1" style="font-family:inherit;font-size:4vh;padding:1.4vh 7vh;border-radius:1.6vh;border:1px solid rgba(255,255,255,0.5);background:rgba(255,255,255,0.14);color:#fff;cursor:pointer;">再開</button>'
+        + '<button type="button" id="pauseSuspendBtn" tabindex="-1" style="font-family:inherit;font-size:3vh;padding:1.1vh 5vh;border-radius:1.4vh;border:1px solid rgba(255,214,102,0.7);background:rgba(255,214,102,0.14);color:#ffe9a8;cursor:pointer;">💾 セーブして中断</button>'
+        + '<div id="pauseSuspendMsg" style="font-size:2.4vh;min-height:3vh;color:#ffd666;text-align:center;padding:0 3vh;"></div>'
+        + '<div style="font-size:2.6vh;opacity:0.7;">右下のボタン / P / Esc でも再開できます</div>';
+      ['pointerdown', 'mousedown', 'touchstart', 'touchend', 'click'].forEach(ev => o.addEventListener(ev, e => e.stopPropagation())); // 下のゲーム操作に伝えない
+      document.body.appendChild(o);
+      const rb = o.querySelector('#pauseResumeBtn');
+      let rt = 0;
+      const go = ev => { ev.preventDefault(); ev.stopPropagation(); if (Date.now() - rt < 500) return; rt = Date.now(); const bb = document.getElementById('pauseBtn'); if (bb && bb._scene) bb._scene.endPause(); };
+      rb.addEventListener('pointerdown', go);
+      rb.addEventListener('touchstart', go, { passive: false });
+      rb.addEventListener('click', go);
+      const sb = o.querySelector('#pauseSuspendBtn'); // 💾 セーブして中断（タップの押し間違いを避けるため、click だけで受ける）
+      let st = 0;
+      sb.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); if (Date.now() - st < 800) return; st = Date.now(); const bb = document.getElementById('pauseBtn'); if (bb && bb._scene) bb._scene.suspendAndExit(); });
+    }
+    return o;
+  }
+  // ポーズを出してはいけない画面（メニューや読み物が上に出ている時）
+  _pauseBlocked() {
+    if (this._hutReading || this._demonTalk) return true;
+    const now = performance.now();
+    if (this._pbChkAt != null && now - this._pbChkAt < 200) return !!this._pbChk; // 毎フレーム調べないよう、0.2秒に1回だけ見る
+    this._pbChkAt = now;
+    const vis = el => { const cs = getComputedStyle(el); if (cs.display === 'none' || cs.visibility === 'hidden') return false; const r = el.getBoundingClientRect(); return r.width > 1 && r.height > 1; };
+    this._pbChk = Array.from(document.querySelectorAll('#lobby, .lobbyBox, #resultScreen, #hutBookOverlay, #wwGuideBox')).some(vis);
+    return this._pbChk;
+  }
+  canPause() {
+    return !this.mp && !this.pvp && !this._resultOpen && !this.transitioning && !this._autoWalk && !this.arms4Ritual
+      && !this._endTest && !this.sanctuary && !this._endingNext && !this._godExiled;
+  }
+  togglePause() {
+    if (this._paused) { this.endPause(); return; }
+    if (!this.canPause() || this._pauseBlocked()) return;
+    this.startPause();
+  }
+  startPause() {
+    this._paused = true; this._pauseAt = performance.now();
+    try { this.time.timeScale = 0; this.tweens.timeScale = 0; } catch (e) { /* シーン終了時 */ } // 遅延処理（delayedCall）と演出（tween）も止める
+    this.pauseOverlayEl().style.display = 'flex';
+    { const sb = document.getElementById('pauseSuspendBtn'); if (sb) sb.style.display = this.suspendModeOk() ? '' : 'none'; const sm = document.getElementById('pauseSuspendMsg'); if (sm) sm.textContent = ''; } // 💾 中断セーブできるモードの時だけ、ボタンを出す
+    const b = this.pauseBtnEl(); b.style.display = 'flex'; if (b.firstChild) b.firstChild.textContent = '▶';
+  }
+  endPause() {
+    if (!this._paused) return;
+    const dur = performance.now() - (this._pauseAt || performance.now());
+    this._paused = false;
+    // 実時間（performance.now）で数えている開始時刻は、止めていた分だけ後ろへずらす（雪原・地獄の滞在時間、クリアタイムが減らないように）
+    if (this._libT0) this._libT0 += dur;
+    if (this._hellT0) this._hellT0 += dur;
+    try { if (!this._clkOn) { this.time.timeScale = 1; this.tweens.timeScale = 1; } } catch (e) { /* シーン終了時 */ } // 時計で止めている最中なら、止めたまま戻す
+    const o = document.getElementById('pauseOverlay'); if (o) o.style.display = 'none';
+    const b = document.getElementById('pauseBtn'); if (b && b.firstChild) b.firstChild.textContent = '⏸';
+  }
+  // 💾 中断セーブ：ダンジョン（ソロ）とナイトメアだけ。ボスラッシュ・最北戦線・調伏の儀・開発者モード・協力／PvPでは使えない
+  suspendModeOk() {
+    return !this.mp && !this.pvp && !this.bossRush && !this.frontline && !this.arms4Ritual && !this.isDevMode && !this._demonTest && !this._endingNext && !this._endTest && !this._warpHut;
+  }
+  // 今この場で中断できない理由（できる時は ''）
+  suspendBlockReason() {
+    if (!this.suspendModeOk()) return 'このモードでは、中断セーブは使えません';
+    if (this.snowfield || this.hell || this.sanctuary) return 'ここでは中断セーブできません。ダンジョンの階に戻ってからお試しください';
+    if (this.s2Trial || this.rt) return '調伏の儀の最中は、中断セーブできません';
+    if (this.isGhost || this.isDowned || !(this.playerHp > 0)) return '力尽きている間は、中断セーブできません';
+    return '';
+  }
+  suspendRun() {
+    const why = this.suspendBlockReason(); if (why) return why;
+    const wl = {}; Object.keys(this.weaponLevels || {}).forEach(k => { const v = Math.floor(Number(this.weaponLevels[k])); if (v >= 1) wl[k] = v; });
+    const rs = this.runStats || {};
+    const s2u = {}; Object.keys(this.s2Unlocked || {}).forEach(k => { if (this.s2Unlocked[k]) s2u[k] = true; });
+    const d = {
+      v: 1, savedAt: Date.now(),
+      baseSeed: this.baseSeed, fixedSeed: (this.fixedSeed != null ? this.fixedSeed : null), floor: this.floor, nightmare: !!this.nightmare,
+      hp: Math.max(1, Math.round(this.playerHp)), maxHp: Math.round(this.playerMaxHp),
+      weaponKey: this.weapon ? this.weapon.key : null, weaponLevels: wl,
+      accKey: this.accKey || '', initAcc: this._initAccKey || '', usedAcc: (this._usedAccKeys || []).slice(0, 40),
+      skullRevives: this.skullRevives || 0,
+      rlEffect: this._rlEffect || null, rlWisps: this._rlWisps || 0,
+      s2Unlocked: s2u,
+      demonRun: !!this._demonRun, demonRedOn: !!this._demonRedOn, demonSeen: !!this._demonSeenEnemy, demonMet: !!(this._demonMetCounted || this._demonMetResumed), // 😈 25階の悪魔に会う条件（1階から全滅で来ているか）と、会った回数を数え済みか
+      runStats: { time: +rs.time || 0, kills: +rs.kills || 0, bosses: +rs.bosses || 0 },
+      world: this._snapshotWorld(),
+    };
+    return writeSuspend(d) ? '' : 'この環境ではセーブできませんでした（ブラウザの保存が使えません）';
+  }
+  // ポーズ画面の「セーブして中断」：保存できたら、ロビーへ戻る（ページを読み込み直す。次に開いた時、続きから始めるか選べる）
+  suspendAndExit() {
+    if (!this._paused || this._suspending) return;
+    const msg = document.getElementById('pauseSuspendMsg');
+    const why = this.suspendRun();
+    if (why) { if (msg) msg.textContent = why; return; }
+    this._suspending = true;
+    if (msg) msg.textContent = '💾 保存しました。ロビーへ戻ります…';
+    setTimeout(() => { location.reload(); }, 450);
+  }
+  // 💾 中断データから再開する時に、create() の buildFloor() の直前に呼ぶ。階を作る前に、武器・HP・装飾品などを戻しておく
+  _applyResume() {
+    const d = this._resume; if (!d) return; this._resume = null;
+    try {
+      const okAcc = k => typeof k === 'string' && !!accessoryByKey(k);
+      const wantAcc = okAcc(d.accKey) ? d.accKey : '';
+      if (wantAcc !== (this.accKey || '')) this.equipRunAccessory(wantAcc); // 途中で拾ったエフェクト（装飾品）も戻す
+      if (Array.isArray(d.usedAcc)) this._usedAccKeys = d.usedAcc.filter(okAcc);
+      if (this.accKey && !this._usedAccKeys.includes(this.accKey)) this._usedAccKeys.push(this.accKey);
+      const wl = {};
+      if (d.weaponLevels && typeof d.weaponLevels === 'object') Object.keys(d.weaponLevels).forEach(k => { const v = Math.floor(Number(d.weaponLevels[k])); if (v >= 1 && v <= 999 && WEAPON_TYPES.some(w => w.key === k)) wl[k] = v; });
+      const base = WEAPON_TYPES.find(w => w.key === d.weaponKey);
+      if (base) {
+        const lv = wl[base.key] || 1; wl[base.key] = lv; this.weaponLevels = wl;
+        this.weapon = applyWeaponLevel(base, lv);
+        this.reloading = false; this.reloadTimer = 0; this.resetAmmoForWeapon(this.weapon);
+      }
+      const mhp = Math.floor(Number(d.maxHp)); if (mhp >= 1 && mhp <= 100000) this.playerMaxHp = mhp;
+      const hp = Math.round(Number(d.hp)); this.playerHp = Math.max(1, Math.min(this.playerMaxHp, Number.isFinite(hp) ? hp : this.playerMaxHp));
+      const sr = Math.floor(Number(d.skullRevives)); if (this.accKey === 'skull' && sr >= 0) this.skullRevives = Math.min(sr, SKULL_WISPS);
+      if (this._rlEffect === 'cyan') { const w = Math.floor(Number(d.rlWisps)); if (w >= 0 && w <= 99) this._rlWisps = w; }
+      if (d.s2Unlocked && typeof d.s2Unlocked === 'object') { const u = this.s2Unlocked || (this.s2Unlocked = {}); Object.keys(d.s2Unlocked).forEach(k => { if (d.s2Unlocked[k] === true) u[k] = true; }); }
+      const r = d.runStats || {};
+      this.runStats = { time: Math.max(0, +r.time || 0), kills: Math.max(0, Math.floor(+r.kills) || 0), bosses: Math.max(0, Math.floor(+r.bosses) || 0) };
+      this._resumedNote = '💾 ' + this.floor + '階から再開';
+    } catch (err) { console.error('中断データの復元中にエラーが発生しました:', err); }
+  }
+  // 💾 階を作った直後の宝箱・ポーション（＝初期配置）に目印を付ける。あとから出たドロップ（敵を倒した時の宝箱など）と区別して、中断データに入れるため
+  _markInitLoot() { (this.chests || []).forEach(c => { if (c) c._init = true; }); (this.potions || []).forEach(p => { if (p) p._init = true; }); }
+  // 💾 いまの階の「敵・宝箱・ポーション・プレイヤーの位置」を控える（簡易版）。
+  // 敵は id（階_番号。シードで毎回同じ）ごとに HP と位置。宝箱・ポーションは、まだ取られていない初期配置のものだけ（番号で控える）
+  _snapshotWorld() {
+    const r = v => Math.round(v);
+    const en = [];
+    (this.enemies || []).forEach(e => { if (!e || !(e.hp > 0) || e._removed || e._pvp || !e.gfx || !e.gfx.scene) return; en.push([String(e.id), Math.max(1, r(e.hp)), r(e.gfx.x), r(e.gfx.y)]); });
+    const ch = [];
+    (this.chests || []).forEach(c => { if (c && c._init && !c.taken) ch.push([c.idx, c.broken ? 1 : 0, r(c.hp == null ? 0 : c.hp)]); });
+    const po = [];
+    (this.potions || []).forEach(p => { if (p && p._init && !p.taken) po.push(p.idx); });
+    return { floor: this.floor, px: this.player ? r(this.player.x) : null, py: this.player ? r(this.player.y) : null, enemies: en.slice(0, 400), chests: ch.slice(0, 100), potions: po.slice(0, 30) };
+  }
+  // 💾 再開時：create() の buildFloor() の直後に呼ぶ。階は初期配置で作られているので、控えに無い敵・宝箱・ポーションは「倒した／取った」ものとして消し、残っているものは HP・位置・壊れた状態を戻す。
+  // ボスは、倒していても復活させる（出口が開く条件などを壊さないため）。戦闘中に増えた敵・弾・時間で消えるドロップは戻らない。
+  _applyResumeWorld() {
+    const w = this._resumeWorld; if (!w) return; this._resumeWorld = null;
+    try {
+      if (Math.floor(Number(w.floor)) !== this.floor || !this.player) return; // 別の階の控えは使わない
+      const kill = o => { if (o && o.destroy) { try { o.destroy(); } catch (e) { /* すでに無い */ } } };
+      if (Array.isArray(w.enemies)) {
+        const m = {}; w.enemies.forEach(a => { if (Array.isArray(a)) m[String(a[0])] = a; });
+        this.enemies = (this.enemies || []).filter(e => {
+          const a = m[String(e.id)], isBoss = !!(e.type && e.type.isBoss);
+          if (!a) {
+            if (isBoss) return true; // ボスは復活
+            kill(e.gfx); kill(e.hpBar); kill(e.label); if (this.enemyById) delete this.enemyById[e.id];
+            return false;
+          }
+          const hp = Math.round(Number(a[1])); if (hp >= 1) e.hp = Math.min(hp, e.maxHp || hp);
+          const x = Number(a[2]), y = Number(a[3]);
+          if (!isBoss && Number.isFinite(x) && Number.isFinite(y) && e.gfx) { e.gfx.x = x; e.gfx.y = y; if (e.hpBar) { e.hpBar.x = x; e.hpBar.y = y - ((e.type && e.type.radius) || 10) - 8; } }
+          return true;
+        });
+      }
+      if (Array.isArray(w.chests)) {
+        const m = {}; w.chests.forEach(a => { if (Array.isArray(a)) m[a[0]] = a; });
+        this.chests = (this.chests || []).filter(c => {
+          if (!c._init) return true;
+          const a = m[c.idx];
+          if (!a) { kill(c.gfx); kill(c.label); c.taken = true; return false; } // もう取られている
+          const hp = Math.round(Number(a[2])); if (!c.broken && hp > 0 && c.maxHp) c.hp = Math.min(hp, c.maxHp);
+          if (a[1] === 1 && !c.broken) this.breakChest(c, true); // 壊してあった宝箱は、中身が見える状態へ
+          return true;
+        });
+      }
+      if (Array.isArray(w.potions)) {
+        const keep = {}; w.potions.forEach(i => { keep[i] = true; });
+        this.potions = (this.potions || []).filter(p => {
+          if (!p._init || keep[p.idx]) return true;
+          kill(p.gfx); kill(p.label); p.taken = true; return false; // もう取られている
+        });
+      }
+      const px = Number(w.px), py = Number(w.py);
+      if (Number.isFinite(px) && Number.isFinite(py) && !this.isWall(px, py)) { this.player.x = px; this.player.y = py; this.cameras.main.centerOn(px, py); }
+      this.playerInvuln = Math.max(this.playerInvuln || 0, 1.5); // 再開した直後にすぐ攻撃されないよう、少しだけ無敵
+      this._resumedNote = '💾 ' + this.floor + '階から再開（敵・宝箱の状態を復元）';
+    } catch (err) { console.error('中断データ（敵・宝箱）の復元中にエラーが発生しました:', err); }
+  }
+  _resumeAnnounce() {
+    if (!this._resumedNote) return;
+    const t = this._resumedNote; this._resumedNote = null;
+    try { this.updateHud(); this.showBanner(t, 2200); } catch (err) { console.error(err); }
+  }
+  // 毎フレーム：ボタンを出す／隠す
+  _pauseUiUpdate() {
+    const b = this.pauseBtnEl();
+    const show = this._paused || (this.canPause() && !this._pauseBlocked());
+    const d = show ? 'flex' : 'none';
+    if (b.style.display !== d) b.style.display = d;
+  }
+
   // 🔪 シリアルキラー：ACC_SERIALKILLER.interval 秒ごとに、プレイヤーから range 以内にいる敵全員へ damage のダメージを与え続ける（ノックバックなし）。斬られた敵には、白と赤の斬撃線を重ねて出す
   updateSerialKiller(dt) {
     this.drawSerialKillerFx(dt); // 斬撃線の描画（装飾品を外した後も、残っている線は消えるまで描く）
@@ -10298,7 +10827,7 @@ class GameScene extends Phaser.Scene {
     for (let y = y0; y < y1; y++) {
       const row = dungeon.grid[y];
       for (let x = x0; x < x1; x++) {
-        const t = (row[x] === 0 && dungeon.hutFurn && dungeon.hutFurn[y * dungeon.width + x]) ? 1 : row[x]; // 小屋の家具は、当たり判定はあるが見た目は床（家具の絵は _drawHut が描く）
+        const t = (dungeon.ghostFloor && dungeon.ghostFloor.tiles[y * dungeon.width + x]) ? 0 : (row[x] === 0 && dungeon.hutFurn && dungeon.hutFurn[y * dungeon.width + x]) ? 1 : row[x]; // 👻 隠し通路・隠し部屋は、歩けるが床としては描かない（見た目は壁） // 小屋の家具は、当たり判定はあるが見た目は床（家具の絵は _drawHut が描く）
         if (t === 1 || t === 3) {
           any = true;
           // 出口に近いほど白っぽく、遠ざかるにつれて通常の床色へ徐々に戻る
@@ -22331,6 +22860,8 @@ class GameScene extends Phaser.Scene {
   }
 
   update(time, delta) {
+    this._pauseUiUpdate(); // ⏸ ポーズボタンの表示
+    if (this._paused) return; // ⏸ ポーズ中は、ゲームの進行も経過時間（リザルトのタイム）も止める
     this._floorUpdate(); // 床：カメラの近くの区画だけを焼いて持つ（遠い区画は空き箱へ）
     // リザルト用：経過時間は、フロア移動の暗転中も含めて数える（リザルト表示中は止める）
     if (!this._resultOpen) this.runStats.time += delta / 1000;
@@ -22349,6 +22880,7 @@ class GameScene extends Phaser.Scene {
     if (this.isDowned) this.updateDownedState(dt);
     this.updateArms(); // 四つ腕の腕の画像
     this.updateClock(dt); // 🕒 時計：ボタン表示・発動中の残り時間
+    this._ghostFloorUpdate(dt); // 👻 隠しゴースト・隠し部屋
 
     // 召喚術：味方が生きている間は、常に「リロード中（＝照準モード）」の状態にしておく。
     // 武器を拾い直してリロードが解除された場合などでも、2体目を召喚できないようにするため。
@@ -22537,6 +23069,7 @@ class GameScene extends Phaser.Scene {
     { const bl = this.wwBloodyOn(this.net.uid); if (this._bloody !== bl) { this._bloody = bl; this.facing.setFillStyle(bl ? 0xd01010 : 0xffffff); } } // 人狼ゲーム：自分が殺した直後は線が赤い
     if (this.accText) { this.accText.x = this.player.x; this.accText.y = this.player.y - 13; this.accText.setAlpha(this.player.alpha); this.accText.setVisible(this.player.visible); }
     if (this.accFx) { this.skullAuraT = Math.max(0, (this.skullAuraT || 0) - dt); this.accFx.rage = (this.accKey === 'skull' && this.skullAuraT > 0) ? Math.min(1, this.skullAuraT / 0.5) : 0; this.accFx.wisps = this.accKey === 'skull' ? this.skullRevives : undefined; this.accFx.face = faceAngle; accFxUpdate(this.accFx, this.accKey, this.player.x, this.player.y, dt, this.player.visible ? this.player.alpha * (this.accKey === 'serialkiller' ? 1 : this._godAccK()) : 0); }
+    this._rlWispUpdate(dt); // 👻 亡霊の鬼火（ルーレットの水色）の見た目
     this.updateAccEffects(dt); // 装飾品の特殊効果（炎の燃焼・ブラックホールのビーム）
     this.updateSnakeDoom(dt); // スネーク：先頭が倒された後のカウントダウン（ホスト／ソロのみ動く）
 
@@ -25220,9 +25753,31 @@ class GameScene extends Phaser.Scene {
     });
   }
 
+  // 👻 亡霊の鬼火（ルーレットの水色）：次のダンジョン1回だけ。装飾品の鬼火と同じ見た目（水色）で、力尽きても3回まで、HP全回復で生き返る（装飾品とは別に働く）
+  _rlWispUpdate(dt) {
+    if (!(this._rlWisps > 0) || !this.player) { if (this._rlFx) { accFxDestroy(this._rlFx); this._rlFx = null; } return; }
+    if (this._rlFx && !(this._rlFx.g && this._rlFx.g.scene)) this._rlFx = null; // 階の作り直しで消えていたら、作り直す
+    if (!this._rlFx) this._rlFx = accFxCreate(this);
+    const fx = this._rlFx; this._rlAuraT = Math.max(0, (this._rlAuraT || 0) - dt);
+    fx.rage = this._rlAuraT > 0 ? Math.min(1, this._rlAuraT / 0.5) : 0; fx.wisps = this._rlWisps;
+    accFxUpdate(fx, 'ghostwisp', this.player.x, this.player.y, dt, this.player.visible ? this.player.alpha : 0);
+  }
+  _rlWispRevive() {
+    this._rlWisps--;
+    this.playerHp = this.playerMaxHp;
+    this.playerInvuln = 2.5;
+    this._rlAuraT = 2.5; // 無敵時間と同じ長さ、オーラを燃え上がらせる
+    this.interruptBandage();
+    this.cameras.main.flash(350, 63, 208, 255);
+    this.showFloatText('👻 HP全回復で復活！', '#d8f6ff');
+    this.showBanner('亡霊の鬼火が身代わりに… 残り' + this._rlWisps, 1400);
+    this.updateHud();
+    return true;
+  }
   // ドクロ：鬼火が残っている限り、力尽きてもHP1で生き返る（生き返るたびに鬼火が1つ消える）。
   // 生き返れたら true。復活直後は少しの間だけ無敵にして、連続で倒されて鬼火が一気に消えるのを防ぐ。
   trySkullRevive() {
+    if (this._rlWisps > 0 && !(this.transitioning || this.isDowned || this.isGhost)) return this._rlWispRevive(); // 👻 亡霊の鬼火が先（HP全回復）
     if (this.accKey !== 'skull' || !(this.skullRevives > 0)) return false;
     if (this.transitioning || this.isDowned || this.isGhost) return false;
     this.skullRevives--;
@@ -25612,6 +26167,7 @@ class GameScene extends Phaser.Scene {
     try {
       this.resetS2ForRestart(); // 降魔術：調伏の儀の途中経過・解放済みの技・技の状態を全て初期化
       this.clearAllies();
+      this._rlEffect = null; this._rlWisps = 0; // 🎰 ルーレットの色の効果は、次のダンジョン1回だけ：やり直したら消える
       // 🎁 やり直したら、装飾品まわりも1回目の挑戦の始まり（ロビーで付けていた状態）に戻す：チェストで拾った装飾品・鬼火の数・時計・リザルトの「新しい装飾品」
       this.equipRunAccessory(this._initAccKey || ''); // 拾った装飾品を外して、元の装飾品へ（鎧の最大HPもここで戻る）
       this.skullRevives = this.accKey === 'skull' ? SKULL_WISPS : 0; // 同じ装飾品のままだと上は何もしないので、鬼火の数はここで必ず満タンに戻す
@@ -25631,7 +26187,7 @@ class GameScene extends Phaser.Scene {
       this.snowfield = false; this.sanctuary = false; this._godExiled = false; this._snowDiscard(); this._snowRestore = null; this._coldT = 0; this._hutIn = false; setBlizzard(false); // ❄ やり直したら、雪原・聖域からも出る（吹雪も止める）
       this._libT0 = 0; this._hellT0 = 0; this._hellDoorDone = false; this._hellDoorT = 0; // 雪原・地獄の滞在時間の記録も最初から
       this._spUndead = undefined; this._spWings = false; this._godAccGone = false; this._rootReviveOn = false; this._rootRevive = 0; this._rootRed = 0; this._godRF = null; this._neckFloor = null; this._spT = 0; // 特別な装飾品の状態も、1回目の挑戦の始まりと同じ（神の罰で外れた装飾品なども元に戻る）
-      this._demonRun = !!this._demonEligible && this.floor === 1; this._demonRedOn = false; this._demonSeenEnemy = false; // 😈 やり直したら、全滅の記録も最初から
+      this._demonRun = !!this._demonEligible && this.floor === 1; this._demonRedOn = false; this._demonSeenEnemy = false; this._demonMetResumed = false; // 😈 やり直したら、全滅の記録も最初から
     this._hellDoorDone = false; this._hellDoorT = 0;
       this.weaponLevels = {};
       this._usedAccKeys = this.accKey ? [this.accKey] : []; // リザルト用の装飾品の記録もやり直す
@@ -27593,7 +28149,7 @@ function openSyncDialog() {
   let ov = document.getElementById('syncOverlay');
   if (!ov) {
     ov = document.createElement('div'); ov.id = 'syncOverlay';
-    ov.innerHTML = '<div id="syncBox"><h3>セーブの引き継ぎ</h3><p id="syncMsg"></p><div id="syncCode"></div>' +
+    ov.innerHTML = '<div id="syncBox"><h3>オンラインセーブ</h3><p id="syncMsg"></p><div id="syncCode"></div>' +
       '<div id="syncBtns"></div></div>';
     document.body.appendChild(ov);
   }
@@ -27684,11 +28240,11 @@ function openSyncDialog() {
   ];
   document.getElementById('lobbyStats').innerHTML = items.map(it =>
     '<span>' + escapeHtml(it[0]) + '<b>' + escapeHtml(it[1]) + '</b></span>').join('') +
-    '<button type="button" id="syncBtn">☁ 引き継ぎ</button><button type="button" id="resetSaveBtn">リセット</button>';
+    '<button type="button" id="syncBtn">☁ 記録セーブ</button><button type="button" id="resetSaveBtn">リセット</button>';
   document.getElementById('syncBtn').addEventListener('click', openSyncDialog);
   document.getElementById('resetSaveBtn').addEventListener('click', async () => {
     const linked = !!syncGetCode(); // 引き継ぎ中なら、連携も解除する（解除しないと、次の起動でクラウドから戻ってしまう）。クラウドのデータは残す
-    const ok = await askConfirm('セーブデータ（装飾品の解放・記録）をすべて消します。' + (linked ? '\n（この端末の引き継ぎ連携も解除します。クラウドのデータは残るので、コードを入れ直せば戻せます）' : '') + '\nよろしいですか？', { ok: '消す', cancel: 'やめる' });
+    const ok = await askConfirm('セーブデータ（装飾品の解放・記録）をすべて消します。' + (linked ? '\n（この端末のオンラインセーブの連携も解除します。クラウドのデータは残るので、コードを入れ直せば戻せます）' : '') + '\nよろしいですか？', { ok: '消す', cancel: 'やめる' });
     if (ok) {
       try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
       syncSetCode('');
@@ -27875,10 +28431,13 @@ function startGame(mode, extra) {
     mode,
     name: nameInput.value.trim() || defaultPlayerName,
     color: selectedColor,
-    acc: currentAccKey(), // 付けている装飾品
+    acc: (extra && extra.resume) ? (extra.resume.initAcc || '') : currentAccKey(), // 付けている装飾品（中断データから再開する時は、始めた時に付けていたもの）
+    resume: (extra && extra.resume) || null, // 💾 中断データから再開する時の控え（ソロのダンジョン／ナイトメアのみ）
     net: (extra && extra.net) || netInstance, // PvPテストは通信なしの偽Net(OfflineNet)を渡す
     baseSeed: extra && extra.baseSeed,
     soloSeed: (extra && extra.soloSeed != null) ? extra.soloSeed : null, // ロビーで指定したシード値（ソロのダンジョンのみ）
+    rouletteEffect: (extra && extra.rouletteEffect) || null, // 🎰 ルーレットの色の効果（次のダンジョン1回だけ。ソロのみ）
+    ghostFloor: !!(extra && extra.ghostFloor), // 👻 番号が library/ghostfloor と同じ：1階に隠しゴースト（ソロのみ）
     floor: extra && extra.floor,
     roomId: extra && extra.roomId,
     devFloor: (extra && extra.demonTest) ? 25 : (devMode ? Math.max(1, parseInt(document.getElementById('devFloorInput').value, 10) || 11) : null), // 悪魔テストは25階から
@@ -27935,7 +28494,34 @@ function loadPartyNumber() {
 }
 async function waitPartyNumber(ms) { await Promise.race([loadPartyNumber(), new Promise(r => setTimeout(r, ms))]); return PARTY_NUM_OK || PARTY_NOFB; }
 function discardPartyNumber() { PARTY_NUM = null; PARTY_NUM_OK = false; _partyNumP = null; }
-document.getElementById('soloSeedInput').addEventListener('input', () => { loadPartyNumber(); loadGodFloor(); }); // 入力し始めたら、先に読んでおく（押した時に待たないように）
+// 👻 隠しゴースト：ダンジョン番号の欄が Firebase の library/ghostfloor と同じ番号（同じダンジョン）なら、そのダンジョンの1階に隠しゴーストが出る。
+// 合言葉（library/partyroom/number）と同じ方式：読めるまで間を空けて何度もやり直し、メモリの中だけに持ち、確認が終わったらすぐ捨てる（どこにも保存しない）。
+// library/ghostfloor には、番号の文字・数字をそのまま入れる（{ number: '…' } の形でも読める）。
+let GHOST_NUM = null, GHOST_NUM_OK = false, GHOST_NOFB = false, _ghostNumP = null;
+async function fetchGhostFloorNumber() {
+  if (typeof netInstance === 'undefined' || !netInstance || !netInstance.enabled) throw new Error('Firebase unavailable');
+  const run = (async () => {
+    await netInstance.signIn();
+    let v = (await netInstance.db.ref('library/ghostfloor').once('value')).val();
+    if (v && typeof v === 'object') v = v.number;
+    return v == null ? null : String(v).normalize('NFKC').trim();
+  })();
+  return Promise.race([run, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))]);
+}
+function loadGhostNumber() {
+  if (_ghostNumP) return _ghostNumP;
+  _ghostNumP = (async () => {
+    if (typeof netInstance === 'undefined' || !netInstance || !netInstance.enabled) { GHOST_NOFB = true; return null; } // Firebaseを使わない環境：隠しゴーストは無い扱い
+    for (let i = 0; ; i++) {
+      try { GHOST_NUM = await fetchGhostFloorNumber(); GHOST_NUM_OK = true; return GHOST_NUM; }
+      catch (err) { console.warn('library/ghostfloor を読めませんでした。やり直します:', err); await new Promise(r => setTimeout(r, Math.min(10000, 1000 * Math.pow(2, Math.min(i, 4))))); }
+    }
+  })();
+  return _ghostNumP;
+}
+async function waitGhostNumber(ms) { await Promise.race([loadGhostNumber(), new Promise(r => setTimeout(r, ms))]); return GHOST_NUM_OK || GHOST_NOFB; }
+function discardGhostNumber() { GHOST_NUM = null; GHOST_NUM_OK = false; _ghostNumP = null; }
+document.getElementById('soloSeedInput').addEventListener('input', () => { loadPartyNumber(); loadGodFloor(); loadGhostNumber(); }); // 入力し始めたら、先に読んでおく（押した時に待たないように）
 // 読み終わるまで待つ。1.5秒で読めていなければ「接続を確認中…」を出して最大12秒待ち、それでも読めなければ false（ボタンに案内を出す）
 async function waitWithMessage(waitFn) {
   if (await waitFn(1500)) return true;
@@ -27952,8 +28538,9 @@ function enterPartyRoom() {
 }
 document.getElementById('soloBtn').addEventListener('click', async () => {
   if (partyBusy || partyOpen) return;
+  const rlEffect = getRouletteEffect(); // 🎰 ルーレットで当たった色の効果。次にダンジョンが始まる時だけ使って、そのあと消す
   const raw = (document.getElementById('soloSeedInput').value || '').normalize('NFKC').trim(); // 全角の数字でも同じ扱い
-  if (!raw) { startGame('solo', { soloSeed: readSoloSeed() }); return; } // 空欄なら、今までどおりすぐ始める
+  if (!raw) { clearSoloBtnBorder(); startGame('solo', { soloSeed: readSoloSeed(), rouletteEffect: rlEffect }); return; } // 空欄なら、今までどおりすぐ始める
   partyBusy = true;
   try {
     if (!(await waitWithMessage(waitPartyNumber))) return; // 合言葉を読めなかった：始めずに、もう一度押してもらう
@@ -27962,7 +28549,10 @@ document.getElementById('soloBtn').addEventListener('click', async () => {
     let endingSeen = false; try { endingSeen = !!loadSave().endingDone; } catch (e) {} // エンディングを見た人だけが入れる（見ていない人は、番号が合っていても普通のダンジョンになる）
     if (party && endingSeen) { document.getElementById('soloSeedInput').value = ''; enterPartyRoom(); return; } // 合言葉は入力欄にも残さない
     if (!(await waitWithMessage(waitGodFloor))) return; // 白い扉などの判定に使う雪原のフロアの番号も、読み終えてから始める
-    startGame('solo', { soloSeed: readSoloSeed() });
+    if (!(await waitWithMessage(waitGhostNumber))) return; // 隠しゴーストの番号（library/ghostfloor）も、読み終えてから始める
+    const ghostHit = !GHOST_NOFB && GHOST_NUM != null && GHOST_NUM !== '' && seedFromText(GHOST_NUM) === seedFromText(raw); // 同じダンジョン（同じシード）なら、文字が少し違っても合う
+    discardGhostNumber(); // 読んだ番号は、確認が終わったらすぐ捨てる（どこにも保存しない）
+    clearSoloBtnBorder(); startGame('solo', { soloSeed: readSoloSeed(), ghostFloor: ghostHit, rouletteEffect: rlEffect });
   } finally { partyBusy = false; }
 });
 // 🛠 テスト用：雪原の小屋の入り口へワープして始める（ダンジョン（ソロ）と同じ設定で、最初から雪原にいる。白い扉から戻るとダンジョンの1階）
@@ -28646,6 +29236,45 @@ const ENDING = { flashIn: 500, flashOut: 4500, edgeIn: 2500, typeWait: 1200, typ
   if (sv.endingDone) addReplayButton();
   if (sv.endingGodReady && !sv.endingNextShown) { playing = true; playEndingNext(); } // 調伏の儀を終えたあと：続き（雪原のフロアのダンジョンへ自動で入る）
   else if (sv.endingReady && !sv.endingDone) { playing = true; playEnding(); }
+})();
+// 💾 中断データがある時、ロビーを開いたら「続きから始める」か「データを削除する」かを選ばせる（選ぶまでロビーは触れない）
+(function () {
+  const d = loadSuspend(); if (!d) return;
+  try { const sv = loadSave(); if ((sv.endingGodReady && !sv.endingNextShown) || (sv.endingReady && !sv.endingDone)) return; } catch (e) { /* 判定できなければ、そのまま出す */ } // エンディングの演出が始まる時は、そちらを優先（データは消さずに残す）
+  const wb = WEAPON_TYPES.find(w => w.key === d.weaponKey);
+  const lv = (d.weaponLevels && d.weaponLevels[d.weaponKey]) || 1;
+  let when = ''; try { when = new Date(d.savedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (e) { /* 日時なし */ }
+  const ov = document.createElement('div');
+  ov.id = 'resumeOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:250;background:rgba(0,0,0,0.78);display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;color:#e8e8f0;';
+  const box = document.createElement('div');
+  box.style.cssText = 'width:min(92vw,380px);box-sizing:border-box;padding:20px 18px 16px;border-radius:12px;background:#1c1c26;border:1px solid rgba(255,214,102,0.5);text-align:center;';
+  const h = document.createElement('div'); h.style.cssText = 'font-size:17px;font-weight:bold;color:#ffe9a8;margin-bottom:10px;'; h.textContent = '💾 中断したデータがあります';
+  const info = document.createElement('div'); info.style.cssText = 'font-size:14px;line-height:1.8;margin-bottom:16px;white-space:pre-line;';
+  info.textContent = (d.nightmare ? 'ナイトメア' : 'ダンジョン') + '　' + Math.floor(d.floor) + '階'
+    + '\n' + (wb ? wb.name + ' Lv.' + lv : '武器：不明') + '　HP ' + d.hp + '/' + d.maxHp
+    + (when ? '\n保存：' + when : '');
+  const mkBtn = (txt, bg) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.style.cssText = 'display:block;width:100%;padding:12px 0;font-size:15px;border-radius:8px;border:none;cursor:pointer;color:#fff;margin-top:8px;background:' + bg + ';'; return b; };
+  const goBtn = mkBtn('▶ 続きから始める', '#2f8f5b');
+  const delBtn = mkBtn('🗑 データを削除する', '#3a3d4d');
+  const note = document.createElement('div'); note.style.cssText = 'font-size:12px;color:#9aa0b8;margin-top:12px;line-height:1.6;'; note.textContent = '続きから始めると、この中断データは消えます。ボスは倒していても復活し、戦闘中に増えた敵・弾などは戻りません。';
+  box.appendChild(h); box.appendChild(info); box.appendChild(goBtn); box.appendChild(delBtn); box.appendChild(note);
+  ov.appendChild(box); document.body.appendChild(ov);
+  let busy = false;
+  goBtn.addEventListener('click', () => {
+    if (busy) return; busy = true;
+    ov.remove();
+    try {
+      startGame('solo', { soloSeed: d.fixedSeed != null ? d.fixedSeed : null, nightmare: !!d.nightmare, rouletteEffect: d.rlEffect || null, resume: d });
+      clearSuspend(); // 始められたので、控えは消す（1回きり）
+    } catch (err) { console.error('中断データからの再開に失敗しました:', err); busy = false; document.body.appendChild(ov); }
+  });
+  delBtn.addEventListener('click', async () => {
+    if (busy) return; busy = true;
+    const ok = await askConfirm('中断データを削除しますか？\nこの操作は取り消せません。', { ok: '削除する', cancel: 'やめる' });
+    if (ok) { clearSuspend(); ov.remove(); } // 削除したら、ふつうにロビーで別のことができる
+    busy = false;
+  });
 })();
 </script>
 </body>
