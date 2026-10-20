@@ -2132,14 +2132,15 @@ function setPauseIcon(btn, paused) {
     : '<rect x="6" y="4.5" width="4.2" height="15" fill="#fff"/><rect x="13.8" y="4.5" width="4.2" height="15" fill="#fff"/>') + '</svg>';
 }
 // 🎰 隠し部屋のルーレット：色と確率（p＝%。合計100にする）。ここを書き換えれば確率を変えられる。d＝次のダンジョン1回だけに効く効果の説明（効果は spawnEnemies など、this._rlEffect を見ている所に書く）
-const ROULETTE_SEGS = [
-  { key: 'black',  n: '黒',   c: '#1c1c22', t: '#ffffff', p: 10, d: '全てのモンスター（ミミック・ボスも）がシマハルになる' },
+const ROULETTE_SEGS = [ // 並び順＝円盤の上から時計回り。確率の大小がバラバラに（交互に）来るように並べてある
+  { key: 'yellow', n: '黄', c: '#ffd93b', t: '#4a3a00', p: 20, d: 'ミミックの出現率と宝箱の出現数が2倍' },
   { key: 'white',  n: '白',   c: '#f4f4f4', t: '#222222', p: 5, d: '全てのモンスター（ミミック・ボスも）がゴーストになる' },
-  { key: 'cyan',   n: '水色', c: '#4fd0f0', t: '#06323d', p: 20, d: '亡霊の鬼火（水色の鬼火が3つ。力尽きても、HP全回復で3回まで生き返る）' },
-  { key: 'yellow', n: '黄色', c: '#ffd93b', t: '#4a3a00', p: 25, d: 'ミミックの出現率と宝箱の出現数が2倍' },
-  { key: 'purple', n: '紫',   c: '#9a5be0', t: '#ffffff', p: 20, d: '敵全員（ボス・ミミックも）のHPが半分' },
   { key: 'red',    n: '赤',   c: '#e03c3c', t: '#ffffff', p: 10, d: '武器は棍棒固定。敵を一撃で倒せるが、自分も一撃で死ぬ' },
-  { key: 'green',  n: '緑',   c: '#3cc864', t: '#06310f', p: 10, d: '全ての敵が倒した時に必ず回復（包帯）をドロップする' },
+  { key: 'cyan',   n: '水', c: '#4fd0f0', t: '#06323d', p: 20, d: '亡霊の鬼火（水色の鬼火が3つ。力尽きても、HP全回復で3回まで生き返る）' },
+  { key: 'gold',   n: '金', c: '#d4a017', t: '#2b1d00', p: 2, d: '全ての敵が倒した時に必ず武器強化の宝箱をドロップする' },
+  { key: 'green',  n: '緑',   c: '#3cc864', t: '#06310f', p: 13, d: '全ての敵が倒した時に必ず回復（包帯）をドロップする' },
+  { key: 'purple', n: '紫',   c: '#9a5be0', t: '#ffffff', p: 20, d: '敵全員（ボス・ミミックも）のHPが半分' },
+  { key: 'black',  n: '黒',   c: '#1c1c22', t: '#ffffff', p: 10, d: '全てのモンスター（ミミック・ボスも）がシマハルになる' },
 ];
 // 🎰 ルーレットで当たった色を、ロビーの「ダンジョン」ボタンのふちに付ける。次にそのボタンを押すまで残る（再読み込みしても残るよう localStorage に控える）
 function applySoloBtnBorder() {
@@ -3960,7 +3961,7 @@ class GameScene extends Phaser.Scene {
     // ボスラッシュでは選んだ武器のLv.5でスタートする（デベロッパーモードの開始武器と同じ仕組みを流用）
     this.devWeaponKey = this.rushWeaponKey || app.devWeaponKey || null;
     this._endingNext = !this.mp && !this.bossRush && !this.frontline && !app.arms4Ritual && !!ENDING_STATE.next && isGodFloorSeed(this.baseSeed); // エンディングの続き：主人公の強力な根（二倍の本数）で始まり、壁越しにすべての敵を掴む
-    this._autoWalk = this._endingNext ? { pts: [], i: 0, speed: 0.55 } : null; this._autoFace = null; this._endHudHidden = undefined; // エンディングの続き：雪原のフロアのダンジョンに入った時から、エンディングが終わるまで、ずっと操作を受けつけない（目的地が空のあいだは、その場で止まって待つ。根が全部の敵を掴むので、動かなくても進む）
+    this._autoWalk = this._endingNext ? { pts: [], i: 0, speed: 0.55 } : null; this._autoFace = null; this._endHudHidden = undefined; this._endLocked = undefined; // エンディングの続き：雪原のフロアのダンジョンに入った時から、エンディングが終わるまで、ずっと操作を受けつけない（目的地が空のあいだは、その場で止まって待つ。根が全部の敵を掴むので、動かなくても進む）
     this._hellDoorDone = false; this._hellDoorT = 0; // エンディングの続き：1階を全滅させたあと、右の部屋に地獄の扉を開けたか
     this._wingDouble = this._endingNext; // 翼（根）の本数が二倍になっているか（調伏の儀では、翼が大きくなる時に二倍になる）
     this.arms4Ritual = !this.mp && !!app.arms4Ritual; this._endingRun = this.arms4Ritual && !!app.endingRitual; this._endingT = 0; this._wingBigT = -1; this._ritualWon = false; // 【期間限定】四つ腕の調伏の儀
@@ -9252,6 +9253,7 @@ class GameScene extends Phaser.Scene {
   onDungeonKillDrop(e) {
     if (this.mp && !this.isHost) return; // 協力プレイ：ドロップの抽選はホストだけ
     if (this._rlEffect === 'green') { this.emitDungeonDrop('potion', e.gfx.x, e.gfx.y, null); return; } // 🎰 緑：全ての敵が必ず回復（包帯）をドロップする
+    if (this._rlEffect === 'gold') { this.emitDungeonDrop('chest', e.gfx.x, e.gfx.y, 'green'); return; } // 🎰 金色：全ての敵が必ず武器強化の宝箱（緑の「強化」・自分の今の武器がLv+1）をドロップする
     if (Math.random() >= DUNGEON_KILL_DROP.chance) return;
     const kind = Math.random() < DUNGEON_KILL_DROP.potionShare ? 'potion' : 'chest';
     // 宝箱の場合、さらに低確率でピンク（激レア・仲間全員の今の武器がLv+1）を抽選する。それ以外は緑（自分だけLv+1）。
@@ -22847,6 +22849,24 @@ class GameScene extends Phaser.Scene {
       });
     }
   }
+  _endingLockInput() { // エンディング中（調伏の儀・続き）は、ずっと操作を受けつけない：キーボード・左右のスティック・画面のスティックの表示と触れる範囲。自動で歩く仕組み(_autoWalk)が途中で解除されても、ここで止めておく
+    const lock = !!(this._endingRun || this._endingNext);
+    if (lock) { // 毎フレーム、入力を0に戻す（指が置かれたままでも効かない）
+      const mv = window.moveVector, av = window.aimVector;
+      if (mv) { mv.x = 0; mv.y = 0; }
+      if (av) { av.x = 0; av.y = 0; av.active = false; }
+    }
+    if (lock === this._endLocked) return;
+    this._endLocked = lock;
+    const kb = this.input && this.input.keyboard; if (kb) { kb.enabled = !lock; if (lock) kb.resetKeys(); }
+    const zs = ['joystickZone', 'aimJoystickZone'].map(id => document.getElementById(id)).filter(Boolean);
+    zs.forEach(z => { z.style.visibility = lock ? 'hidden' : ''; z.style.pointerEvents = lock ? 'none' : ''; });
+    if (lock) this.events.once('shutdown', () => { // シーンが終わったら元に戻す
+      this._endLocked = undefined;
+      if (kb) kb.enabled = true;
+      zs.forEach(z => { z.style.visibility = ''; z.style.pointerEvents = ''; });
+    });
+  }
   _endingHud() { // エンディングの演出中（調伏の儀・雪原のフロアのダンジョン・雪原・聖域）は、左上のパネル（#ui）を出さない。ふつうのゲームに戻ったら、元に戻す（amidaHud と同じく visibility を使う）
     const hide = !!(this._endingRun || this._endingNext);
     if (hide === this._endHudHidden) return;
@@ -23050,6 +23070,7 @@ class GameScene extends Phaser.Scene {
     this.updateDemonSeeds(this._clkOn || this._godTimeStop ? 0 : dt); // 😈 壁の種
     this._endingTestStart(); // 🛠 エンディングのテスト：聖域へ入り、神の最後の台詞から
     this._endingHud(); // エンディング演出中は、左上のパネルを隠す
+    this._endingLockInput(); // エンディング演出中は、ずっと操作を受けつけない
     this._endingUpdate(dt); // エンディング演出（天使を止める・翼を大きくする）
     this.updateArms4Atk(dt); // 四つ腕の攻撃（調伏の儀）
     if (this.bossRush || this.frontline || this.bossFloor || this._bossUiGroup) this.updateBossBar(); // ボスのバーが出ていれば更新（通常ダンジョンの調伏の儀もここ）
@@ -26000,6 +26021,11 @@ class GameScene extends Phaser.Scene {
     this.hideBossUi();
     this.transitioning = true;
     if (this.mp) this._mpResultStarted = true;
+    if (opt && opt.black) { // エンディングの最後：スティックはゲーム画面の外（HTML）なので、暗転しても残る。赤い板が片付いてからコンプリート画面が出るまでの間に一瞬見えてしまうので、暗転と同じ長さで消しておく
+      const fd = (opt.dur || 2500) / 1000, zs = ['joystickZone', 'aimJoystickZone'].map(id => document.getElementById(id)).filter(Boolean);
+      zs.forEach(z => { z.style.transition = 'opacity ' + fd + 's linear'; z.style.opacity = '0'; z.style.pointerEvents = 'none'; });
+      this.events.once('shutdown', () => zs.forEach(z => { z.style.transition = ''; z.style.opacity = ''; z.style.pointerEvents = ''; })); // シーンが終わったら元に戻す
+    }
     if (opt && opt.black) { const c = opt.rgb || [0, 0, 0]; this.cameras.main.fadeOut(opt.dur || 2500, c[0], c[1], c[2]); } // opt.rgb＝暗転の色（省略すると黒）
     else { this.showBanner('🎉 ALL CLEAR！', 2500); this.cameras.main.fadeOut(1200, 255, 255, 255); }
     this.cameras.main.once('camerafadeoutcomplete', () => { if (this.mp) this.showMpResult(); else if (this._godEndClear) this.showEndingComplete(); else this.showResult(); }); // エンディングの最後だけ、通常のリザルト（GAME CLEAR）ではなく専用の画面
