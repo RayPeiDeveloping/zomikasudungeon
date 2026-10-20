@@ -592,7 +592,7 @@
       </label>
       <button id="soloBtn">ダンジョン</button>
       <button id="hutWarpBtn" style="background:#6b8fa8; margin-top:0.8vh; display:none !important;">🛠 テスト：小屋の入り口へワープ</button>
-      <button id="endingTestBtn" style="background:#ffd77a; color:#222; margin-top:0.8vh; display:none !important;">🛠 テスト：エンディング（神の左目を倒す直前から）</button>
+      <button id="endingTestBtn" style="background:#ffd77a; color:#222; margin-top:0.8vh;">🛠 テスト：エンディング（神の最後の台詞が終わったところから）</button>
       <button id="endingFullTestBtn" style="display:none; background:#ff7a7a; color:#222; margin-top:0.8vh;">🛠 テスト：エンディング（最初から）</button>
       <button id="hellTestBtn" style="background:#8a2a1a; color:#fff; margin-top:0.8vh; display:none !important;">🛠 テスト：地獄（扉から出ると1階）</button> <!-- テスト用：最初から地獄で始める。奥の扉に入ると1階に出る --> <!-- テスト用：ソロで25階から始めて、悪魔の問答を必ず出す --> <!-- テスト用：雪原の小屋の入り口から始める（表示中。デベロッパーモードでも使える） -->
     </div>
@@ -2170,6 +2170,8 @@ const SANCTUARY = { w: 37, h: 29, border: 2 };
 const GOD_ACT = { left: 'demon', dist: 360, appearDelay: 0.5, spreadLead: 1.2, pause: 1.8, rootCount: 8, rootSpread: 0.5, beamWarn: 0.8, beamLen: 3000, beamWidth: 30, rootSpeed: 330, rootLife: 4, rootWidth: 30, aimTime: 0.9, beamEnd: 14, hitPad: 14 }; // 🎬 神が話し終えたあとの演出（悪魔と天使）の設定：dist＝主人公から左右に出す距離(px)／left＝左に出す方('demon'＝悪魔が左・天使が右。'angel'にすると逆)／appearDelay＝台詞が終わってから出るまで(秒)／spreadLead＝主人公の根が左右に広がり始めてから、天使と悪魔が出るまでの余裕(秒。根が先に広がる)／pause＝出きってから攻撃までの間(秒)／rootSpread＝根が神の方向からばらける角度(rad)／beamLen＝ビームの長さ(px。神を貫いてその先まで届く)／beamWarn・beamWidth＝天使の黒ビーム（黒星と同じ見た目）の予告の秒・太さ（撃ち始めたら、ずっと撃ち続ける）／rootCount・rootSpeed・rootLife・rootWidth＝悪魔の根の本数・伸びる速さ(px/秒)・伸びる秒・太さ／aimTime＝天使が神に腕を向けてから放つまで(秒)
 // 🌌 天使と悪魔が神を攻撃し始めたあとの演出：delay＝攻撃開始から、カメラが神へ向かい始めるまで(秒)／camTime＝カメラが神へ寄る時間(秒)／zoom＝その間のズーム倍率（1より小さいと引く）／expandDelay＝カメラが動き始めてから、神の体（宇宙）が広がり始めるまで(秒)／expandTime＝宇宙が画面いっぱい（マップ全体）に広がりきるまで(秒)
 const GOD_SPACE = { freezeFade: 1.2, accFade: 1.5, nextDelay: 1.0, fadeTime: 1.8, demonDelay: 0.8, chargeTime: 0.9, blastTime: 0.9, blastHold: 1.0, blastFade: 1.4, spinTime: 9, spinMax: 22, crossDelay: 1.2, delay: 4.5, camTime: 2.4, zoom: 0.8, expandDelay: 1.2, expandTime: 3.7 };
+// 🤲 神が宇宙を広げる前の演出（主人公・天使・悪魔が、天使の腕と同じ腕に、ガシッと掴まれる。順番は 主人公（下から）→ 天使（右から）→ 悪魔（左から）。カメラが神のほうへ移動しきったら掴みに来て、腕は、宇宙が割れる時に、宇宙といっしょに消える）：wait＝3本とも掴み終わってから、神の体（宇宙）が広がり始めるまでの秒／stagger＝次の腕までの間隔(秒)／slide＝腕が突き出して掴むまでの秒／fit＝手の幅が、掴む相手の直径の何倍か（1＝ちょうど。大きいほど手が大きい）／reachPad＝主人公を掴む腕は、肩側が画面の下端に届くまで大きくする（縦横比は変えない）。その下端からさらにはみ出す余裕(px)／heroBoost＝その大きさに、さらに掛ける倍率（主人公を掴む腕だけ。1＝画面の下端にちょうど届く）／off＝手の中心を、相手の中心から肩のほうへずらす量（相手の半径に対する割合）／shake＝掴んでいる間の、腕と掴まれている相手の、ぶるぶる（相手の半径に対する割合）／depth＝腕を描く深さ（主人公は7.5。それより手前）／handW・hx・hy＝腕の画像（armUp）の中の、手の幅・手の中心の位置（画像の幅・高さに対する割合）。腕の縦横比は変えない
+const GOD_GRAB = { wait: 0.5, stagger: 0.3, slide: 0.3, fit: 1.15, reachPad: 30, heroBoost: 1.7, off: 0.3, shake: 0.05, depth: 7.7, handW: 0.8, hx: 0.48, hy: 0.906 };
 // 🌀 天使と悪魔が爆発したあと、宇宙に現れる3本のドリル（円錐）：delay＝天使の爆発が終わってから現れるまで(秒)／appear＝現れる(ふくらんで濃くなる)時間(秒)／spinTime＝回転が最高速になるまで(秒)／spinMax＝三角錐1本ずつが、自分の軸で回る最高の速さ(rad/秒)／radius＝正三角形の外接円の半径／dist＝主人公から正三角形の面までの距離（3つの円錐は、主人公から等しい距離になる）／axisZ＝正三角形の軸を傾ける量（マイナス＝画面の奥。正三角形が奥に置かれ、3本とも奥からこちらを向く／大きいほど、正三角形の面が画面と平行に近づく）／length・width＝円錐の長さ・根もとの半径（3D空間の単位。画面の高さ＝約15）／launchDelay＝現れてから、1本目が飛び始めるまで(秒。それまでは、その場で回って待つ)／launchInterval＝次の1本が飛び始めるまでの間隔(秒)／flightTime＝飛び始めてから、斬られる直前の位置に着くまで(秒)／cutGap＝斬られる時の、先端と主人公の距離／gravity・fallTime＝斬られた半分が落ちる強さ・消え始めるまでの秒／【3本が斬られたあとの続き＝大量の三角錐】swarmCount＝本数／swarmDelay＝3本が片付いてから出始めるまで(秒)／swarmX・swarmY・swarmZ0・swarmZ1＝主人公のまわりの、出る範囲（3D単位。Zは奥がマイナス）／swarmMinDist＝主人公からこれ以上離れた所に出る／swarmGap＝三角錐どうしの最小の間隔／swarmAppearGap＝1本ずつ出る間隔(秒)／swarmLaunchSpread＝飛び始めるタイミングのばらつき(秒)／swarmFlightMin・Max＝飛んで斬られるまでの秒／swarmShake・swarmShakeTime＝（今は使わない。大量の三角錐も、最初の3本と同じ斬撃・赤い光・画面揺れ）
 const GOD_DRILL = { delay: 1.0, appear: 1.6, spinTime: 4, spinMax: 24, radius: 4.2, dist: 9, axisZ: -8, length: 4.4, width: 1.0, launchDelay: 2, launchInterval: 1.4, flightTime: 2.4, cutGap: 1.0, gravity: 14, fallTime: 1.0, swarmCount: 30, swarmDelay: 1.0, swarmX: 12, swarmY: 6.5, swarmZ0: -14, swarmZ1: 4, swarmMinDist: 8, swarmGap: 2.4, swarmAppearGap: 0.07, swarmLaunchSpread: 3.5, swarmFlightMin: 1.1, swarmFlightMax: 1.9, swarmShakeTime: 140, swarmShake: 0.004 };
 // ⚔ ドリル（大量の三角錐）が全部斬られたあとの続き＝画面を縦に切り裂く斬撃 → 最後の1本で宇宙が割れて、もとの聖域に戻る：delay＝ドリルが片付いてから始まるまで(秒)／count＝斬撃の本数／gapStart・gapEnd＝1本目→最後の本までの、斬撃と斬撃の間隔(秒。だんだん速くなる)／tiltStart・tiltEnd＝縦からの傾きの最大のズレ(度。最初は大きく、後ろほど小さく)／spreadX・spreadY＝画面の真ん中からの、ばらつき(画面の幅・高さに対する割合)／widthStart・widthEnd＝斬撃の太さ(画面の短い辺に対する割合)／sweep＝斬撃が上から下へ走る秒／fade＝そのあと消える秒／色は、赤(最初)→白(最後)に近づく
@@ -24701,8 +24703,8 @@ class GameScene extends Phaser.Scene {
     this._partyConf = this.add.graphics().setDepth(7.5); // 紙吹雪（いちばん手前）
     const tx = (x, y, str, size, color, stroke) => this.add.text(x, y, str, Object.assign({ fontSize: size + 'px', fontFamily: 'sans-serif', fontStyle: 'bold', color }, stroke ? { stroke: stroke.c, strokeThickness: stroke.w } : {})).setOrigin(0.5).setResolution(2).setDepth(1);
     this._partyTitle = tx(320, 30, '🎉 PARTY ROOM 🎉', 18, '#ffffff', { c: '#9c4f6a', w: 4 });
-    tx(320, 432, '⭐', 14, '#ffffff'); tx(320, 119, '🌿', 14, '#ffffff'); tx(320, 151, '草原', 11, '#ffffff', { c: '#2f7a49', w: 3 });
-    tx(PARTY_PORTAL_SOCIAL.x, 119, '🎙', 14, '#ffffff'); tx(PARTY_PORTAL_SOCIAL.x, 151, '広場', 11, '#ffffff', { c: '#2f5f9a', w: 3 });
+    tx(320, 432, '⭐', 14, '#ffffff'); tx(320, 151, 'ホラー', 11, '#ffffff', { c: '#2f7a49', w: 3 });
+    tx(PARTY_PORTAL_SOCIAL.x, 119, '🎙', 14, '#ffffff'); tx(PARTY_PORTAL_SOCIAL.x, 151, '交流ルーム', 11, '#ffffff', { c: '#2f5f9a', w: 3 });
     this.player.x += (Math.random() - 0.5) * 80; // 同時に入った人と重ならないように
     this._partyLoadMemos();
     this.events.once('shutdown', () => { const pb = document.getElementById('partyPrompt'); if (pb) pb.remove(); });
@@ -24767,7 +24769,7 @@ class GameScene extends Phaser.Scene {
         pb.addEventListener('pointerdown', go); pb.addEventListener('touchstart', go, { passive: false });
         document.body.appendChild(pb);
       }
-      const label = (tg.portal ? (tg.social ? '🎙 みんなの広場へ行く' : '🌿 草原へ行く') : '🔍 メモを読む') + (IS_TOUCH_DEVICE ? '' : '  [E]');
+      const label = (tg.portal ? (tg.social ? '🎙 交流ルームへ行く' : 'ホラーへ行く') : '🔍 メモを読む') + (IS_TOUCH_DEVICE ? '' : '  [E]');
       if (pb.textContent !== label) pb.textContent = label;
       pb._scene = this; pb.style.display = 'block';
       if (this._partyKey && Phaser.Input.Keyboard.JustDown(this._partyKey)) this._partyAct();
@@ -24953,7 +24955,7 @@ class GameScene extends Phaser.Scene {
       g.fillStyle(0xfff2b8, 0.05 + 0.03 * Math.sin(tt * 1.3 + i * 1.7));
       g.fillTriangle(ox, oy, ox + Math.cos(a - w) * len, oy + Math.sin(a - w) * len, ox + Math.cos(a + w) * len, oy + Math.sin(a + w) * len);
     }
-    const cx = Math.floor(d.width / 2) * TILE + TILE / 2, cy = (d.height / 2 + 3) * TILE; // 床の魔法陣
+    const cx = d.width * TILE / 2, cy = d.height * TILE / 2; // 床の魔法陣：聖域の真ん中（エンディングの最後に主人公が立ち止まる位置 _godRootFinale の (cx, cy) と同じ）
     g.lineStyle(2, 0xd9a93a, 0.45 + 0.15 * Math.sin(tt * 1.6)); g.strokeCircle(cx, cy, TILE * 3.2); g.strokeCircle(cx, cy, TILE * 4.6);
     for (const off of [-Math.PI / 2, Math.PI / 2]) {
       const R = TILE * 3.2, a0 = off + tt * 0.35, a1 = a0 + Math.PI * 2 / 3, a2 = a0 + Math.PI * 4 / 3;
@@ -25020,7 +25022,7 @@ class GameScene extends Phaser.Scene {
     const TAU = Math.PI * 2, gx = god.x, gy = god.y, pl = this.player;
     const SP = this._godSpace, bodyR0 = G.bodyR * SC; let Rbody = bodyR0, fx = true; // 🌌 Rbody＝神の体（宇宙）の今の半径／fx＝まわりの演出を描くか（宇宙に完全に覆われたら false）
     if (SP) {
-      if (SP.t0 == null) SP.t0 = tt + GOD_SPACE.expandDelay;
+      if (SP.t0 == null) SP.t0 = tt + Math.max(GOD_SPACE.expandDelay, this.textures.exists('armUp') ? GOD_SPACE.camTime + 2 * GOD_GRAB.stagger + GOD_GRAB.slide + GOD_GRAB.wait : 0); // 🤲 カメラが動きおわって、3本の腕が掴みおわってから広がる
       if (!SP.frozen && tt >= SP.t0) { SP.frozen = true; this._godFreezeStart(); } // 🌌 宇宙が広がり始めた瞬間：根とビームが薄くなって消え、神以外の時間が止まる
       const p = Math.max(0, Math.min(1, (tt - SP.t0) / GOD_SPACE.expandTime)), e = p * p * (3 - 2 * p);
       Rbody = bodyR0 * Math.pow(SP.rMax / bodyR0, e); SP.k = p;
@@ -25465,14 +25467,13 @@ class GameScene extends Phaser.Scene {
       this.time.delayedCall(GOD_ROOTFIN.startWait * 1000, () => this._godRootFinale());
       return;
     }
-    const TEST_START = 'lefteye'; // 🛠 テストの始まり：'lefteye'（神の左目を倒す直前から。標準）／'space'（宇宙空間から）／'afterSpace'（宇宙が割れて聖域に戻った直後から）
-    if (TEST_START === 'space') { // 🛠 宇宙空間から：神の前に立ち、目はひらいて話し終えた状態 → 悪魔と天使が現れ（約4秒）→ 攻撃と同時に、神の体（宇宙）が広がり始める（本編の、神が話し終えたあとの流れ。装飾品はまだ付いたまま）
+    const TEST_START = 'space'; // 🛠 テストの始まり：'space'（神の最後の台詞が終わったところから。標準）／'lefteye'（神の左目を倒す直前から）／'afterSpace'（宇宙が割れて聖域に戻った直後から）
+    if (TEST_START === 'space') { // 🛠 神の最後の台詞が終わったところから：神の前に立ち、目はひらいて話し終えた状態 → 悪魔と天使が現れる → ここから先は本編と同じ流れ（攻撃 → カメラが神へ → 腕が掴む → 宇宙が広がる …。装飾品はまだ付いたまま）
       this.player.x = gx; this.player.y = stopY; this.cameras.main.centerOn(this.player.x, this.player.y);
       this._autoWalk = { pts: [], i: 0, speed: 0.55, keep: true }; this._autoFace = -Math.PI / 2; // 操作は効かない／神（上）のほうを向いて立つ
       const E = this._godEyes = { t0: -100, spoke: true, acted: true }; // 目は最初から全部ひらいて主人公のほうを向く／神は話し終えた／悪魔・天使の登場は、下で始める
       const goAct = (n) => { if (this._godEyes !== E || !this.sanctuary) return; if (this._god) this._godAct(); else if (n < 10) this.time.delayedCall(300, () => goAct(n + 1)); }; // 神の体ができてから始める
       this.time.delayedCall(400, () => goAct(0));
-      this.time.delayedCall(4800, () => { const A = this._endAct; if (this._godEyes === E && A && A.angel && A.demon) { this._godActAttack(A); this._godSpaceStart(); } }); // 悪魔と天使が現れたら、すぐ攻撃＋宇宙が広がり始める（本編は、攻撃のあと数秒してから広がる）
       return;
     }
     if (TEST_START === 'lefteye') { // 🛠 神の左目を倒す直前から：本編でそこまでに変わっている状態（神の体は消えて目だけが残り、赤い目は閉じ、装飾品は外れ、主人公のまわりには天使の金と悪魔の紫の光の輪が残っている）にして、左の目が水色に光り始めるところ（→ 壁のブロックと斬撃で左の目を倒す → 根が復活 → …）から始める
@@ -25543,6 +25544,7 @@ class GameScene extends Phaser.Scene {
   //   少し間をおいて、悪魔は赤い強い根（天使を刺す根と同じ見た目）を全方位へ伸ばし、天使は「四武器」（黒剣・黒槍・黒斧・黒星）を神に向けて放つ。
   //   ここで使う悪魔・天使は演出用の見た目だけのもの（戦わず、ダメージも出さない）。
   _godActClear() {
+    this._godGripClear();
     if (this._godSpace) this._godSpaceClear();
     const A = this._endAct; if (!A) return;
     this._endAct = null;
@@ -25651,6 +25653,56 @@ class GameScene extends Phaser.Scene {
     if (A && A.endAt == null) { A.fadeDur = GOD_SPACE.freezeFade; A.endAt = A.t || 0; } // ビームは、ここから薄くなって消える
     for (const s of (this.demonShadows || [])) if (s.owner && s.owner._endingStub && !s.dead) s.godFade = 1; // 悪魔の根：伸びるのをやめて、薄くなって消える
   }
+  // 🤲 神が宇宙を広げる前（カメラが神のほうへ移動しきったあと）：主人公（下から）・天使（右から）・悪魔（左から）が、天使の腕と同じ画像の腕に、ガシッと掴まれる。腕の大きさは、掴まれる相手の大きさに合わせる（手の幅＝相手の直径×GOD_GRAB.fit。縦横比は変えない）。
+  //   ただし、主人公を掴む腕は、肩側が画面の下端まで届く大きさにする。腕は相手より手前に描く。画面の外から一気に突き出して掴み、そのまま掴みつづける（腕も、掴まれている相手も、同じようにぶるぶる震える）。宇宙が割れる時に消える（_godGripClear）。GOD_GRAB で調整
+  _godGripStart(A) {
+    if (!A || A.gripArms || this._endAct !== A || !this.textures.exists('armUp')) return;
+    const pl = this.player; if (!pl || !pl.scene) return;
+    A.gripArms = true; // 二重に出さない
+    const G = GOD_GRAB, cam = this.cameras.main, fr = this.textures.getFrame('armUp'), W = fr.width, H = fr.height;
+    const dem = GOD_ACT.left === 'demon' ? -1 : 1; // 悪魔のいる側（-1＝左／1＝右）。天使はその反対
+    const dT = ENEMY_TYPES.find(t => t.key === 'demon'), aT = ENEMY_TYPES.find(t => t.key === 'arms4');
+    const alive = o => o && !o.dead && o.gfx && o.gfx.scene;
+    const defs = [ // sv＝腕の肩がある向き（相手から見て、腕が来る側）／r＝相手の半径／gone＝相手が爆発して消えたか（消えたら、その腕も消える。主人公の腕は無し）／get＝相手の今の位置（いなくなった・爆発でふくらんでいる間は null → 最後にいた位置で掴んだまま）／shift＝相手を動かす（震え）
+      { sv: [0, 1], r: pl.radius || TILE * 0.32, reach: true, get: () => (pl && pl.scene) ? { x: pl.x, y: pl.y } : null, shift: (dx, dy) => { if (pl && pl.scene) { pl.x += dx; pl.y += dy; } } },
+      { sv: [-dem, 0], r: aT.radius, gone: () => !alive(A.angel), get: () => alive(A.angel) ? { x: A.angel.gfx.x, y: A.angel.gfx.y } : null, shift: (dx, dy) => { if (alive(A.angel)) { A.angel.gfx.x += dx; A.angel.gfx.y += dy; } } },
+      { sv: [dem, 0], r: dT.radius, gone: () => { const b = A.demon && A.demon.gfx; return !(b && b.scene && b.visible); }, get: () => { const b = A.demon && A.demon.gfx; return (b && b.scene && b.visible && b.scale < 1.05) ? { x: b.x, y: b.y } : null; }, shift: (dx, dy) => { const b = A.demon && A.demon.gfx; if (b && b.scene && b.scale < 1.05) { b.x += dx; b.y += dy; } } }
+    ];
+    const Gp = this._godGrip = { arms: [], tick: null };
+    const from = Math.hypot(cam.worldView.width, cam.worldView.height) * 0.6 + 200; // 突き出す前の、手の先と相手の距離（画面の外から出てくる）。カメラが神のほうへ動きおわった今の画面で決める
+    const t0 = this.time.now;
+    defs.forEach((d, i) => {
+      const q0 = d.get() || { x: pl.x, y: pl.y };
+      let s = G.fit * 2 * d.r / (G.handW * W); // 手の幅が、相手の直径の fit 倍になる倍率（縦横とも同じ倍率）
+      if (d.reach) s = Math.max(s, (Math.max(0, cam.worldView.bottom - q0.y) + G.off * d.r + G.reachPad) / (G.hy * H)) * G.heroBoost; // 主人公を掴む腕：手の中心から肩（画像の上端）までが、画面の下端に届く長さ（縦横比はそのまま）
+      const c = this.add.image(0, 0, 'armUp').setOrigin(G.hx, G.hy).setDepth(G.depth).setScale(s).setRotation(Math.atan2(d.sv[0], -d.sv[1])).setVisible(false); // 原点＝手の中心。画像は回転0で手が下向き → 肩が sv の側に来るように回す
+      Gp.arms.push({ c, d, start: i * G.stagger, base: q0, jx: 0, jy: 0, landed: false });
+    });
+    Gp.tick = this.time.addEvent({ delay: 16, loop: true, callback: () => {
+      if (this._godGrip !== Gp) return;
+      const u0 = (this.time.now - t0) / 1000;
+      for (const a of Gp.arms) {
+        const u = u0 - a.start; if (u < 0 || !a.c.scene) continue;
+        if (a.d.gone && a.d.gone()) { a.c.destroy(); continue; } // 🤲 掴んでいる天使／悪魔が爆発して消えたら、その腕も消える
+        const q = a.d.get(); if (q) a.base = { x: q.x - a.jx, y: q.y - a.jy }; // 震える前の位置（震えの分を引いて、元の位置を出す）
+        const base = a.base, p = Math.min(1, u / G.slide), r = a.d.r, sv = a.d.sv, k = G.off * r + from * (1 - p * p * p); // だんだん速くなって、掴む瞬間に止まる
+        let jx = 0, jy = 0;
+        if (p >= 1) { // 掴んだ：火花と軽い揺れ。そのあとは、掴んだまま、腕も相手も同じように震える
+          if (!a.landed) { a.landed = true; this.spawnBurst(base.x, base.y, 0xffffff, 10); cam.shake(110, 0.006); }
+          jx = (Math.random() - 0.5) * 2 * G.shake * r; jy = (Math.random() - 0.5) * 2 * G.shake * r;
+        }
+        if (q) a.d.shift(jx - a.jx, jy - a.jy); // 掴まれている相手も、同じだけ動かす
+        a.jx = jx; a.jy = jy;
+        a.c.setPosition(base.x + sv[0] * k + jx, base.y + sv[1] * k + jy).setVisible(true);
+      }
+    } });
+  }
+  _godGripClear() {
+    const Gp = this._godGrip; if (!Gp) return;
+    this._godGrip = null;
+    if (Gp.tick) Gp.tick.remove(false);
+    Gp.arms.forEach(a => { if (a.jx || a.jy) a.d.shift(-a.jx, -a.jy); if (a.c && a.c.scene) a.c.destroy(); }); // 震えでずらした分は、元に戻す
+  }
   _godSpaceStart() {
     const god = this._god, cam = this.cameras.main, C = GOD_SPACE;
     if (!god || this._godSpace || !this.dungeon || !this.dungeon.holy) return;
@@ -25658,7 +25710,7 @@ class GameScene extends Phaser.Scene {
     const S = this._godSpace = { t0: null, k: 0, done: false, baseZoom: cam.zoom, rMax: Math.hypot(this.dungeon.width * TILE, this.dungeon.height * TILE) * 1.1 };
     const cp = { x: cam.midPoint.x, y: cam.midPoint.y };
     cam.stopFollow();
-    S.tw = this.tweens.add({ targets: cp, x: god.x, y: god.y, duration: C.camTime * 1000, ease: 'Sine.easeInOut', onUpdate: () => { if (this._godSpace === S) cam.centerOn(cp.x, cp.y); } });
+    S.tw = this.tweens.add({ targets: cp, x: god.x, y: god.y, duration: C.camTime * 1000, ease: 'Sine.easeInOut', onUpdate: () => { if (this._godSpace === S) cam.centerOn(cp.x, cp.y); }, onComplete: () => { if (this._godSpace === S && this._endAct) this._godGripStart(this._endAct); } }); // 🤲 カメラが神のほうへ移動しきったら、腕が掴みに来る
     cam.zoomTo(S.baseZoom * C.zoom, C.camTime * 1000, 'Sine.easeInOut');
   }
   // ✝ 宇宙のまんなかで、右上から強い光を受けた3Dの十字架が回る（three.js。画面の上に透明なcanvasを重ねる）。回転がだんだん速まり（spinTime秒かけて spinMax rad/秒まで）、
@@ -26359,6 +26411,7 @@ class GameScene extends Phaser.Scene {
     A.auras = [];
   }
   _godSpaceClear() {
+    this._godGripClear(); // 🤲 宇宙が割れる時に、腕も消える（割れる直前の画面の写し取りには、腕も入っているので、宇宙の破片といっしょに砕けて見える）
     this._godTimeStop = false; this._godAccFade = null; // ⏸ 神以外の時間停止を解く／装飾品エフェクトの消去を戻す
     this._godFinaleStop();
     this._godDrillStop();
