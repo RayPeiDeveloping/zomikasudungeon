@@ -1390,6 +1390,329 @@ async function fetchPartyRoomMemos() {
   })();
   return Promise.race([run, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))]);
 }
+// 🌿 草原（3D探索の試作）：パーティールームの「草原」の入口から入る。three.js（エンディングの十字架と同じ r128）で、丘のある草原を歩き回るだけ。
+// 操作：WASD／矢印（↑↓＝前後・←→＝向き）・Shift＝走る・ドラッグ＝見回す・Esc／右上の「もどる」＝出る。スマホは左のスティックで移動、ほかの所をドラッグで見回す。
+// 草と花は InstancedMesh 1つずつにまとめ、頂点シェーダーで「自分の周り70m四方」に並べ直す（どこまで歩いても草が途切れず、数も増えない）。丘の高さ hh() は、JSとGLSLで同じ式。
+function openGrassland(onClose) {
+  if (typeof THREE === 'undefined') { if (onClose) onClose(); return; }
+  const touch = (typeof IS_TOUCH_DEVICE !== 'undefined' && IS_TOUCH_DEVICE);
+  const root = document.createElement('div'); root.id = 'grassOverlay';
+  root.style.cssText = 'position:fixed;inset:0;z-index:400;background:#cfeaf7;touch-action:none;user-select:none;-webkit-user-select:none;font-family:sans-serif;';
+  const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;';
+  root.appendChild(cv); document.body.appendChild(root);
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: !touch }); } catch (err) { console.error('3Dの草原を作れませんでした:', err); root.remove(); if (onClose) onClose(); return; }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, touch ? 1.25 : 1.75));
+  const hh = (x, z) => 1.6 * Math.sin(x * 0.045) * Math.cos(z * 0.04) + 0.9 * Math.sin(x * 0.11 + 1.3) * Math.sin(z * 0.09); // 丘の高さ（GLSLの hh と同じ式）
+  const HORIZON = new THREE.Color(0xcfeaf7), TOP = new THREE.Color(0x4f9be0);
+  const FOG_ORIG = THREE.ShaderChunk.fog_vertex; THREE.ShaderChunk.fog_vertex = FOG_ORIG.replace(/-\s*mvPosition\.z/, 'length(mvPosition.xyz)'); // 霧の濃さを、画面の奥行きではなく「自分からの直線距離」で決める（奥行きだと、同じ距離でも画面の端のほうが霧が薄くなり、端だけ遠くのものがはっきり見えていた）。草原を出る時に元に戻す
+  const scene = new THREE.Scene(); scene.fog = new THREE.Fog(HORIZON, 14, 75);
+  const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 400); camera.rotation.order = 'YXZ';
+  scene.add(new THREE.HemisphereLight(0xdff2ff, 0x5a7a3a, 0.95));
+  const sunDir = new THREE.Vector3(0.5, 0.55, -0.7).normalize();
+  const dl = new THREE.DirectionalLight(0xfff2d0, 0.85); dl.position.copy(sunDir); scene.add(dl);
+
+  // ----- 空・太陽・雲（カメラについて動く） -----
+  const skyGeo = new THREE.SphereGeometry(190, 20, 14), sp = skyGeo.attributes.position, sc = new Float32Array(sp.count * 3), tmp = new THREE.Color();
+  for (let i = 0; i < sp.count; i++) { tmp.copy(HORIZON).lerp(TOP, Math.pow(Math.max(0, sp.getY(i) / 190), 0.6)); sc[i * 3] = tmp.r; sc[i * 3 + 1] = tmp.g; sc[i * 3 + 2] = tmp.b; }
+  skyGeo.setAttribute('color', new THREE.BufferAttribute(sc, 3));
+  const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false })); sky.renderOrder = -1; scene.add(sky);
+  const sun = new THREE.Mesh(new THREE.SphereGeometry(9, 16, 12), new THREE.MeshBasicMaterial({ color: 0xfff6c8, fog: false })); sun.position.copy(sunDir).multiplyScalar(170); sky.add(sun);
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(16, 16, 12), new THREE.MeshBasicMaterial({ color: 0xfff6c8, transparent: true, opacity: 0.22, fog: false, depthWrite: false })); glow.position.copy(sun.position); sky.add(glow);
+  const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.92, fog: false }), cloudGeo = new THREE.SphereGeometry(1, 10, 8), clouds = new THREE.Group(); sky.add(clouds);
+  for (let i = 0; i < 9; i++) {
+    const az = i * 0.7 + 0.3, el = 0.3 + 0.22 * ((i * 37) % 5) / 4, c = new THREE.Group();
+    for (let k = 0; k < 4; k++) { const m = new THREE.Mesh(cloudGeo, cloudMat); m.position.set((k - 1.5) * 9, Math.sin(k * 2) * 2, Math.cos(k * 3) * 3); m.scale.set(11 + (k % 2) * 4, 4, 7); c.add(m); }
+    c.position.set(Math.sin(az) * Math.cos(el) * 165, Math.sin(el) * 165, -Math.cos(az) * Math.cos(el) * 165); c.lookAt(0, 0, 0); clouds.add(c);
+  }
+
+  // ----- 地面（丘）：平らな板を足元に置き、高さ・色・法線は頂点シェーダーで世界の座標から計算する。板は4mごとの格子にそろえて自分についてくるので、どこまで歩いても地面が続く -----
+  const U = { uTime: { value: 0 }, uCam: { value: new THREE.Vector2() }, uGC: { value: new THREE.Vector2() } };
+  const HHF = 'float hh(vec2 p){ return 1.6*sin(p.x*0.045)*cos(p.y*0.04) + 0.9*sin(p.x*0.11+1.3)*sin(p.y*0.09); }\n';
+  const GS = 4, gGeo = new THREE.PlaneGeometry(400, 400, 100, 100); gGeo.rotateX(-Math.PI / 2);
+  const groundMat = new THREE.MeshLambertMaterial();
+  groundMat.onBeforeCompile = sh => {
+    sh.uniforms.uGC = U.uGC;
+    sh.vertexShader = 'uniform vec2 uGC; varying vec3 vGC;\n' + HHF + sh.vertexShader
+      .replace('#include <beginnormal_vertex>', 'vec2 gw = position.xz + uGC; vec3 objectNormal = normalize(vec3(-(hh(gw + vec2(1.0, 0.0)) - hh(gw - vec2(1.0, 0.0))) * 0.5, 1.0, -(hh(gw + vec2(0.0, 1.0)) - hh(gw - vec2(0.0, 1.0))) * 0.5));')
+      .replace('#include <begin_vertex>', 'vec3 transformed = vec3(position.x, hh(gw), position.z); float gn = 0.5 + 0.5 * sin(gw.x * 0.7 + sin(gw.y * 0.3) * 2.0) * sin(gw.y * 0.6); float gl = clamp((transformed.y + 2.5) / 5.0, 0.0, 1.0); vGC = vec3(0.27 + 0.12 * gn + 0.08 * gl, 0.52 + 0.14 * gn + 0.08 * gl, 0.2 + 0.06 * gn);');
+    sh.fragmentShader = 'varying vec3 vGC;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb *= vGC;');
+  };
+  const ground = new THREE.Mesh(gGeo, groundMat); ground.frustumCulled = false; scene.add(ground);
+
+  // ----- 草と花（風でそよぐ。自分の周りにタイル状に並ぶ） -----
+  const GLSL = 'uniform float uTime; uniform vec2 uCam;\n' + HHF + 'float hs(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }\n';
+  const TILE = 'vec2 ip = vec2(instanceMatrix[3].x, instanceMatrix[3].z); vec2 wp = mod(ip - uCam + 35.0, 70.0) - 35.0 + uCam; float fd = 1.0 - smoothstep(23.0, 33.0, length(wp - uCam)); float r = hs(ip); float sw = sin(uTime * 1.7 + wp.x * 0.6 + wp.y * 0.5);\n';
+  const patch = (mat, body) => { mat.onBeforeCompile = sh => { sh.uniforms.uTime = U.uTime; sh.uniforms.uCam = U.uCam; sh.vertexShader = GLSL + sh.vertexShader.replace('#include <begin_vertex>', 'vec3 transformed = vec3(position);\n' + TILE + body); }; };
+  const bladeGeo = new THREE.ConeGeometry(0.06, 1, 3, 1, true); bladeGeo.translate(0, 0.5, 0);
+  const grassMat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
+  patch(grassMat, 'float a = r * 6.2831; transformed.xz = mat2(cos(a), -sin(a), sin(a), cos(a)) * transformed.xz; transformed.y *= (0.35 + 0.7 * r) * fd; float s2 = sw * 0.14 * position.y; transformed.x += s2; transformed.z += s2 * 0.6; transformed.xz += wp - ip; transformed.y += hh(wp);');
+  const NG = touch ? 16000 : 26000, grass = new THREE.InstancedMesh(bladeGeo, grassMat, NG), m4 = new THREE.Matrix4(), cc = new THREE.Color();
+  for (let i = 0; i < NG; i++) { m4.makeTranslation((Math.random() - 0.5) * 70, 0, (Math.random() - 0.5) * 70); grass.setMatrixAt(i, m4); cc.setHSL(0.24 + Math.random() * 0.06, 0.55 + Math.random() * 0.2, 0.3 + Math.random() * 0.16); grass.setColorAt(i, cc); }
+  grass.frustumCulled = false; scene.add(grass);
+  const flowerMat = new THREE.MeshLambertMaterial();
+  patch(flowerMat, 'transformed *= fd; transformed.x += sw * 0.05; transformed.xz += wp - ip; transformed.y += hh(wp) + 0.45 + 0.35 * r;');
+  const NF = touch ? 420 : 700, flowers = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.1, 0), flowerMat, NF), fcols = [0xffffff, 0xff9ec4, 0xffe36b, 0xc9a8ff, 0xffb27a];
+  for (let i = 0; i < NF; i++) { m4.makeTranslation((Math.random() - 0.5) * 70, 0, (Math.random() - 0.5) * 70); flowers.setMatrixAt(i, m4); cc.setHex(fcols[i % fcols.length]); flowers.setColorAt(i, cc); }
+  flowers.frustumCulled = false; scene.add(flowers);
+
+  // ----- 木：40m四方のマスごとに、場所と大きさが「マスの番号」から必ず同じに決まる（何も保存しなくても、同じ場所に同じ木が出る）。自分の周り±3マス（約120m）のマスだけ木を作り、離れたマスの木は消す -----
+  const CELL = 40, TR = 3, trees = new Map(); let tcx = NaN, tcz = NaN;
+  const trunkGeo = new THREE.CylinderGeometry(0.25, 0.38, 2.6, 6), leafGeo = new THREE.IcosahedronGeometry(1.8, 0), trunkMat = new THREE.MeshLambertMaterial({ color: 0x7a5230 }), leafMat = new THREE.MeshLambertMaterial({ color: 0x3f9a4a });
+  const h2 = (a, b, k) => { const v = Math.sin(a * 127.1 + b * 311.7 + k * 74.7) * 43758.5453; return v - Math.floor(v); };
+  const makeTrees = (cx, cz) => { // そのマスの木（0〜2本）
+    const grp = new THREE.Group(), r = h2(cx, cz, 0), n = r < 0.35 ? 0 : (r < 0.8 ? 1 : 2);
+    for (let k = 0; k < n; k++) {
+      const x = (cx + h2(cx, cz, 1 + k * 3)) * CELL, z = (cz + h2(cx, cz, 2 + k * 3)) * CELL, sc2 = 0.8 + h2(cx, cz, 3 + k * 3) * 0.9;
+      if (Math.hypot(x, z) < 12) continue; // 出発地点のまわりには木を置かない
+      const y = hh(x, z), tr = new THREE.Mesh(trunkGeo, trunkMat), lf = new THREE.Mesh(leafGeo, leafMat);
+      tr.position.set(x, y + 1.3 * sc2, z); tr.scale.setScalar(sc2); lf.position.set(x, y + 3.6 * sc2, z); lf.scale.set(sc2, sc2 * 1.15, sc2); grp.add(tr, lf);
+    }
+    return grp;
+  };
+  const syncTrees = () => { // マスをまたいだ時だけ、近いマスの木を足して、遠いマスの木を消す
+    const cx = Math.floor(P.x / CELL), cz = Math.floor(P.z / CELL); if (cx === tcx && cz === tcz) return; tcx = cx; tcz = cz;
+    trees.forEach((grp, key) => { const [a, b] = key.split(',').map(Number); if (Math.abs(a - cx) > TR || Math.abs(b - cz) > TR) { scene.remove(grp); trees.delete(key); } });
+    for (let a = cx - TR; a <= cx + TR; a++) for (let b = cz - TR; b <= cz + TR; b++) { const key = a + ',' + b; if (!trees.has(key)) { const grp = makeTrees(a, b); scene.add(grp); trees.set(key, grp); } }
+  };
+
+  // ----- 操作 -----
+  const LOOK_SPEED = 0.75; // 視点を動かす速さの倍率（1＝前の速さ。小さいほどゆっくり）マウスのドラッグ・矢印キー・右スティックすべてに効く
+  const P = { x: 0, z: 0, yaw: 0, pitch: -0.04 }, keys = {}; let sv = { x: 0, y: 0 }, sr = { x: 0, y: 0 }, closed = false, raf = 0, last = 0;
+  const ctl = k => ({ w: 'f', arrowup: 'f', s: 'b', arrowdown: 'b', a: 'l', d: 'r', arrowleft: 'tl', arrowright: 'tr' })[k];
+  const exit = () => {
+    if (closed) return; closed = true; cancelAnimationFrame(raf);
+    document.removeEventListener('keydown', onKeyDown, true); document.removeEventListener('keyup', onKeyUp, true); window.removeEventListener('resize', resize); window.removeEventListener('blur', onBlur);
+    scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); });
+    if (dScene) dScene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); stopChaseSound(); stopTinnitus(); [trunkGeo, leafGeo, trunkMat, leafMat, shTex].forEach(o => o.dispose()); THREE.ShaderChunk.fog_vertex = FOG_ORIG; renderer.dispose(); try { renderer.forceContextLoss(); } catch (e) { /* 何もしない */ }
+    root.remove(); if (onClose) onClose();
+  };
+  const onKeyDown = ev => {
+    const k = (ev.key || '').toLowerCase(); keys.shift = ev.shiftKey;
+    if (k === 'escape') { ev.preventDefault(); ev.stopPropagation(); exit(); return; }
+    if (ctl(k)) { ev.preventDefault(); ev.stopPropagation(); keys[ctl(k)] = true; }
+  };
+  const onKeyUp = ev => { const c = ctl((ev.key || '').toLowerCase()); keys.shift = ev.shiftKey; if (c) { keys[c] = false; ev.stopPropagation(); } };
+  const onBlur = () => { Object.keys(keys).forEach(k => { keys[k] = false; }); sv = { x: 0, y: 0 }; sr = { x: 0, y: 0 }; };
+  document.addEventListener('keydown', onKeyDown, true); document.addEventListener('keyup', onKeyUp, true); window.addEventListener('blur', onBlur);
+  let lookId = null, lx = 0, ly = 0; // ドラッグで見回す（マウス・指）
+  cv.onpointerdown = ev => { if (lookId !== null || (touch && ev.pointerType !== 'mouse')) return; // スマホでは、視点は右スティックだけで動かす
+    lookId = ev.pointerId; lx = ev.clientX; ly = ev.clientY; try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } };
+  cv.onpointermove = ev => { if (ev.pointerId !== lookId) return; P.yaw -= (ev.clientX - lx) * 0.0045 * LOOK_SPEED; P.pitch = Math.max(-1.3, Math.min(1.3, P.pitch - (ev.clientY - ly) * 0.0045 * LOOK_SPEED)); lx = ev.clientX; ly = ev.clientY; };
+  cv.onpointerup = cv.onpointercancel = ev => { if (ev.pointerId === lookId) lookId = null; };
+  const btn = document.createElement('div'); btn.textContent = '✕ もどる';
+  btn.style.cssText = 'position:absolute;top:12px;right:12px;padding:9px 14px;font-size:16px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.38);border:2px solid rgba(255,255,255,0.7);border-radius:10px;cursor:pointer;';
+  btn.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); exit(); }; root.appendChild(btn);
+  const hint = document.createElement('div'); hint.textContent = touch ? '🌿 左スティック：移動　右スティック：見回す' : '🌿 WASD・矢印：移動　Shift：走る　ドラッグ：見回す　Esc：もどる';
+  hint.style.cssText = 'position:absolute;left:50%;bottom:4vh;transform:translateX(-50%);padding:8px 16px;font-size:15px;color:#fff;background:rgba(0,0,0,0.35);border-radius:999px;white-space:nowrap;transition:opacity 1.5s;pointer-events:none;';
+  root.appendChild(hint); setTimeout(() => { hint.style.opacity = '0'; }, 7000);
+  if (touch) { // スマホ：2D（書庫・パーティールーム）と同じ位置・大きさのスティック。左＝移動、右＝視点（右は「調べる」ボタンと同じ位置）
+    const mkStick = (right, cb) => {
+      const base = document.createElement('div'), knob = document.createElement('div');
+      base.style.cssText = 'position:absolute;' + (right ? 'right' : 'left') + ':14.5vh;top:55.5vh;transform:translateY(-50%);width:27vh;height:27vh;border-radius:50%;background:rgba(255,255,255,0.08);border:0.5vh solid rgba(255,255,255,0.25);touch-action:none;';
+      knob.style.cssText = 'position:absolute;left:8.5vh;top:8.5vh;width:10vh;height:10vh;border-radius:50%;background:rgba(255,255,255,0.55);pointer-events:none;'; base.appendChild(knob); root.appendChild(base);
+      let id = null;
+      const apply = ev => { const r = base.getBoundingClientRect(), dx = ev.clientX - (r.left + r.width / 2), dy = ev.clientY - (r.top + r.height / 2), md = (r.width / 2) * 0.7778, raw = Math.hypot(dx, dy) || 1, d = Math.min(md, raw); knob.style.transform = 'translate(' + (dx / raw * d) + 'px,' + (dy / raw * d) + 'px)'; cb({ x: dx / raw * d / md, y: dy / raw * d / md }); };
+      base.onpointerdown = ev => { if (id !== null) return; ev.preventDefault(); id = ev.pointerId; try { base.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } apply(ev); };
+      base.onpointermove = ev => { if (ev.pointerId === id) apply(ev); };
+      base.onpointerup = base.onpointercancel = ev => { if (ev.pointerId === id) { id = null; knob.style.transform = ''; cb({ x: 0, y: 0 }); } };
+    };
+    mkStick(false, v => { sv = v; }); mkStick(true, v => { sr = v; });
+  }
+  const resize = () => { const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
+  window.addEventListener('resize', resize); resize();
+
+  // ----- 👁 黒い影（ホラー）：入ってしばらくすると、自分の背中側の遠くに黒い影が現れる（視界の外にしか現れない）。歩いても同じ距離・同じ方角のままついてくるので、振り返れば必ず見える。見えて少しすると消えて、また間をおいて現れる -----
+  const SHADOW_FIRST = 40, SHADOW_GAP = [30, 60], SHADOW_DIST = 45, SHADOW_SEEN = 4.3, SHADOW_OP = 0.6; // 最初に現れるまで(秒)／消えてから次に現れるまで(秒)／自分からの距離(m)／はっきり見えてから消え始めるまで(秒。消えるのに0.7秒かかるので、見てから消え終わるまで合計5秒)／いちばん濃い時の濃さ
+  const mkShadowTex = () => { // ぼんやりした人影の絵（ぼかしの影だけを描く：図形の本体は画面の外に描いて、ぼかした影だけを写す）
+    const W = 128, H = 256, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'), OFF = 1000;
+    x.shadowColor = '#000'; x.shadowBlur = 16; x.shadowOffsetX = OFF; x.fillStyle = '#000'; x.strokeStyle = '#000'; x.lineWidth = 5; x.lineCap = 'round';
+    const draw = () => {
+      x.beginPath(); x.ellipse(64 - OFF, 48, 12, 17, 0.08, 0, 6.3); x.fill(); // 頭
+      x.beginPath(); x.moveTo(55 - OFF, 66); x.lineTo(73 - OFF, 66); x.lineTo(92 - OFF, 92); x.lineTo(86 - OFF, 222); x.lineTo(42 - OFF, 222); x.lineTo(36 - OFF, 92); x.closePath(); x.fill(); // 胴
+      [[36, 92, 29, 228], [92, 92, 99, 228]].forEach(([a, b, c2, d]) => { x.beginPath(); x.moveTo(a - OFF, b); x.lineTo(c2 - OFF, d); x.stroke(); }); // 長く垂れた腕
+    };
+    draw(); draw(); // 2回重ねて濃くする
+    x.shadowColor = 'transparent'; x.globalCompositeOperation = 'destination-in'; const gr = x.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.6, 'rgba(0,0,0,0.9)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = gr; x.fillRect(0, 0, W, H); // 足もとは霧にとけるように薄く
+    return new THREE.CanvasTexture(c);
+  };
+  const shTex = mkShadowTex(), shMat = new THREE.MeshBasicMaterial({ map: shTex, transparent: true, opacity: 0, depthWrite: false }), shadow = new THREE.Group();
+  const shPlane = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 4.6), shMat); shPlane.position.y = 2.1; shadow.add(shPlane); shadow.visible = false; scene.add(shadow); // 自分のほうを向いた板に、ぼやけた影の絵を貼る（霧の影響も受ける）
+  let sOn = false, sTimer = SHADOW_FIRST, sYaw = 0, sSeen = 0, sStart = false, sA = 0, sGone = false; const projV = new THREE.Vector3();
+  const onScreen = (x, y, z, mx, my) => { projV.set(x, y, z).project(camera); return projV.z < 1 && Math.abs(projV.x) < mx && Math.abs(projV.y) < my; }; // 画面の中（mx・my＝画面の端を1とした範囲）にあるか。カメラの後ろは false
+  const placeShadow = (fix) => { if (!fix) { const x = P.x - Math.sin(sYaw) * SHADOW_DIST, z = P.z - Math.cos(sYaw) * SHADOW_DIST; shadow.position.set(x, hh(x, z), z); } shadow.rotation.y = Math.atan2(P.x - shadow.position.x, P.z - shadow.position.z); }; // 自分のほうを向いて立つ（fix＝true の間は位置を動かさず、向きだけ自分のほうへ）
+  // ----- 👁 三回目に黒い影を見ると、大きな音を立てて追いかけてくる。足は自分の走る速さ(4.2×1.9)より1割速い。追いつかれると画面が暗転して、草原から出る -----
+  const SHADOW_CHASE_AT = 3, CHASE_SPEED = 4.2 * 1.9 * 1.1, CATCH_DIST = 1.4; // 何回目に見た時に追ってくるか／追ってくる速さ(m/秒)／これより近づかれたら捕まる(m)
+  let sCount = 0, chase = false, caught = false, ac = null, chMaster = null, chNodes = [], stompT = 0;
+  const blk = document.createElement('div'); blk.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity 0.6s;'; root.appendChild(blk); // 暗転用の黒い幕
+  const thump = v => { if (!ac) return; try { const t0 = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(120, t0); o.frequency.exponentialRampToValueAtTime(32, t0 + 0.25); g.gain.setValueAtTime(v, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.32); o.connect(g); g.connect(chMaster); o.start(t0); o.stop(t0 + 0.35); } catch (e) { /* 何もしない */ } }; // ドンという足音
+  const startChaseSound = () => { // うなる低い声＋ざらざらした音＋足音。近づくほど大きくなる
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      ac = new AC(); if (ac.resume) ac.resume().catch(() => {});
+      const comp = ac.createDynamicsCompressor(); chMaster = ac.createGain(); chMaster.gain.value = 0.5; chMaster.connect(comp); comp.connect(ac.destination);
+      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 260; lp.connect(chMaster);
+      [[48, 'sawtooth', 0.4], [51.5, 'sawtooth', 0.4], [96, 'square', 0.18]].forEach(a => { const o = ac.createOscillator(), g = ac.createGain(); o.type = a[1]; o.frequency.value = a[0]; g.gain.value = a[2]; o.connect(g); g.connect(lp); o.start(); chNodes.push(o); });
+      const lfo = ac.createOscillator(), lg = ac.createGain(); lfo.frequency.value = 7; lg.gain.value = 0.25; lfo.connect(lg); lg.connect(chMaster.gain); lfo.start(); chNodes.push(lfo); // うなりの揺れ
+      const nb = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate), nd = nb.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+      const ns = ac.createBufferSource(), nf = ac.createBiquadFilter(), ng = ac.createGain(); ns.buffer = nb; ns.loop = true; nf.type = 'bandpass'; nf.frequency.value = 700; nf.Q.value = 0.6; ng.gain.value = 0.25; ns.connect(nf); nf.connect(ng); ng.connect(chMaster); ns.start(); chNodes.push(ns);
+      thump(1.6); // 見つけた瞬間の大きな「ドン」
+    } catch (e) { ac = null; }
+  };
+  const stopChaseSound = () => { chNodes.forEach(n => { try { n.stop(); } catch (e) { /* 何もしない */ } }); chNodes = []; if (ac) { try { ac.close(); } catch (e) { /* 何もしない */ } ac = null; } };
+  const startChase = () => { chase = true; sA = 1; startChaseSound(); };
+  const chaseStep = (dt, t) => {
+    if (caught) return;
+    const dx = P.x - shadow.position.x, dz = P.z - shadow.position.z, d = Math.hypot(dx, dz);
+    if (d < CATCH_DIST) { // 追いつかれた：ドンと鳴って、画面が真っ暗になり、少ししたら草原を出る
+      caught = true; thump(2.2); blk.style.transition = 'opacity 0.25s'; blk.style.opacity = '1';
+      if (ac && chMaster) chMaster.gain.setTargetAtTime(0, ac.currentTime + 0.4, 0.25);
+      setTimeout(warpToDungeon, 1800); return;
+    }
+    const k = Math.min(d, CHASE_SPEED * dt) / d, x = shadow.position.x + dx * k, z = shadow.position.z + dz * k;
+    shadow.position.set(x, hh(x, z), z); shadow.rotation.y = Math.atan2(P.x - x, P.z - z); // 自分に向かって、まっすぐ走ってくる
+    sA = 1; shadow.scale.setScalar(1.25); shMat.opacity = 0.95 * (0.9 + 0.1 * Math.sin(t * 17));
+    if (ac && chMaster) { const near = 1 - Math.min(d, 45) / 45; chMaster.gain.value = 0.45 + 0.65 * near; stompT -= dt; if (stompT <= 0) { thump(0.9 + 0.7 * near); stompT = 0.34; } }
+  };
+  const updateShadow = (dt, t) => {
+    if (!sOn) {
+      sTimer -= dt; if (sTimer > 0) return;
+      sYaw = P.yaw + Math.PI + (Math.random() - 0.5) * 0.9; placeShadow(); // 背中側（真後ろから左右に約25°まで）
+      if (onScreen(shadow.position.x, shadow.position.y + 1.8, shadow.position.z, 1.5, 1.5)) return; // 画面の中や、そのすぐ外なら出さずに、次のフレームでやり直す
+      shadow.visible = true; sOn = true; sSeen = 0; sStart = false; sA = 0; sGone = false; return;
+    }
+    if (chase) { chaseStep(dt, t); return; } // 👁 三回目：追いかけてくる
+    placeShadow(sStart); // 見つけるまでは、歩いても自分から同じ距離・同じ方角に居続ける。振り返って見えたら（sStart）その場に固定して、歩いても動かない
+    if (!sGone) {
+      sA = Math.min(1, sA + dt / 1.2); // すうっと浮かび上がる
+      if (!sStart && sA >= 0.8 && onScreen(shadow.position.x, shadow.position.y + 1.8, shadow.position.z, 0.9, 0.95)) { sStart = true; if (++sCount >= SHADOW_CHASE_AT) startChase(); } // 振り返って、はっきり見える状態で視界に入った：ここから数え始める（そのあと目をそらしても、数えは続く）
+      if (sStart && !chase) { sSeen += dt; if (sSeen >= SHADOW_SEEN) sGone = true; }
+    } else {
+      sA -= dt / 0.7; // 見られたら、すっと薄れて消える
+      if (sA <= 0) { shadow.visible = false; sOn = false; sTimer = SHADOW_GAP[0] + Math.random() * (SHADOW_GAP[1] - SHADOW_GAP[0]); return; }
+    }
+    shMat.opacity = SHADOW_OP * Math.max(0, sA) * (0.85 + 0.15 * Math.sin(t * 2.3)); shPlane.scale.x = 1 + 0.04 * Math.sin(t * 1.3); // ゆらゆらして見える
+  };
+
+  // ----- 🕳 暗いダンジョン：三回目の影に追いつかれると、ここへワープする。迷路の中を化物が歩き回っていて、見つかると追ってくる。緑の光の出口に入るか、化物に捕まると、草原を出て部屋に戻る -----
+  const DG = { N: 21, TS: 3, H: 3.2, MONSTERS: 5, WALK: 1.8, CHASE: 3.4, SIGHT: 11, CATCH: 1.0, SPAWN_MIN: 9 }; // N＝迷路の大きさ(マス・奇数)／TS＝1マスの大きさ(m)／H＝天井の高さ／MONSTERS＝化物の数／WALK＝徘徊の速さ／CHASE＝追ってくる速さ(自分の歩き4.2より遅いので、走れば逃げられる)／SIGHT＝見つけられる距離(m)／CATCH＝捕まる距離(m)／SPAWN_MIN＝スタートからこのマス数以上はなれた所に化物が出る
+  let inDungeon = false, dScene = null, dMaze = null, dMons = [], dExitPos = null, dLight = null, dDead = false, tinAc = null, tinGain = null, tinOsc = [], tinV = 0;
+  const dSolid = (i, j) => i < 0 || j < 0 || i >= DG.N || j >= DG.N || dMaze[i][j] === 1;
+  const dWallAt = (x, z, r) => { for (const ox of [-r, r]) for (const oz of [-r, r]) if (dSolid(Math.round((x + ox) / DG.TS), Math.round((z + oz) / DG.TS))) return true; return false; };
+  const dMove = (o, dx, dz, r) => { if (!dWallAt(o.x + dx, o.z, r)) o.x += dx; if (!dWallAt(o.x, o.z + dz, r)) o.z += dz; }; // 壁にぶつかったら、その向きだけ止まる（壁にそってすべる）
+  const dLos = (ax, az, bx, bz) => { const dx = bx - ax, dz = bz - az, n = Math.ceil(Math.hypot(dx, dz) / 0.5); for (let k = 1; k < n; k++) if (dWallAt(ax + dx * k / n, az + dz * k / n, 0)) return false; return true; }; // 間に壁がなく見えているか
+  const buildDungeon = () => {
+    const N = DG.N, TS = DG.TS; dMaze = []; for (let i = 0; i < N; i++) dMaze.push(new Array(N).fill(1));
+    const dirs = [[2, 0], [-2, 0], [0, 2], [0, -2]], st = [[1, 1]]; dMaze[1][1] = 0;
+    while (st.length) { // 迷路を掘る（行き止まりまで掘って、戻って別の道を掘る）
+      const c = st[st.length - 1], opts = dirs.filter(d => { const a = c[0] + d[0], b = c[1] + d[1]; return a > 0 && b > 0 && a < N - 1 && b < N - 1 && dMaze[a][b] === 1; });
+      if (!opts.length) { st.pop(); continue; }
+      const d = opts[Math.floor(Math.random() * opts.length)]; dMaze[c[0] + d[0] / 2][c[1] + d[1] / 2] = 0; dMaze[c[0] + d[0]][c[1] + d[1]] = 0; st.push([c[0] + d[0], c[1] + d[1]]);
+    }
+    for (let i = 2; i < N - 2; i++) for (let j = 2; j < N - 2; j++) { // 壁を少し抜いて、ぐるっと回れる道を作る（化物から逃げ回れるように）
+      if (dMaze[i][j] === 1 && Math.random() < 0.12 && ((dMaze[i - 1][j] === 0 && dMaze[i + 1][j] === 0 && dMaze[i][j - 1] === 1 && dMaze[i][j + 1] === 1) || (dMaze[i][j - 1] === 0 && dMaze[i][j + 1] === 0 && dMaze[i - 1][j] === 1 && dMaze[i + 1][j] === 1))) dMaze[i][j] = 0;
+    }
+    dScene = new THREE.Scene(); dScene.background = new THREE.Color(0x000000); dScene.fog = new THREE.Fog(0x000000, 2, 15);
+    dScene.add(new THREE.AmbientLight(0x1a1a24, 0.9));
+    dLight = new THREE.PointLight(0xffe2b0, 1.3, 18, 1.2); dScene.add(dLight); // 自分が持っている明かり
+    const wallTiles = []; for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) if (dMaze[i][j] === 1) wallTiles.push([i, j]);
+    const walls = new THREE.InstancedMesh(new THREE.BoxGeometry(TS, DG.H, TS), new THREE.MeshLambertMaterial({ color: 0xffffff }), wallTiles.length), m4 = new THREE.Matrix4(), cc = new THREE.Color();
+    wallTiles.forEach((w, k) => { m4.makeTranslation(w[0] * TS, DG.H / 2, w[1] * TS); walls.setMatrixAt(k, m4); const g = 0.22 + Math.random() * 0.1; cc.setRGB(g, g, g * 1.1); walls.setColorAt(k, cc); });
+    dScene.add(walls);
+    const mid = (N - 1) / 2 * TS, flo = new THREE.Mesh(new THREE.PlaneGeometry(N * TS, N * TS), new THREE.MeshLambertMaterial({ color: 0x2a2a30 })), cei = new THREE.Mesh(new THREE.PlaneGeometry(N * TS, N * TS), new THREE.MeshLambertMaterial({ color: 0x18181c }));
+    flo.rotation.x = -Math.PI / 2; flo.position.set(mid, 0, mid); cei.rotation.x = Math.PI / 2; cei.position.set(mid, DG.H, mid); dScene.add(flo, cei);
+    const open = []; for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) if (dMaze[i][j] === 0) open.push([i, j]);
+    const dd = [[1, 0], [-1, 0], [0, 1], [0, -1]], nearWall = o => dd.some(d => dSolid(o[0] + d[0], o[1] + d[1])); // 壁のどこかに、明るい扉をつける（スタートからはなれた所の、壁に面したマス）
+    let dc = open.filter(o => Math.abs(o[0] - 1) + Math.abs(o[1] - 1) >= 14 && nearWall(o)); if (!dc.length) dc = open.filter(nearWall).sort((a, b) => (b[0] + b[1]) - (a[0] + a[1])).slice(0, 3);
+    const dtile = dc[Math.floor(Math.random() * dc.length)], dn = dd.filter(d => dSolid(dtile[0] + d[0], dtile[1] + d[1])), wd = dn[Math.floor(Math.random() * dn.length)];
+    const cx = dtile[0] * TS, cz = dtile[1] * TS, off = TS / 2 - 0.08, rotY = wd[0] !== 0 ? Math.PI / 2 : 0; // wd＝扉をつける壁の向き
+    const door = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.4, 0.1), new THREE.MeshBasicMaterial({ color: 0xfff6d0, fog: false })); door.position.set(cx + wd[0] * off, 1.2, cz + wd[1] * off); door.rotation.y = rotY; dScene.add(door);
+    const gc = document.createElement('canvas'); gc.width = gc.height = 64; const gx = gc.getContext('2d'), gr = gx.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,244,200,0.9)'); gr.addColorStop(1, 'rgba(255,244,200,0)'); gx.fillStyle = gr; gx.fillRect(0, 0, 64, 64);
+    const halo = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(gc), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide })); // 扉のまわりのまぶしい光
+    halo.position.set(cx + wd[0] * (off - 0.05), 1.3, cz + wd[1] * (off - 0.05)); halo.rotation.y = rotY; dScene.add(halo);
+    const dl = new THREE.PointLight(0xfff0c0, 1.2, 10); dl.position.set(cx + wd[0] * (TS / 2 - 0.7), 1.6, cz + wd[1] * (TS / 2 - 0.7)); dScene.add(dl); // 道のほうも明るく照らす
+    dExitPos = { x: door.position.x, z: door.position.z };
+    const sphG = new THREE.SphereGeometry(1, 12, 9), eyeG = new THREE.SphereGeometry(0.08, 6, 5);
+    const darkM = new THREE.MeshLambertMaterial({ color: 0x0c0c0e }), eyeM = new THREE.MeshBasicMaterial({ color: 0xff2020, fog: false });
+    const cand = open.filter(o => Math.abs(o[0] - 1) + Math.abs(o[1] - 1) >= DG.SPAWN_MIN).sort(() => Math.random() - 0.5); dMons = [];
+    for (let k = 0; k < DG.MONSTERS && k < cand.length; k++) { // 化物：黒い球がぶくぶくと連なっていて、いちばん上の球に赤い目が光っている
+      const g = new THREE.Group(), blobs = [], n = 7 + Math.floor(Math.random() * 3); let topY = 0, topZ = 0, topR = 0.3;
+      const addBlob = (r, x, y, z) => { const mesh = new THREE.Mesh(sphG, darkM); mesh.position.set(x, y, z); mesh.scale.setScalar(r); g.add(mesh); blobs.push({ mesh, r, ph: Math.random() * 6.28 }); };
+      for (let b = 0; b < n; b++) { // 下から上へ、球を積み重ねる（下ほど大きく、上へいくほど少し小さく。左右にちょっとずれる）
+        const r = 0.5 - b * 0.03 + Math.random() * 0.1, x = (Math.random() - 0.5) * 0.3, z = (Math.random() - 0.5) * 0.3, y = r * 0.8 + b * 0.28;
+        addBlob(r, x, y, z); if (b === n - 1) { topY = y; topZ = z; topR = r; }
+      }
+      for (let b = 0; b < 4; b++) { const ang = Math.random() * 6.28; addBlob(0.2 + Math.random() * 0.12, Math.cos(ang) * 0.5, 0.4 + Math.random() * 1.4, Math.sin(ang) * 0.5); } // 横にぶくっと出っぱった小さな球
+      const e1 = new THREE.Mesh(eyeG, eyeM), e2 = new THREE.Mesh(eyeG, eyeM); e1.position.set(0.14, topY + 0.06, topZ + topR * 0.85); e2.position.set(-0.14, topY + 0.06, topZ + topR * 0.85); g.add(e1, e2);
+      const x = cand[k][0] * TS, z = cand[k][1] * TS; g.position.set(x, 0, z); dScene.add(g);
+      dMons.push({ g, blobs, x, z, ci: cand[k][0], cj: cand[k][1], pi: -1, pj: -1, alert: 0, tx: x, tz: z, was: false, ph: Math.random() * 6 });
+    }
+  };
+  const startTinnitus = () => { // 耳鳴り：高い「キーン」という音（少しずれた音を重ねて、ふるえるようにする）。ふだんは音量0で、見つかっている間だけ大きくなる
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      tinAc = new AC(); if (tinAc.resume) tinAc.resume().catch(() => {});
+      tinGain = tinAc.createGain(); tinGain.gain.value = 0; tinGain.connect(tinAc.destination);
+      [[6100, 0.5], [6180, 0.5], [3050, 0.2]].forEach(a => { const o = tinAc.createOscillator(), g = tinAc.createGain(); o.type = 'sine'; o.frequency.value = a[0]; g.gain.value = a[1]; o.connect(g); g.connect(tinGain); o.start(); tinOsc.push(o); });
+    } catch (e) { tinAc = null; tinGain = null; }
+  };
+  const stopTinnitus = () => { tinOsc.forEach(o => { try { o.stop(); } catch (e) { /* 何もしない */ } }); tinOsc = []; tinGain = null; if (tinAc) { try { tinAc.close(); } catch (e) { /* 何もしない */ } tinAc = null; } };
+  const warpToDungeon = () => { // 暗転している間に、ダンジョンへ移る
+    if (closed) return;
+    stopChaseSound(); buildDungeon(); startTinnitus(); inDungeon = true; dDead = false; shadow.visible = false;
+    P.x = DG.TS; P.z = DG.TS; P.pitch = 0; P.yaw = dMaze[2][1] === 0 ? -Math.PI / 2 : Math.PI; // 開いている方を向いて始まる
+    renderer.setClearColor(0x000000, 1);
+    blk.style.transition = 'opacity 2.4s'; blk.style.opacity = '0'; // 暗闇からゆっくり見えてくる
+    hint.textContent = '暗い…どこかで何かが歩いている。壁のどこかに、明るい扉があるはずだ'; hint.style.transition = 'opacity 1.5s'; hint.style.opacity = '1'; setTimeout(() => { hint.style.opacity = '0'; }, 8000);
+  };
+  const dEnd = ms => { dDead = true; blk.style.transition = 'opacity 0.3s'; blk.style.opacity = '1'; setTimeout(exit, ms); }; // 画面を暗くして、草原を出る
+  const dungeonFrame = (dt, t, mf, mr, sp2, sy, cy) => {
+    if (!dDead) dMove(P, (-sy * mf + cy * mr) * sp2, (-cy * mf - sy * mr) * sp2, 0.4);
+    camera.position.set(P.x, 1.6, P.z); camera.rotation.set(P.pitch, P.yaw, 0); camera.updateMatrixWorld();
+    dLight.position.copy(camera.position); dLight.intensity = 1.25 + 0.1 * Math.sin(t * 11) * Math.sin(t * 3.1); // 明かりが、かすかにゆれる
+    const TS = DG.TS; let found = false, nearD = 99;
+    dMons.forEach(m => {
+      const seeing = !dDead && Math.hypot(P.x - m.x, P.z - m.z) < DG.SIGHT && dLos(m.x, m.z, P.x, P.z);
+      if (seeing) { m.alert = 3; m.tx = P.x; m.tz = P.z; } else if (m.alert > 0) m.alert -= dt;
+      if (m.alert > 0) { found = true; nearD = Math.min(nearD, Math.hypot(P.x - m.x, P.z - m.z)); } // 見つかっている（見失っても3秒はつづく）
+      let gx, gz, sp;
+      if (m.alert > 0) { m.was = true; gx = m.tx; gz = m.tz; sp = DG.CHASE; } // 見つけた：見失っても3秒は、最後に見た場所まで追う
+      else {
+        if (m.was) { m.was = false; m.ci = Math.round(m.x / TS); m.cj = Math.round(m.z / TS); m.pi = m.pj = -1; } // 見失ったので、近くのマスから徘徊にもどる
+        if (Math.hypot(m.ci * TS - m.x, m.cj * TS - m.z) < 0.15) { // 着いたら、つぎのマスをえらぶ（なるべく来た道はもどらない）
+          let ns = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(d => !dSolid(m.ci + d[0], m.cj + d[1])); const fw = ns.filter(d => !(m.ci + d[0] === m.pi && m.cj + d[1] === m.pj)); if (fw.length) ns = fw;
+          if (ns.length) { const d = ns[Math.floor(Math.random() * ns.length)]; m.pi = m.ci; m.pj = m.cj; m.ci += d[0]; m.cj += d[1]; }
+        }
+        gx = m.ci * TS; gz = m.cj * TS; sp = DG.WALK;
+      }
+      const dx = gx - m.x, dz = gz - m.z, d = Math.hypot(dx, dz);
+      if (d > 0.3) { const k = Math.min(d, sp * dt) / d; dMove(m, dx * k, dz * k, 0.4); m.g.rotation.y = Math.atan2(dx, dz); }
+      m.g.position.set(m.x, 0, m.z); m.blobs.forEach(b => b.mesh.scale.setScalar(b.r * (1 + 0.13 * Math.sin(t * 3.2 + b.ph)))); // 球がそれぞれ、ぶくぶくとふくらんだり縮んだりする
+      if (!dDead && Math.hypot(P.x - m.x, P.z - m.z) < DG.CATCH) dEnd(2200); // 捕まった：暗転して、草原を出る
+    });
+    // 👂 化物に見つかっている間は、耳鳴りがする（近いほど大きい）
+    if (tinGain) { tinV += ((found ? 0.08 + 0.14 * (1 - Math.min(nearD, DG.SIGHT) / DG.SIGHT) : 0) - tinV) * Math.min(1, dt * (found ? 5 : 1.5)); tinGain.gain.value = tinV; }
+    if (!dDead && Math.hypot(P.x - dExitPos.x, P.z - dExitPos.z) < 1.2) dEnd(900); // 扉に入った：明るく…ではなく暗転して、草原を出る
+    renderer.render(dScene, camera);
+  };
+  const frame = ms => {
+    if (closed) return;
+    const t = ms / 1000, dt = Math.min(0.05, last ? t - last : 0.016); last = t;
+    P.yaw += ((keys.tl ? 1 : 0) - (keys.tr ? 1 : 0)) * 1.8 * LOOK_SPEED * dt;
+    P.yaw -= sr.x * 2.2 * LOOK_SPEED * dt; P.pitch = Math.max(-1.3, Math.min(1.3, P.pitch - sr.y * 1.6 * LOOK_SPEED * dt)); // 右スティック：視点を動かす
+    let mf = (keys.f ? 1 : 0) - (keys.b ? 1 : 0) - sv.y, mr = (keys.r ? 1 : 0) - (keys.l ? 1 : 0) + sv.x; const mm = Math.hypot(mf, mr); if (mm > 1) { mf /= mm; mr /= mm; }
+    const sp2 = 4.2 * (keys.shift ? 1.9 : 1) * dt, sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
+    if (inDungeon) { dungeonFrame(dt, t, mf, mr, sp2, sy, cy); raf = requestAnimationFrame(frame); return; } // 🕳 ダンジョンの間は、草原は止めておく
+    P.x += (-sy * mf + cy * mr) * sp2; P.z += (-cy * mf - sy * mr) * sp2;
+    syncTrees(); ground.position.set(Math.round(P.x / GS) * GS, 0, Math.round(P.z / GS) * GS); U.uGC.value.set(ground.position.x, ground.position.z); // 歩ける範囲に制限はない（木と地面は自分についてくる）
+    camera.position.set(P.x, hh(P.x, P.z) + 1.65, P.z); camera.rotation.set(P.pitch, P.yaw, 0); camera.updateMatrixWorld(); updateShadow(dt, t); // 👁 黒い影
+    sky.position.copy(camera.position); clouds.rotation.y += dt * 0.004;
+    U.uTime.value = t; U.uCam.value.set(P.x, P.z);
+    renderer.render(scene, camera); raf = requestAnimationFrame(frame);
+  };
+  raf = requestAnimationFrame(frame);
+}
+
 // パーティールームを開く（書庫と同じ #libraryOverlay を使い回す）。操作も書庫と同じ（WASD／矢印・スマホはスティック・E／スペースで調べる・下の扉かEscで出る）
 function openPartyRoom(onClose, playerColor, accIcon) {
   const ov = document.getElementById('libraryOverlay'), room = document.getElementById('libraryRoom');
@@ -1406,7 +1729,8 @@ function openPartyRoom(onClose, playerColor, accIcon) {
   const col = '#' + ((playerColor == null ? 0xffffff : playerColor) >>> 0).toString(16).padStart(6, '0').slice(-6);
   const hash = n => ((n * 2654435761) >>> 0) % 1000;
   const hit = (cx, cy, r) => solids.some(q => { const nx = Math.max(q.x, Math.min(cx, q.x + q.w)), ny = Math.max(q.y, Math.min(cy, q.y + q.h)); return (cx - nx) ** 2 + (cy - ny) ** 2 < r * r; });
-  const keys = {}; let tv = { x: 0, y: 0 }, tOrigin = null, readerOpen = false, target = null, closed = false, raf = 0, last = 0;
+  const keys = {}; let tv = { x: 0, y: 0 }, tOrigin = null, readerOpen = false, target = null, closed = false, raf = 0, last = 0, inGrass = false;
+  const portalNote = { i: -2, portal: true, x: 320, y: 118 }; // 🌿 草原への入口（メモと同じ要領で、近づいて E／タップ）
 
   // ----- メモをFirebaseから読む -----
   const warnEl = document.getElementById('libWarn'); let warnT = 0;
@@ -1420,11 +1744,16 @@ function openPartyRoom(onClose, playerColor, accIcon) {
   loadMemos();
   const openNote = n => {
     if (!n) return;
+    if (n.portal) { enterGrass(); return; }
     document.getElementById('libBookTitle').textContent = n.m.title; document.getElementById('libBookText').textContent = n.m.text;
     document.getElementById('libPick').style.display = 'none';
     readerOpen = true; reader.style.display = 'flex'; stickShow(false);
   };
   const closeReader = () => { readerOpen = false; reader.style.display = 'none'; stickShow(true); };
+  const enterGrass = () => { // 🌿 草原（3D）へ。入っている間はこの部屋を止め、出たら元の位置から続ける
+    inGrass = true; prompt.style.display = 'none'; tOrigin = null; tv = { x: 0, y: 0 }; Object.keys(keys).forEach(k => { keys[k] = false; }); stickShow(false);
+    openGrassland(() => { inGrass = false; stickShow(true); });
+  };
 
   // ----- 終わる -----
   const finish = () => {
@@ -1443,6 +1772,7 @@ function openPartyRoom(onClose, playerColor, accIcon) {
   const ctl = k => ({ arrowup: 'u', w: 'u', arrowdown: 'd', s: 'd', arrowleft: 'l', a: 'l', arrowright: 'r', d: 'r' })[k];
   const onKeyDown = ev => {
     const k = (ev.key || '').toLowerCase();
+    if (inGrass) return; // 🌿 草原の中は、草原のほうがキーを受ける
     if (k === 'escape') { ev.preventDefault(); if (readerOpen) closeReader(); else finish(); return; }
     if (k === 'e' || k === ' ' || k === 'enter') { ev.preventDefault(); if (readerOpen) closeReader(); else if (target) openNote(target); return; }
     if (ctl(k)) { ev.preventDefault(); keys[ctl(k)] = true; }
@@ -1469,7 +1799,7 @@ function openPartyRoom(onClose, playerColor, accIcon) {
   prompt.onclick = () => { if (readerOpen) closeReader(); else if (target) openNote(target); };
 
   // ----- 描く（明るくて陽気な部屋） -----
-  const balloons = [[90, 150], [550, 170], [120, 300], [520, 320], [300, 115], [60, 235]];
+  const balloons = [[90, 150], [550, 170], [120, 300], [520, 320], [240, 120], [60, 235]];
   const draw = (t) => {
     ctx.fillStyle = '#a9c8d6'; ctx.fillRect(0, 0, W, H); // 左右・下の壁
     for (let ty = 2; ty < H / T - 1; ty++) for (let tx = 1; tx < W / T - 1; tx++) { ctx.fillStyle = ((tx + ty) & 1) ? '#f1e6cf' : '#ecd5dc'; ctx.fillRect(tx * T, ty * T, T, T); } // 床：市松模様
@@ -1496,6 +1826,16 @@ function openPartyRoom(onClose, playerColor, accIcon) {
       const y = by + Math.sin(t * 1.5 + i) * 6; ctx.strokeStyle = '#999'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(bx, y + 14); ctx.lineTo(bx + Math.sin(t + i) * 3, y + 40); ctx.stroke();
       ctx.fillStyle = 'hsl(' + ((i * 67 + 10) % 360) + ',45%,66%)'; ctx.beginPath(); ctx.ellipse(bx, y, 11, 14, 0, 0, 6.3); ctx.fill(); ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.beginPath(); ctx.ellipse(bx - 4, y - 5, 2.5, 4, 0, 0, 6.3); ctx.fill();
     });
+    { // 🌿 草原への入口：光る緑の扉
+      const px = portalNote.x, py = portalNote.y, g = 0.55 + 0.25 * Math.sin(t * 3);
+      ctx.fillStyle = 'rgba(120,220,140,' + (0.28 * g) + ')'; ctx.beginPath(); ctx.arc(px, py, 27, 0, 6.3); ctx.fill();
+      ctx.fillStyle = '#4fae6a'; ctx.beginPath(); ctx.ellipse(px, py, 15, 20, 0, 0, 6.3); ctx.fill();
+      ctx.fillStyle = '#c9f2cf'; ctx.beginPath(); ctx.ellipse(px, py, 10, 15, 0, 0, 6.3); ctx.fill();
+      for (let k = 0; k < 5; k++) { const a = t * 1.6 + k * 1.26; ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(px + Math.cos(a) * 21 - 1.5, py + Math.sin(a) * 25 - 1.5, 3, 3); }
+      ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff'; ctx.fillText('🌿', px, py + 1);
+      ctx.font = 'bold 11px sans-serif'; ctx.lineWidth = 3; ctx.strokeStyle = '#2f7a49'; ctx.strokeText('草原', px, py + 33); ctx.fillText('草原', px, py + 33);
+      if (portalNote === target) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(px, py, 19, 24, 0, 0, 6.3); ctx.stroke(); }
+    }
     // メモ（付箋）
     notes.forEach(n => {
       if (n.g) { // 📋 机の上の案内書き（1枚目のメモ）：大きめの紙と、ゆっくり光る輪
@@ -1522,6 +1862,7 @@ function openPartyRoom(onClose, playerColor, accIcon) {
   // ----- 毎フレーム -----
   const frame = (ms) => {
     if (closed) return;
+    if (inGrass) { raf = requestAnimationFrame(frame); return; } // 🌿 草原の間は、この部屋は止めておく
     const t = ms / 1000; const dt = Math.min(0.05, last ? t - last : 0.016); last = t;
     let mx = (keys.r ? 1 : 0) - (keys.l ? 1 : 0), my = (keys.d ? 1 : 0) - (keys.u ? 1 : 0);
     if (!mx && !my) { mx = tv.x; my = tv.y; } else if (mx && my) { mx *= 0.7071; my *= 0.7071; }
@@ -1534,10 +1875,10 @@ function openPartyRoom(onClose, playerColor, accIcon) {
     }
     if (pl.y > H - T + 6 && pl.x > 288 && pl.x < 352) { finish(); return; } // 扉に入った
     target = null; let bd = 46;
-    if (!readerOpen) notes.forEach(n => { const d = Math.hypot(pl.x - n.x, pl.y - n.y); if (d < bd) { bd = d; target = n; } });
+    if (!readerOpen) [portalNote].concat(notes).forEach(n => { const d = Math.hypot(pl.x - n.x, pl.y - n.y); if (d < bd) { bd = d; target = n; } });
     prompt.style.display = (target || readerOpen) ? 'flex' : 'none';
     if (readerOpen) { if (prompt.textContent !== '✕') { prompt.textContent = '✕'; prompt.title = 'メモを閉じる'; } }
-    else if (target) { if (prompt.textContent !== '🔍') prompt.textContent = '🔍'; prompt.title = 'メモを読む'; }
+    else if (target) { const ic = target.portal ? '🌿' : '🔍'; if (prompt.textContent !== ic) prompt.textContent = ic; prompt.title = target.portal ? '草原へ行く' : 'メモを読む'; }
     draw(t);
     raf = requestAnimationFrame(frame);
   };
