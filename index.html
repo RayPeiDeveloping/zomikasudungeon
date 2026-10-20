@@ -1364,7 +1364,7 @@ function openLibrary(onClose, playerColor, accIcon, visits, countReach) { // cou
   room.classList.remove('show'); stickZone.classList.remove('show'); void room.offsetWidth; room.classList.add('show'); stickZone.classList.add('show'); // 暗闇から、ゆっくり開ける（スティックも同じ速さで現れる）
   raf = requestAnimationFrame(frame);
 }
-// 🎉 パーティールーム：クリア後のおまけの部屋（広めで明るい、陽気な部屋）。メモを読んでおまけ情報が分かる。
+// 🎉 パーティールーム：クリア後のおまけの部屋（広めで明るい、陽気な部屋）。入れるのはエンディングを見た人（endingDone）だけ。メモを読んでおまけ情報が分かる。
 //   入り方：ロビーのダンジョン番号の欄に、Firebase の library/partyroom/number と同じ文字・数字を入れて「ダンジョン」を押す。
 //   メモは Firebase の library/partyroom/memos から読み込む（HTMLには本文を持たない）。1枚目（memos/0）は、机の上の案内書きとして置かれ、2枚目以降が壁に貼られる。
 //   形式：library/partyroom/memos/0 = { title: 'メモの題名', text: '本文' }, library/partyroom/memos/1 = …（最大20枚。本文は \n・¥n・￥n で改行）
@@ -2070,7 +2070,7 @@ function openPartyHall(onClose, opt) {
 //   部屋の中の座標は「ピクセル」で、PARTY_SLOTS などはその座標。マップは generatePartyMap()、飾りと調べる操作は GameScene の setupParty / _updateParty / _drawParty。
 const PARTY_SLOTS = [[60, 40], [130, 40], [200, 40], [440, 40], [510, 40], [580, 40], [16, 150], [16, 300], [624, 150], [624, 300], [110, 390], [530, 390], [16, 225], [16, 375], [624, 225], [624, 375], [60, 432], [190, 432], [450, 432], [580, 432]]; // メモを貼る場所（最大20枚。13枚目以降は左右の壁の間と下の壁に貼る）
 const PARTY_BALLOONS = [[90, 150], [550, 170], [120, 300], [520, 320], [240, 120], [60, 235]];
-const PARTY_MEMOS_READABLE = false; // 📋 false の間は、パーティールームのメモをプレイヤーが読めない（近づいても調べられない）。true に戻すと読める
+const PARTY_MEMOS_READABLE = true; // 📋 true の間は、パーティールームのメモをプレイヤーが読める（近づいて調べられる）。false にすると読めなくなる
 const PARTY_PORTAL = { i: -2, portal: true, x: 320, y: 118 }; // 🌿 草原への入口（メモと同じ要領で、近づいて E／タップ）
 const PARTY_PORTAL_SOCIAL = { i: -3, portal: true, social: true, x: 420, y: 118 }; // 🎙 みんなの広場（洋室）への入口（同じ部屋の人と一緒に入って、歩き回りながらボイスチャット）
 function generatePartyMap() {
@@ -2153,6 +2153,27 @@ function generateBossArena() {
 // 全員が同じ種(seed)から同じダンジョンを作るので、全員の画面で同じ場所に同じ部屋ができる。
 // d.origW/origH＝足す前のダンジョンの大きさ／d.ritual＝部屋の位置（マス）。rooms には入れない（敵・宝箱が湧かないように）。
 const RITUAL_GAP = 40;
+// 😈 協力プレイの25階：悪魔に会う人ごとの専用の部屋。あみだくじのモンスターの部屋と同じ大きさ（36×24）・同じ間隔（40マス）・4列で、調伏の儀の部屋の下の遠くに並べる。
+// 部屋のあいだは岩（壁）で、行き来も、弾・爆風・声も届かない。全員が同じ種から同じ場所に作る。
+const DEMON_ROOM_W = 36, DEMON_ROOM_H = 24, DEMON_ROOM_GAP = 40, DEMON_ROOM_COLS = 4;
+function addDemonRooms(d, n) {
+  const R = d.ritual; if (!R) return d;
+  const cols = Math.min(DEMON_ROOM_COLS, n), rows = Math.ceil(n / DEMON_ROOM_COLS);
+  const x0 = R.x, y0 = R.y + R.h + DEMON_ROOM_GAP;
+  const W = Math.max(d.width, x0 + cols * DEMON_ROOM_W + (cols - 1) * DEMON_ROOM_GAP + 6);
+  const H = y0 + rows * DEMON_ROOM_H + (rows - 1) * DEMON_ROOM_GAP + 6;
+  if (W > d.width) { for (let y = 0; y < d.grid.length; y++) { const row = d.grid[y]; for (let x = row.length; x < W; x++) row.push(0); } d.width = W; }
+  while (d.grid.length < H) d.grid.push(Array(d.width).fill(0));
+  const rooms = [];
+  for (let i = 0; i < n; i++) {
+    const col = i % DEMON_ROOM_COLS, row = Math.floor(i / DEMON_ROOM_COLS);
+    const r = { x: x0 + col * (DEMON_ROOM_W + DEMON_ROOM_GAP), y: y0 + row * (DEMON_ROOM_H + DEMON_ROOM_GAP), w: DEMON_ROOM_W, h: DEMON_ROOM_H };
+    for (let ty = r.y; ty < r.y + r.h; ty++) for (let tx = r.x; tx < r.x + r.w; tx++) d.grid[ty][tx] = 1;
+    rooms.push(r);
+  }
+  d.height = d.grid.length; d.demonRooms = rooms;
+  return d;
+}
 function addRitualRoom(d) {
   const W0 = d.width, H0 = d.height, RW = 36, RH = 24;
   const bx = W0 + RITUAL_GAP, W = bx + RW + 6, H = Math.max(H0, RH + 6);
@@ -2300,7 +2321,7 @@ function generateSanctuaryMap() {
     enemyBudget: 0,
   };
 }
-// 🔥 地獄：悪魔の装飾品を1つ以上持っている人が扉（出口）を通る時、chance の確率で、次の階の代わりにここへ落ちる。
+// 🔥 地獄：悪魔の装飾品を1つ以上つけている人が扉（出口）を通る時、chance の確率で、次の階の代わりにここへ落ちる。
 //   赤い土の広いマップ。いるのは悪魔とボスだけ（ふつうの敵・宝箱・ポーションはない）。松明の明かりをたどった先にある扉（出口）に入ると、本来行くはずだった階に出る。
 //   chance＝落ちる確率／demonsBase・demonsPerFloor／bossesBase・bossesPerFloor＝悪魔・ボスの数。「基本の数 ＋ 落ちた階 × 1階あたりの増え方」（小数点以下は切り捨て／四捨五入）で、奥の階ほど増える（ボスはボスの種類を順に並べる）／monsterHp＝悪魔とボスのHP（まず倒せない）／monsterDamage＝悪魔とボスのダメージ（1発で倒れる。実際の被ダメージも accDmgTaken で最大HPの10倍にする）
 //   distMin・distMax＝スタートから扉までの直線距離（タイル）。この間から毎回ランダム（平均は中間の100タイル）／margin＝スタート・扉のまわりに足す余白（タイル）。地図は常に正方形で、1辺は「スタートと扉の長いほうの差＋余白×2」（毎回決まる。短いほうの余った分は、スタートと扉を中央に寄せる）
@@ -3903,9 +3924,9 @@ const DEFAULT_SAVE = {
   accEquipped: '',       // 付けている装飾品のkey（''なら何も付けない）
   specialAccs: {},       // 入手済みの特別な装飾品 { key: true }（SPECIAL_ACCS。一覧には出ない。台本の item でだけ入手できる）
   specialOn: {},         // 特別な装飾品のうち、いま付けているもの { key: true }（ホーム画面のアイコンを押すと付け外し。限定武器の装飾品は、同時に1つだけ）
-  armorFloor10Fast: 0,   // ダンジョン（ソロ）を始めてから ARMOR_UNLOCK.sec 秒以内に10階層のボスを倒したか（0/1）。1で装飾品「鎧」を入手（デベロッパーモード・協力プレイを除く）
+  armorFloor10Fast: 0,   // ダンジョン（ソロ）を始めてから ARMOR_UNLOCK.sec 秒以内に10階層のボスを倒したか（0/1）。1で装飾品「鎧」を入手（デベロッパーモードを除く）
   arms4RitualPlayed: false, // 四つ腕の調伏の儀を一度でも始めたか（デベロッパーモードを除く）。trueで、ロビーの「四つ腕の調伏の儀」ボタンが解放される
-  arms4RitualClears: 0, // ダンジョン（ソロ）またはロビーの【期間限定】天使・調伏の儀で天使の調伏の儀に成功した回数（デベロッパーモード・協力プレイを除く）。1回で装飾品「エンジェルヘイロー」を入手
+  arms4RitualClears: 0, // ダンジョン（ソロ）またはロビーの【期間限定】天使・調伏の儀で天使の調伏の儀に成功した回数（デベロッパーモードを除く）。1回で装飾品「エンジェルヘイロー」を入手
   libraryVisits: 0,     // 隠し書庫に来た回数（シード＝扉の出たフロアが別々のものだけ数える。同じシードの扉に入り直しても増えない）。N回目のとき、N冊目までの本が読める
   demonMeets: 0,        // 25階の悪魔に会った回数（ロビーのテストボタンは数えない）。台本は、この回数で切り替わる（library/demonTalk〜demonTalk4）
   libraryReported: false, // 書庫への到達者数(Firebaseの library/reachers)に、自分を1人として数え済みか
@@ -3915,7 +3936,7 @@ const DEFAULT_SAVE = {
   endingGodReady: false, // エンディングの調伏の儀に成功した印。trueで、まだ続きの演出（雪原のフロアのダンジョンへ自動で入る）を流していなければ、次にロビーを開いた時に流れる
   endingNextShown: false, // 調伏の儀のあとの続き（雪原のフロアのダンジョンへ自動で入る演出）を流した印。次に調伏の儀を終えるまで、二度と自動では始まらない
   endingDone: false,    // 特別演出が終わり、GAME COMPLETE を出した印（一度trueになったら、演出は二度と始まらない）
-  soloClears: 0,        // ダンジョン（ソロ）を全クリア（25階オールクリア）した回数（デベロッパーモード・協力プレイ・ボスラッシュを除く）。1回で装飾品「時計」を入手
+  soloClears: 0,        // ダンジョン（ソロ）を全クリア（25階オールクリア）した回数（デベロッパーモード・ボスラッシュを除く）。1回で装飾品「時計」を入手
 };
 function loadSave() {
   try {
@@ -3964,19 +3985,19 @@ function clearSuspend() { try { localStorage.removeItem(SUSPEND_KEY); } catch (e
 // 記録できる項目(stat)は DEFAULT_SAVE を参照。unit は一覧の進捗表示に付ける単位。
 // effect：装飾品が実際に与える効果（ダメージなど、ゲームに影響するものだけ）を書く欄。見た目だけのエフェクトは書かない。
 const ACCESSORIES = [
-  { key: 'sprout', icon: '🌱', name: '新芽',       stat: 'soloBestFloor',    goal: 10,  unit: '階',  desc: 'ダンジョン（ソロ）で10階層に到達', effect: '回復量+2' },
-  { key: 'shield', icon: '🛡️', name: '盾',         stat: 'soloBestFloor',    goal: 15,  unit: '階',  desc: 'ダンジョン（ソロ）で15階層に到達', effect: '受けるダメージ-5' },
-  { key: 'crown',  icon: '👑', name: '王冠',       stat: 'soloBestFloor',    goal: 20,  unit: '階',  desc: 'ダンジョン（ソロ）で20階層に到達', effect: '近くの敵の速度を半減' },
-  { key: 'skull',  icon: '💀', name: '鬼火',     stat: 'soloBestFloor',    goal: 25,  unit: '階',  desc: 'ダンジョン（ソロ）で25階層に到達', effect: '三度、HP1で生き返る' },
-  { key: 'clock', icon: '⏱', name: '懐中時計', stat: 'soloClears', goal: 1, unit: '回', desc: 'ダンジョン（ソロ）をクリア', effect: '10秒間時を止める能力を獲得' }, // 入手条件：ダンジョン（ソロ）を25階まで全クリアする（soloClears）。効果：画面下の時計ボタン（またはQキー）で発動。敵・敵の弾・自分の弾が10秒止まる。リロード60秒（ACC_CLOCK）
-  { key: 'armor', icon: '🪖', name: '鎧', stat: 'armorFloor10Fast', goal: 1, unit: '回', desc: 'ダンジョン（ソロ）で10階層を4分以内にクリア', effect: '最大HPが2倍' }, // 入手条件：ダンジョン（ソロ）を始めてから、10階層のボスを倒すまでが4分以内（armorFloor10Fast。ARMOR_UNLOCK）
+  { key: 'sprout', icon: '🌱', name: '新芽',       stat: 'soloBestFloor',    goal: 10,  unit: '階',  desc: 'ダンジョンで10階層に到達', effect: '回復量+2' },
+  { key: 'shield', icon: '🛡️', name: '盾',         stat: 'soloBestFloor',    goal: 15,  unit: '階',  desc: 'ダンジョンで15階層に到達', effect: '受けるダメージ-5' },
+  { key: 'crown',  icon: '👑', name: '王冠',       stat: 'soloBestFloor',    goal: 20,  unit: '階',  desc: 'ダンジョンで20階層に到達', effect: '近くの敵の速度を半減' },
+  { key: 'skull',  icon: '💀', name: '鬼火',     stat: 'soloBestFloor',    goal: 25,  unit: '階',  desc: 'ダンジョンで25階層に到達', effect: '三度、HP1で生き返る' },
+  { key: 'clock', icon: '⏱', name: '懐中時計', stat: 'soloClears', goal: 1, unit: '回', desc: 'ダンジョンをクリア', effect: '10秒間時を止める能力を獲得' }, // 入手条件：ダンジョンを25階まで全クリアする（soloClears。協力プレイでも可）。効果：画面下の時計ボタン（またはQキー）で発動。敵・敵の弾・自分の弾が10秒止まる。リロード60秒（ACC_CLOCK）
+  { key: 'armor', icon: '🪖', name: '鎧', stat: 'armorFloor10Fast', goal: 1, unit: '回', desc: 'ダンジョンで10階層を4分以内にクリア', effect: '最大HPが2倍' }, // 入手条件：ダンジョンを始めてから、10階層のボスを倒すまでが4分以内（armorFloor10Fast。ARMOR_UNLOCK。協力プレイでも可）
   { key: 'cloak', icon: '🧥', name: '透明マント', stat: 'nightmareClears', goal: 1, unit: '回', desc: 'ナイトメアをクリア', effect: '雑魚敵に認識されない（攻撃しない限り）' }, // 入手条件：ナイトメアを10階のボスまで倒してクリアする（nightmareClears）。効果：ボス以外の敵は、付けている人を狙わなくなる（getNearestPlayerTarget の cloakEnemy）。こちらから攻撃した敵は、その人を認識する（cloakReveal）
   { key: 'flame',  icon: '🔥', name: '炎',         stat: 'bossRushBestBosses', goal: 6,  unit: '体',  desc: 'ボスラッシュで6体目のボスを倒す', effect: '攻撃した敵が燃える（合計21ダメージ）' },
   { key: 'blackhole', icon: '🕳️', name: 'ブラックホール', stat: 'bossRushBestBosses', goal: 12, unit: '体', desc: 'ボスラッシュで12体目のボスを倒す', effect: '10秒に一度simaharのビームを撃つ' },
-  { key: 'swords', icon: '⚔️', name: '双剣', stat: 'soloTotalKills',   goal: 500, unit: '体',  desc: 'ダンジョン（ソロ）で雑魚敵を累計500体倒す', effect: 'ノックバックが2倍になる' },
-  { key: 'snow',   icon: '❄️', name: '雪',   stat: 'frontlineBestSec', goal: 240, unit: '秒',  desc: '最北戦線（ソロ）で4分間生き残る', effect: '移動速度+10%' },
+  { key: 'swords', icon: '⚔️', name: '双剣', stat: 'soloTotalKills',   goal: 500, unit: '体',  desc: 'ダンジョンで雑魚敵を累計500体倒す', effect: 'ノックバックが2倍になる' },
+  { key: 'snow',   icon: '❄️', name: '雪',   stat: 'frontlineBestSec', goal: 240, unit: '秒',  desc: '最北戦線で4分間生き残る', effect: '移動速度+10%' },
   { key: 'trophy', icon: '🏆', name: 'トロフィー', stat: 'pvpWins', goal: 10, unit: '勝', desc: 'PvPで10回勝つ', effect: '開始時の武器レベル+1' }, // 入手条件：PvPで累計10回勝つ（pvpWins。recordPvpWin で加算）。効果：始まる時／やり直す時の武器レベルに ACC_TROPHY.levelBonus を足す（宝箱のエフェクトで途中から付けた場合は、開始時ではないので変わらない）
-  { key: 'angelhalo', icon: '🪽', name: 'エンジェルヘイロー', stat: 'arms4RitualClears', goal: 1, unit: '回', desc: '天使を調伏する', effect: '1分ごとに50%の確率で天使を召喚' }, // 入手条件：ダンジョン（ソロ）またはロビーの【期間限定】天使・調伏の儀で、天使の調伏の儀に成功する（arms4RitualClears。デベロッパーモード・協力プレイでは入手できない）
+  { key: 'angelhalo', icon: '🪽', name: 'エンジェルヘイロー', stat: 'arms4RitualClears', goal: 1, unit: '回', desc: '天使を調伏する', effect: '1分ごとに50%の確率で天使を召喚' }, // 入手条件：ダンジョンまたはロビーの【期間限定】天使・調伏の儀で、天使の調伏の儀に成功する（arms4RitualClears。デベロッパーモードでは入手できない。協力プレイでも可）
   { key: 'serialkiller', icon: '🔪', name: 'シリアルキラー', all: true, goal: 0, unit: '個', desc: '他のすべての装飾品を獲得', effect: '近づいた敵を切り刻む' }, // 入手条件：他の装飾品をすべて入手済み（all:true。進捗は入手済みの個数）。効果：範囲内の敵へ絶え間なく斬撃（ACC_SERIALKILLER）。斬られた敵に白と赤の斬撃線が出る。必ず表の最後に置く
 ];
 function accessoryByKey(key) { return ACCESSORIES.find(a => a.key === key) || null; }
@@ -4405,7 +4426,7 @@ class GameScene extends Phaser.Scene {
     try { if (this.time) this.time.timeScale = 1; if (this.tweens) this.tweens.timeScale = 1; } catch (e) { /* 初回起動前 */ }
     { const o = document.getElementById('clockOverlay'); if (o) o.style.display = 'none'; const cb = document.getElementById('clockBtn'); if (cb) cb.style.display = 'none'; }
     this._spUndead = undefined; this._spWings = false; this._godAccGone = false; this._rootReviveOn = false; this._rootRevive = 0; this._rootRed = 0; this._godRF = null; this._neckFloor = null; this._spT = 0; // 特別な装飾品を付けているかの記録（1回の挑戦ごとに取り直す）
-    this.limitedKey = limitedEquippedKey(); // 限定武器の装飾品を付けていれば、その装飾品のkey（付けている間、武器はその限定武器で固定される）
+    this.limitedKey = (app.arms4Ritual && !app.endingRitual) ? '' : limitedEquippedKey(); /* 通常の天使・調伏の儀は、限定武器の固定もなし */ // 限定武器の装飾品を付けていれば、その装飾品のkey（付けている間、武器はその限定武器で固定される）
     this.skullRevives = this.accKey === 'skull' ? SKULL_WISPS : 0; // ドクロ：残りの鬼火の数＝あと何回生き返れるか（1回の挑戦ごとに SKULL_WISPS 個）
     this._initAccKey = this.accKey; // 「もう一度」でやり直す時に、この状態（ロビーで付けていた装飾品）へ戻すために覚えておく
     this._paused = false; this._pauseAt = 0; this._pbChkAt = null; { const po = document.getElementById('pauseOverlay'); if (po) po.style.display = 'none'; const pb = document.getElementById('pauseBtn'); if (pb) { pb.style.display = 'none'; setPauseIcon(pb, false); } } // ⏸ ポーズは、始めるたびに解除しておく
@@ -4492,8 +4513,8 @@ class GameScene extends Phaser.Scene {
     // （通常プレイヤーはdevFloorが常にnull→1なので、restartRun()の挙動は変わらない）
     this.devStartFloor = !this.mp ? this.floor : 1;
     // 😈 25階の悪魔：1階から全階を全滅させて進んでいる間だけ true。ソロのダンジョン本編だけが対象（ボスラッシュ・最北戦線・PvP・四つ腕の儀式・開発者モードの階指定では対象外）
-    this._demonEligible = !this.mp && !this.bossRush && !this.frontline && !this.pvp && !app.arms4Ritual && !app.devMode; // デベロッパーモードは、1階から始めても対象外
-    this._demonRun = this._demonEligible && this.floor === 1; this._demonRedOn = false; this._demonSeenEnemy = false; // 😈 赤表示は、1階で敵残りが0になった時から
+    this._demonEligible = !this.bossRush && !this.frontline && !this.pvp && !this.party && !app.arms4Ritual && !app.devMode; /* 協力プレイも対象：全員で1〜24階のゴースト以外を倒しきって25階に来ると、その人は自分専用の部屋で悪魔に会える（_demonMpEnter） */ // デベロッパーモードは、1階から始めても対象外
+    this._demonRun = this._demonEligible && (this.floor === 1 || this.mp); this._demonRedOn = false; this._demonSeenEnemy = false; // 😈 赤表示は、1階で敵残りが0になった時から
     if (this._resume) { const r = this._resume; this.floor = Math.max(1, Math.floor(r.floor) || 1); this._demonRun = !!this._demonEligible && r.demonRun === true; this._demonRedOn = this._demonRun && r.demonRedOn === true; this._demonSeenEnemy = this._demonRun && r.demonSeen === true; this._demonMetResumed = r.demonMet === true; } // 💾 中断した階から再開（「1階から全滅で来ている」記録は、中断した時のものを引き継ぐ＝25階の悪魔が出る。「もう一度」は今まで通り1階から）
     if (app.hellTest) { // 🛠 テスト用：最初から地獄で始める（扉から出ると、今の階に出る）
       app.hellTest = false;
@@ -5554,6 +5575,7 @@ class GameScene extends Phaser.Scene {
     // ここで明示的に捨てる。弾は消費しない＝新しい階層でまた0から溜められる）。
     this.interruptChargeBomb();
     this._demonTalkEnd(); // 😈 悪魔の問答の途中で階が変わった／やり直した時は、問答を片付ける
+    this._demonMpTok = null; this._demonMpRoom = null;
     this._chargeGhostTimers = {};
     this._chargeGhostIds = {};
     this._lastPublishedSnapshot = null; // フロアが変わったら差分比較をリセット（別フロアの古いidと比較しないように）
@@ -5615,7 +5637,7 @@ class GameScene extends Phaser.Scene {
     const seed = this.baseSeed + this.floor * 7919;
     this.bossFloor = !this.snowfield && !this.hell && !this.sanctuary && !this.bossRush && !this.frontline && !this.pvp && !this.party && this.isBossFloor(this.floor); // ダンジョンの5階ごと（10・15・20…）はボス階
     const dungeon = this._snowRestore ? this._snowRestore.dungeon : this.sanctuary ? generateSanctuaryMap() : this.hell ? generateHellMap() : this.snowfield ? generateSnowfieldMap(this._godExiled) : (this.bossRush || this.bossFloor) ? generateBossArena() : (this.pvp ? generatePvpMap() : this.party ? generatePartyMap() : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor, { secretLibrary: !this.mp, whiteDoor: !this.mp && !this.isDevMode && isGodFloorSeed(this.baseSeed) && this.floor === 6, ghostFloor: !this.mp && !!this._ghostFloorOn && this.floor === 1 })));
-    if (this.mp && !this.bossRush && !this.pvp && !this.party && !this.frontline) addRitualRoom(dungeon); // 協力プレイ：調伏の儀の部屋を遠くに足す
+    if (this.mp && !this.bossRush && !this.pvp && !this.party && !this.frontline) { addRitualRoom(dungeon); if (this.bossFloor && this.floor >= 25) addDemonRooms(dungeon, Math.min(10, Math.max(4, Object.keys(this.latestPlayers || {}).length + 2))); } // 協力プレイ：調伏の儀の部屋を遠くに足す
     this.rt = null; if (this._rtGfx && this._rtGfx.scene) this._rtGfx.clear(); // 前の階の調伏の儀の進行は持ち越さない
     this.dungeon = dungeon;
     this._rushCleared = false;
@@ -5940,7 +5962,7 @@ class GameScene extends Phaser.Scene {
         if (!remainingPool.length) remainingPool.push(...bossPool);
         const picked = remainingPool.splice(Math.floor(brand() * remainingPool.length), 1)[0]; // 抽選は常に行う（乱数の順序を保つ）
         const bossType = (!demonType && this._rlMonsterType(true)) || ((this.bossFloor && this.floor >= 25) ? (demonType || ENEMY_TYPES.find(t => t.key === 'simahar') || picked) : picked); // 25階はシマハル確定（🎰 黒＝どのボスもシマハル／白＝どのボスもゴースト）（条件を満たした時だけ、シマハルの代わりに悪魔）
-        if (demonType) { this._demonTalkStart(startRoom); continue; } // 😈 悪魔はここでは出さない。一定時間後にプレイヤーの上に現れて問答をし、そのあと戦いになる（_demonTalkUpdate）
+        if (demonType) { if (this.mp) this._demonMpArm(); else this._demonTalkStart(startRoom); continue; } // 😈 悪魔はここでは出さない。一定時間後にプレイヤーの上に現れて問答をし、そのあと戦いになる（_demonTalkUpdate）
         let bx, by;
         if (this.bossFloor) {
           const room = startRoom;
@@ -6080,8 +6102,48 @@ class GameScene extends Phaser.Scene {
   }
 
   // 😈 25階の悪魔を出すか：ソロのダンジョンで、1〜24階のゴースト以外のモンスターを全て倒してここに来た時だけ（協力プレイでは出ない）
+  // 😈 協力プレイの悪魔：条件（1〜24階のゴースト以外を全員で倒しきっている）を満たしていると、25階にシマハルは出ず、全員が少しあとに自分専用の部屋（dungeon.demonRooms）へ移り、そこで問答→戦いをする。
+  //   部屋は人数ぶん別々（uidを並べた順で1人1部屋）。悪魔は自分の画面だけで動かす（_rtLocal）ので、他の人の画面にもホストにも配信されない。倒す／戦わずに終わると、その人だけオールクリアのリザルトへ。
+  _demonMpArm() {
+    const tok = this._demonMpTok = {};
+    this.showBanner('地獄への扉が開いている…', 2400, '#d9a0ff');
+    this.time.delayedCall(2600, () => { if (this._demonMpTok === tok) { this._demonMpTok = null; this._demonMpEnter(); } });
+  }
+  _demonMpEnter() {
+    const rooms = this.dungeon && this.dungeon.demonRooms;
+    if (!this.mp || !rooms || !rooms.length || !this._demonRun || this.floor < 25 || this.isGhost || this.isDowned || this._resultOpen || this._allClear || this.transitioning || this._demonTalk) return;
+    const my = this.net && this.net.uid, ids = Object.keys(this.latestPlayers || {});
+    if (my && ids.indexOf(my) < 0) ids.push(my);
+    ids.sort();
+    const R = rooms[Math.min(Math.max(0, ids.indexOf(my)), rooms.length - 1)]; // 人ごとに別の部屋
+    const nx = (R.x + R.w / 2) * TILE, ny = (Math.floor(R.y + R.h / 2) + 0.5) * TILE; // ソロと同じ、部屋の中央
+    this._demonMpRoom = R;
+    this.interruptBandage();
+    this.player.setPosition(nx, ny);
+    this.cameras.main.flash(300, 0, 0, 0); this.cameras.main.centerOn(nx, ny);
+    this.spawnBurst(nx, ny, 0x7a3dd0, 10);
+    this.placeAlliesAtPlayer();
+    this._demonTalkStart(R);
+  }
+  _demonMpDefeat() { // 悪魔の部屋（または移動待ち）で力尽きた：ダウン・ゴーストにはならず、そのままリザルト画面へ
+    if (this._resultOpen || this._allClear || this._mpResultStarted) return;
+    this._demonTalkEnd(); this._demonMpTok = null;
+    this.hideBossUi(); this.clearAllies(); this.interruptBandage();
+    this.eliminated = true; this.isDowned = false;
+    if (this.net) this.net.updateOwnState({ eliminated: true, downed: false, atExit: false, hp: 0, stats: this.buildStatsPayload() }); // 仲間の画面では脱落扱い（全員脱落の判定に数える）
+    this._mpResultStarted = true; this.transitioning = true;
+    this.showBanner('力尽きた…', 1500);
+    this.cameras.main.fadeOut(300, 20, 0, 0);
+    this.cameras.main.once('camerafadeoutcomplete', () => this.showMpResult());
+  }
+  _demonMpClear() { // 自分専用の悪魔を倒した：この人だけオールクリア
+    if (this._allClear || this._resultOpen) return;
+    this.healFull();
+    this.showClearTime();
+    this.triggerAllClear();
+  }
   demonShouldAppear() {
-    if (this.mp || !this.bossFloor || this.floor < 25) return false;
+    if (!this.bossFloor || this.floor < 25) return false; // 協力プレイも同じ（敵は全員で共有なので、条件は集団で決まる。満たしていればシマハルは出ず、全員が自分専用の部屋で別々の悪魔に会う）
     if (DEBUG_URL.demon) return true; // ?demon=1：全滅の記録やDEMON_ENABLEDに関係なく悪魔が出る（デベロッパーモードで25階から始めても確認できる）
     if (this.isDevMode) return false; // デベロッパーモードでは、?demon=1 を付けない限り、1階から始めても悪魔は出ない
     return DEMON_ENABLED && !!this._demonRun;
@@ -6304,9 +6366,9 @@ class GameScene extends Phaser.Scene {
     this._demonMeetNo = sv.demonMeets; // 📝 このプレイヤーが何回目に会ったか（願いの記録に付ける）
     if (this._demonLogOk()) logDemonMeet(); // 📝 管理用：Firebaseの analytics/demonLog/meetCount を1増やす
   }
-  _demonLogOk() { // 📝 正規の方法（ソロの通常プレイで、条件を満たして25階に来た）の悪魔だけを記録する。テストボタン・デベロッパーモード・?demon=1・エンディングの続きの悪魔・協力プレイは記録しない
+  _demonLogOk() { // 📝 正規の方法（ソロの通常プレイで、条件を満たして25階に来た）の悪魔だけを記録する。テストボタン・デベロッパーモード・?demon=1・エンディングの続きの悪魔は記録しない（協力プレイは、悪魔に会った人ごとに記録する）
     const d = this._demonTalk;
-    return !!d && !d.custom && !this.isDevMode && !DEBUG_URL.demon && !this.mp && DEMON_ENABLED && !!this._demonRun;
+    return !!d && !d.custom && !this.isDevMode && !DEBUG_URL.demon && DEMON_ENABLED && !!this._demonRun; // 協力プレイの悪魔も記録する（1人ずつ別の悪魔なので、人ごとに1回として数える）
   }
   _demonAppear() {
     this._countDemonMeet();
@@ -6380,7 +6442,7 @@ class GameScene extends Phaser.Scene {
       else this._demonEnding();
     });
   }
-  hasSpecial(key) { if (this._godAccGone && specialAccByKey(key)) return false; /* 宇宙が割れて聖域に戻ったあと：悪魔の装飾は外れている */ if (ENDING_STATE.run && specialAccByKey(key)) return true; /* エンディング演出中：悪魔の装飾は全部オン */ const sv = loadSave(); return !!((sv.specialAccs[key] && sv.specialOn[key]) || (this._tmpSpecial || {})[key]); } // その特別な装飾品を、いま付けているか（デベロッパーモードでもらった分は、このゲームの間だけ）
+  hasSpecial(key) { if (this.arms4Ritual && !this._endingRun && specialAccByKey(key)) return false; /* ホームの天使・調伏の儀（通常）：悪魔の装飾品は使えない（エンディング演出の調伏の儀だけは使う） */ if (this._godAccGone && specialAccByKey(key)) return false; /* 宇宙が割れて聖域に戻ったあと：悪魔の装飾は外れている */ if (ENDING_STATE.run && specialAccByKey(key)) return true; /* エンディング演出中：悪魔の装飾は全部オン */ const sv = loadSave(); return !!((sv.specialAccs[key] && sv.specialOn[key]) || (this._tmpSpecial || {})[key]); } // その特別な装飾品を、いま付けているか（デベロッパーモードでもらった分は、このゲームの間だけ）
   _giveSpecialAcc(sp) { // 台本の item が特別な装飾品の key だった時：入手済みにして、付けた状態にする（ホーム画面に出る）。限定武器なら、その武器に持ち替えて固定する
     { // デベロッパーモードでも、通常と同じように記録に残す（ホーム画面にも出る）
       const sv = loadSave(); sv.specialAccs[sp.key] = true; sv.specialOn[sp.key] = true;
@@ -6419,11 +6481,14 @@ class GameScene extends Phaser.Scene {
     this.demonDripFx(gfx, bossType.radius); // 問答中と同じ、黒い筋と雫（戦闘中も変わらない）
     const hpBar = this.add.rectangle(bx, by - bossType.radius - 10, bossType.radius * 2, 6, 0xff5b5b).setDepth(4);
     const label = this.add.text(bx, by - bossType.radius - 22, bossType.bossLabel || 'ボス', { fontSize: '12px', color: '#ffd54c', fontStyle: 'bold', fontFamily: 'sans-serif' }).setOrigin(0.5).setDepth(4);
-    const bossId = this.floor + '_boss';
+    const mpOwn = !!(this.mp && this._demonMpRoom); // 😈 協力プレイ：自分専用の部屋の悪魔は、この画面だけで動かす（ホストの共通のボスとは別物。IDも分ける）
+    const bossId = mpOwn ? this.floor + '_dm_' + ((this.net && this.net.uid) || 'me') : this.floor + '_boss';
     this.bossGroupCounts = this.bossGroupCounts || {}; this.bossGroupCounts[bossId] = 1;
     const hp = Math.max(1, Math.round(bossType.hp * bossScale));
-    this.enemies.push({ id: bossId, type: bossType, gfx, hpBar, label, hp, maxHp: hp,
-      damage: Math.round(bossType.damage * bossScale), state: 'idle', timer: 0, dirX: 0, dirY: 0, hitCooldown: 0, bossGroupId: bossId, _bossScale: bossScale });
+    const demonE = { id: bossId, type: bossType, gfx, hpBar, label, hp, maxHp: hp,
+      damage: Math.round(bossType.damage * bossScale), state: 'idle', timer: 0, dirX: 0, dirY: 0, hitCooldown: 0, bossGroupId: bossId, _bossScale: bossScale };
+    if (mpOwn) { demonE._rtLocal = true; demonE._demonMp = true; }
+    this.enemies.push(demonE);
     this.showBossUiMulti([bossType], bossId);
     this.showBanner('😈 悪魔との戦いが始まる！', 2600, '#d9a0ff');
   }
@@ -14033,7 +14098,7 @@ class GameScene extends Phaser.Scene {
   }
 
   cleanupDeadEnemies() {
-    let bossPos = null, defeatedGid = null, headDiedGid = null, bossAuth = true, headAuth = true;
+    let bossPos = null, defeatedGid = null, headDiedGid = null, bossAuth = true, headAuth = true, demonMpWin = false;
     this.enemies = this.enemies.filter(e => {
       if (e.hp <= 0) {
         if (e._doomText) { e._doomText.destroy(); e._doomText = null; } // カウントダウンの文字
@@ -14044,7 +14109,8 @@ class GameScene extends Phaser.Scene {
         // （_skipBossReward）。bossGroupId を持つボスは、そのグループ全員を倒し
         // きって残り0になった瞬間だけ「ボス撃破」とする。単体ボスは元々1体扱いなので
         // 通常通りその場で撃破成立する。
-        if (e.type && e.type.isBoss && !e._skipBossReward) {
+        if (e._demonMp) { demonMpWin = true; // 😈 協力プレイの自分専用の悪魔：倒したら、その人だけオールクリア（ボスの撃破は全員には配らない）
+        } else if (e.type && e.type.isBoss && !e._skipBossReward) {
           bossAuth = !this.rtNoAuth(e);
           if (e.bossGroupId) {
             this.bossGroupCounts = this.bossGroupCounts || {};
@@ -14083,6 +14149,7 @@ class GameScene extends Phaser.Scene {
     // 敵の死亡判定の権威はホスト（ソロ時は自分自身）にあるため、ここでの検知のみを採用する。
     // ゲスト側の楽観的な即時削除で誤検知しても、復活シグナルは送らない。
     if (bossPos && bossAuth) this.onBossDefeated(bossPos, defeatedGid);
+    if (demonMpWin) this._demonMpClear();
   }
 
   updateProjectiles(dt) {
@@ -16964,6 +17031,12 @@ class GameScene extends Phaser.Scene {
   // 協力プレイの参加側で、この敵の計算を自分でやらない（ホストの結果を見るだけ）か。儀式部屋の敵は参加側でも自分で計算する
   rtNoAuth(e) { return !!(e && e._amidaMir) || (this.mp && !this.isHost && !this.rtOwn(e)); }
   s2Any() { return this.s2Trial || this.rtLive(); }
+  // 🗣 天の声（ボイスチャット）：自分が儀式をしている間、元の場所に残っている魔法陣に触れている仲間（p＝その人の位置データ）か。VoiceChat.tick が使う。
+  //   触れている人の声は、距離に関係なく、天からの声として儀式をしている人にだけ聞こえる。こちらの声は魔法陣の側へ届かない（儀式部屋が遠い）ので、一方通行になる
+  rtHeavenSpeaker(p) {
+    const r = this.rtLive(); if (!r || !p || p.floor !== this.floor || p.downed || p.eliminated || p.g3 || p.gl) return false;
+    return Math.hypot((p.x || 0) - r.x, (p.y || 0) - r.y) <= SUMMON2.trial.circleRadius * 0.4 + VOICE.heavenMargin;
+  }
   // 四つ腕の調伏の儀モード：四つ腕以外の技は最初から解放済み
   s2InitUnlocked() {
     const u = {};
@@ -17072,7 +17145,7 @@ class GameScene extends Phaser.Scene {
   // 毎フレーム（全員）：カウントダウンを進め、魔法陣を描く。ホストは突入と終了の受付、発動した人は儀式の中の進行を見る
   updateRitual(dt) {
     const rt = this.rt;
-    if (!rt) { if (this._rtGfx && this._rtGfx.scene) this._rtGfx.clear(); if (this._rtTxt) this._rtTxt.setVisible(false); return; }
+    if (!rt) { this._rtHvOn = false; if (this._rtGfx && this._rtGfx.scene) this._rtGfx.clear(); if (this._rtTxt) this._rtTxt.setVisible(false); return; }
     if (rt.phase === 'count') {
       const p = this.rtPos(rt.uid); if (p) { rt.x = p.x; rt.y = p.y; } // カウントダウン中は、魔法陣が発動した人に付いてくる
       rt.t -= dt;
@@ -17104,6 +17177,11 @@ class GameScene extends Phaser.Scene {
   }
   drawRitual() {
     const rt = this.rt, T = SUMMON2.trial;
+    { // 🗣 天の声：儀式をしている仲間の魔法陣に触れた時、一度だけ知らせる（儀式をしている人にだけ声が届く）
+      const me = this.player, on = !!(me && this.net && rt.uid !== this.net.uid && (rt.phase === 'fight' || rt.phase === 'clear') && Math.hypot(me.x - rt.x, me.y - rt.y) <= T.circleRadius * 0.4 + VOICE.heavenMargin);
+      if (on && !this._rtHvOn) this.showBanner('🗣 天の声：儀式中の仲間にだけ、声（マイク）が届く', 2200, '#fff0a0');
+      this._rtHvOn = on;
+    }
     if (!this._rtGfx || !this._rtGfx.scene) this._rtGfx = this.add.graphics().setDepth(3);
     const g = this._rtGfx; g.clear();
     const x = rt.x, y = rt.y, rot = this.time.now / 1000 * 1.2;
@@ -17415,7 +17493,7 @@ class GameScene extends Phaser.Scene {
     if (rt.phase === 'fight') {
       this.rtInfight(dt);
       if (this.isGhost) { this.rtCasterFinish(false); return; } // 力尽きて（ダウンの時間切れでゴーストになって）初めて失敗。ダウン中は儀式を続ける（仲間は儀式部屋に来られないので、蘇生はまず起きない）
-      if (!this.rtArenaEnemies().some(e => this.s2TrialFac(e) === 'trial')) { // 調伏の対象を全て倒した（道連れの敵が生きていても成功）：技を解放
+      if (!this.enemies.some(e => e.hp > 0 && !e._removed && e.gfx && e.gfx.scene && this.rtInRoom(e.gfx.x, e.gfx.y) && this.s2TrialFac(e) === 'trial')) { // 調伏の対象を全て倒した（道連れの敵が生きていても成功）：技を解放。出現アニメ中（_introAnim）の敵も数える＝カルテットは最初の一撃で本体が消えて4体に分裂するので、rtArenaEnemies（出現中を除く）で数えると、分裂の間だけ「全滅」と誤判定して成功になってしまう
         rt.phase = 'clear'; rt.t = SUMMON2.trial.returnDelay;
         const sk = this.rtSkill(rt.skKey);
         (this.s2Unlocked = this.s2Unlocked || {})[rt.skKey] = true;
@@ -17563,7 +17641,7 @@ class GameScene extends Phaser.Scene {
         tr.phase = 'clear'; tr.t = SUMMON2.trial.returnDelay;
         this.showBanner('⚔ ' + tr.sk.name + '・調伏成功！ この技が使えるようになった', 2000);
         if (tr.sk.key === 'arms4' && this._endingRun && !this.mp) { const svE = loadSave(); svE.endingGodReady = true; svE.endingNextShown = false; writeSave(svE); } // エンディングの調伏の儀に成功：続きの演出を解放
-        if (tr.sk.key === 'arms4' && !this.mp && !this.isDevMode && !this.bossRush && !this.frontline && !this.pvp && !this._endingRun) { // （エンディング演出では、調伏成功の回数・エンジェルヘイローの入手は記録しない）ダンジョン（ソロ）またはロビーの【期間限定】天使・調伏の儀で天使を調伏：装飾品「エンジェルヘイロー」の入手条件（デベロッパーモードでは記録しない）
+        if (tr.sk.key === 'arms4' && !this.isDevMode && !this.bossRush && !this.frontline && !this.pvp && !this._endingRun) { // （エンディング演出では、調伏成功の回数・エンジェルヘイローの入手は記録しない）ダンジョン（ソロ）またはロビーの【期間限定】天使・調伏の儀で天使を調伏：装飾品「エンジェルヘイロー」の入手条件（デベロッパーモードでは記録しない）
           const sv = loadSave(); sv.arms4RitualClears = (sv.arms4RitualClears || 0) + 1;
           const got = unlockAccessories(sv); writeSave(sv);
           if (got.length) { this._ritualNewAcc = (this._ritualNewAcc || []).concat(got); this.time.delayedCall(2100, () => this.showBanner('🪽 ' + got[0].name + 'を入手！', 2500)); }
@@ -24384,9 +24462,9 @@ class GameScene extends Phaser.Scene {
     this.goNextFloor();
   }
 
-  // ソロの通常ダンジョンだけ最高到達階層を記録する（協力・ボスラッシュ・最北戦線・PvP・デベロッパーモードは対象外）
+  // 通常ダンジョン（ソロ・協力プレイ）の最高到達階層を記録する（ボスラッシュ・最北戦線・PvP・デベロッパーモードは対象外）
   recordSoloBest() {
-    if (this.mp || this.bossRush || this.arms4Ritual || this.frontline || this.pvp || this.isDevMode) return;
+    if (this.bossRush || this.arms4Ritual || this.frontline || this.pvp || this.isDevMode) return;
     if (this.nightmare) { recordNightmareBestFloor(this.floor); return; } // ナイトメアは別の記録（装飾品の解放には使わない）
     const added = recordSoloBestFloor(this.floor);
     if (added.length) this.announceAccessories(added);
@@ -24398,13 +24476,14 @@ class GameScene extends Phaser.Scene {
     this.time.delayedCall(700, () => this.showBanner(text, 3200));
   }
 
-  // リザルト表示時に、この挑戦の成績を累計に足す（ソロのダンジョン／最北戦線のみ。ボスラッシュ・協力・PvP・デベロッパーは対象外）。
+  // リザルト表示時に、この挑戦の成績を累計に足す（ダンジョン／最北戦線。ソロ・協力プレイとも対象。ボスラッシュ・PvP・デベロッパーは対象外）。
   // 今回新しく入手した装飾品の配列を返す。同じ挑戦で二度足さないよう、runStatsの同一性で判定する。
   commitRunStats() {
-    if (this.mp || this.pvp || this.bossRush || this.arms4Ritual || this.isDevMode) return [];
+    if (this.pvp || this.bossRush || this.arms4Ritual || this.isDevMode) return [];
     if (this._committedStats === this.runStats) return [];
     this._committedStats = this.runStats;
-    const st = this.runStats, save = loadSave();
+    // 協力プレイでは、倒した数は自分の分（mpStats）を使う（runStats.kills/bosses はソロ専用の集計のため）
+    const st = this.mp ? Object.assign({}, this.runStats, { kills: (this.mpStats && this.mpStats.kills) || 0, bosses: (this.mpStats && this.mpStats.bosses) || 0 }) : this.runStats, save = loadSave();
     if (this.nightmare) { // ナイトメアは別の記録だけ更新する（通常ダンジョンの累計・装飾品の解放には足さない）
       if (this.floor > (save.nightmareBestFloor || 0)) save.nightmareBestFloor = this.floor;
       if (this._allClear) save.nightmareClears = (save.nightmareClears || 0) + 1;
@@ -24436,9 +24515,9 @@ class GameScene extends Phaser.Scene {
     if (added.length) this.announceAccessories(added);
   }
 
-  // 🪖 鎧の入手条件：ダンジョン（ソロ）を始めてから ARMOR_UNLOCK.sec 秒以内に、ARMOR_UNLOCK.floor 階のボスを倒す。デベロッパーモードなどでは記録しない
+  // 🪖 鎧の入手条件：ダンジョンを始めてから ARMOR_UNLOCK.sec 秒以内に、ARMOR_UNLOCK.floor 階のボスを倒す（ソロ・協力プレイとも）。デベロッパーモードなどでは記録しない
   recordArmorClear() {
-    if (this.mp || this.pvp || this.bossRush || this.frontline || this.arms4Ritual || this.nightmare || this.isDevMode) return; // ナイトメアは対象外
+    if (this.pvp || this.bossRush || this.frontline || this.arms4Ritual || this.nightmare || this.isDevMode) return; // ナイトメアは対象外
     if (this.floor !== ARMOR_UNLOCK.floor) return;
     if (this.runStats.time > ARMOR_UNLOCK.sec) return;
     const sv = loadSave(); if (sv.armorFloor10Fast) return;
@@ -24651,12 +24730,11 @@ class GameScene extends Phaser.Scene {
       e.hp = e.maxHp = HELL.monsterHp; e.damage = HELL.monsterDamage;
     }
   }
-  // 🔥 地獄：扉が地獄につながるか。悪魔の装飾品（SPECIAL_ACCS）を1つ以上持っていて、ソロのダンジョン本編の1〜24階の扉を通る時だけ、持っている数×HELL.chancePerAcc（1個10%・2個20%・3個30%）の確率で
+  // 🔥 地獄：扉が地獄につながるか。悪魔の装飾品（SPECIAL_ACCS）を1つ以上つけていて、ソロのダンジョン本編の1〜24階の扉を通る時だけ、つけている数×HELL.chancePerAcc（1個10%・2個20%・3個30%）の確率で
   _hellRoll() {
     if (this.mp || this.bossRush || this.frontline || this.pvp || this.snowfield || this.sanctuary || this.arms4Ritual || this.hell) return false;
     if (this.floor >= 25) return false;
-    const sv = loadSave();
-    const n = SPECIAL_ACCS.filter(a => sv.specialAccs && sv.specialAccs[a.key]).length; // 持っている悪魔の装飾品の数
+    const n = SPECIAL_ACCS.filter(a => this.hasSpecial(a.key)).length; // 今つけている悪魔の装飾品の数（持っているだけで外していれば数えない）
     if (n <= 0) return false;
     return Math.random() < Math.min(1, n * HELL.chancePerAcc); // 1個＝10%・2個＝20%・3個＝30%
   }
@@ -26731,6 +26809,7 @@ class GameScene extends Phaser.Scene {
 
   goNextFloorTo(newFloor) {
     if (this.transitioning) return;
+    if (this.mp && this._demonRun && this.floor <= 24 && this.hasLivingNonGhostEnemy()) this._demonRun = false; // 😈 協力プレイ：1〜24階のゴースト以外を残したまま離れたら、25階の悪魔には会えなくなる
     this.interruptChargeBomb(); // 暗転が始まった時点でマジックボムの溜めを捨てる
     this.transitioning = true;
     document.getElementById('waitingBanner').style.display = 'none';
@@ -26739,6 +26818,7 @@ class GameScene extends Phaser.Scene {
       // 同上：buildFloor()が失敗しても画面が暗転したまま固まらないようにする
       try {
         this.floor = newFloor;
+        if (this.mp) this.recordSoloBest(); // 協力プレイでも最高到達階層を記録する（ソロは goNextFloor 側で記録）
         this.buildFloor();
       } catch (err) {
         console.error('goNextFloorTo中（buildFloor）にエラーが発生しました:', err);
@@ -26796,6 +26876,7 @@ class GameScene extends Phaser.Scene {
     if (this._astral) { this._astralHp = null; this.astralEnd(true); } // 幽体離脱中に倒れたら、HPは戻さずゴーストを消す
     if (this._jet) this.jetEnd(true); // ロケット：倒れたら爆発せずに終える
     if (this.trySkullRevive()) return; // ドクロ：鬼火が残っていればHP1で復活
+    if (this.mp && (this._demonMpRoom || this._demonMpTok)) { this._demonMpDefeat(); return; } // 😈 悪魔の部屋で力尽きたら、そのままリザルトへ
     if (this.mp) {
       // 協力プレイでは即ゴーストにはせず、まず10秒の「ダウン」状態にする。
       // その間に仲間が5秒間近くにいれば蘇生でき、誰も来なければゴーストになる。
@@ -27084,6 +27165,7 @@ class GameScene extends Phaser.Scene {
     this._resultOpen = true;
     const list = this.collectMpResultEntries();
     this.assignMpTitles(list);
+    const mpNewAcc = this.commitRunStats().concat(this._ritualNewAcc || []); // 協力プレイでも、累計・クリア回数を記録して装飾品を解放する
 
     const num = v => (typeof v === 'number' && isFinite(v)) ? v : 0;
     const total = Math.max(Math.floor(this.frontline && this.fl ? this.fl.elapsed : this.runStats.time), ...list.map(x => num(x.st.time)));
@@ -27119,6 +27201,7 @@ class GameScene extends Phaser.Scene {
         '<div class="mpWeapon"><span>最高レベルの武器</span><b>' + escapeHtml(weaponText) + '</b></div>' +
       '</div>';
     }).join('');
+    if (mpNewAcc.length) top.innerHTML += '<div class="mpTopItem"><span>🎁 新しい装飾品</span><b>' + escapeHtml(mpNewAcc.map(a => a.icon + a.name).join(' ')) + '</b></div>';
     const box = document.getElementById('mpResultPlayers');
     box.innerHTML = cards;
 
@@ -27224,6 +27307,7 @@ class GameScene extends Phaser.Scene {
   // 蘇生タイマーが進み、REVIVE_TIME秒経過で復活する。蘇生が進行している間はダウンタイムの
   // カウントダウンを止める。誰も来ないままダウンタイムが尽きると、従来通りゴーストになる。
   enterDownedState() {
+    if (this.mp && (this._demonMpRoom || this._demonMpTok)) { this._demonMpDefeat(); return; } // 😈 他の経路でダウンになる時も同じ
     this.isDowned = true;
     this.downedTimer = this.DOWNED_TIME;
     this.reviveTimer = 0;
@@ -27493,6 +27577,7 @@ class GameScene extends Phaser.Scene {
   // 復活するのはゴーストだけ（ボスの場所付近に復活）。生きている人・ダウン中の人のHPは回復しない。
   onRevive(pos) {
     if (this.bossFloor && pos && pos.clear) { // ボス階の全てのボスを倒した
+      this.recordArmorClear(); // 🪖 協力プレイでも鎧の入手条件を判定する（ソロは onBossDefeated 側）。二重に入手はしない
       if (!this.isGhost && !this.isDowned) this.healFull(); // 生きている人はHP全回復（ゴーストはこのあとの復活で全回復／ダウン中の人は対象外）
       if (this.floor >= 25) { this.triggerAllClear(); return; } // 25階：全員オールクリア
       if (!this._rushCleared) this.openBossRushExit(pos, true); // 全員の画面で出口を開く
@@ -28558,6 +28643,15 @@ const VOICE = {
   downVolume: 0.4,   // ダウンしている間の、声の音量にかける割合(0〜1)
   tinnitusHz: 6000,  // ダウンしている間に鳴る、耳鳴り（キーンという高い音）の高さ(Hz)
   tinnitusVolume: 0.08, // 耳鳴りの音量(0〜1)。大きいと耳に痛いので、上げすぎない
+  // ----- 🗣 天の声（協力プレイの調伏の儀）：儀式をしている人にだけ、元の場所に残る魔法陣に触れている仲間の声が、距離に関係なく「天からの声」として聞こえる -----
+  heavenVolume: 1,       // 天の声の音量(0〜1)。距離や壁で小さくならない
+  heavenWet: 1,          // 天の声の響き（聖域の長い響き）の量。大きいほど、よく響く
+  heavenBassDb: 5,       // 天の声の低音の持ち上げ(dB)。大きいほど、太く重く聞こえる
+  heavenEcho: 0.35,      // 天の声のエコー（やまびこ）の量(0〜1)。0でエコーなし
+  heavenEchoTime: 0.32,  // エコーが返ってくるまでの間(秒)
+  heavenEchoFeedback: 0.45, // エコーが繰り返される強さ(0〜0.9)。大きいほど、長く繰り返す
+  heavenPos: [0, 2.7, -1.2], // 立体音響（HRTF）の時の、天の声が聞こえる位置 [右, 上, 前(-)]。真上寄りの正面
+  heavenMargin: 10,      // 魔法陣に「触れている」と見なす余白(px)。魔法陣の半径にこれを足した距離まで
   reverbGain: 1,         // 響き全体の音量。響きが大きすぎる時は下げる
   reverbTypes: [         // sec＝響きの長さ(秒)、decay＝消えていく速さ(大きいほどすぐ小さくなる)、pre＝声から響きが始まるまでの間(秒)、bright→dark＝響きの明るさ(Hz)。最初から終わりにかけて、だんだん暗く（こもって）消える
     { sec: 0.5, decay: 2.4, pre: 0.008, bright: 7000, dark: 2500 },  // 短い：通路・小部屋
@@ -28612,7 +28706,7 @@ class VoiceChat {
 
   start() {
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (AC) { this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = this.deaf ? 0 : 1; this.master.connect(this.ctx.destination); try { const o = this.ctx.createOscillator(), tg = this.ctx.createGain(); o.type = 'sine'; o.frequency.value = VOICE.tinnitusHz; tg.gain.value = 0; o.connect(tg); tg.connect(this.master); o.start(); this.tinGain = tg; } catch (err) { this.tinGain = null; } try { this._makeReverb(); } catch (err) { this.revTaps = null; } }
+    if (AC) { this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = this.deaf ? 0 : 1; this.master.connect(this.ctx.destination); try { const o = this.ctx.createOscillator(), tg = this.ctx.createGain(); o.type = 'sine'; o.frequency.value = VOICE.tinnitusHz; tg.gain.value = 0; o.connect(tg); tg.connect(this.master); o.start(); this.tinGain = tg; } catch (err) { this.tinGain = null; } try { this._makeReverb(); } catch (err) { this.revTaps = null; } try { this._makeEcho(); } catch (err) { this.echoIn = null; } }
     // ブラウザは、操作する前の音を止めるので、最初の操作で音を出せる状態にする
     this._resume = () => { if (this.ctx && this.ctx.state !== 'running') this.ctx.resume().catch(() => {}); };
     ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, this._resume, true));
@@ -28660,6 +28754,16 @@ class VoiceChat {
     });
     out.connect(this.master);
     this.revOut = out;
+  }
+
+  // 🗣 天の声用のエコー（やまびこ）：全員の声が入れる共通の遅延。相手ごとに送る量だけを変える（普段は0＝無音なので、ほぼ負荷なし）
+  _makeEcho() {
+    const ctx = this.ctx; if (!ctx || !ctx.createDelay) return;
+    const inp = ctx.createGain(), dl = ctx.createDelay(1), fb = ctx.createGain(), lpf = ctx.createBiquadFilter();
+    dl.delayTime.value = VOICE.heavenEchoTime; fb.gain.value = Math.min(0.9, VOICE.heavenEchoFeedback);
+    lpf.type = 'lowpass'; lpf.frequency.value = 3200; // 繰り返すたびに少し暗く
+    inp.connect(dl); dl.connect(lpf); lpf.connect(fb); fb.connect(dl); lpf.connect(this.master);
+    this.echoIn = inp;
   }
 
   // その場所（ワールド座標 x,y）の響きの種類を決める。自分の足元と、声の主の足元の両方に使う
@@ -28871,19 +28975,23 @@ class VoiceChat {
           wet = wetOf(vP > vW ? dEff : d, true);
         }
       }
+      const heaven = !sp3 && !!(sc.rtHeavenSpeaker && sc.rtHeavenSpeaker(p)); // 🗣 天の声：自分の儀式の魔法陣に触れている仲間。距離・壁・方向に関係なく、はっきり・中央・低音太めで聞こえる
+      if (heaven) { v = VOICE.heavenVolume; cut = VOICE.nearCutoff; pv = 0; bass = VOICE.heavenBassDb; ux = 0; uy = 0; uz = 0; hd = 0; }
       if (sc.isDowned) { cut = Math.min(cut, VOICE.downCutoff); v *= VOICE.downVolume; } // ダウン中：周りの声が水の中のようにくぐもって、少し小さく聞こえる
       if (e.lp) e.lp.frequency.setTargetAtTime(cut, ct, 0.08);
       if (e.shelf) e.shelf.gain.setTargetAtTime(bass, ct, 0.1);
       e.gain.gain.setTargetAtTime(v * VOICE.maxVolume, ct, 0.08);
       if (e.pan) e.pan.pan.setTargetAtTime(pv, ct, 0.08);
+      if (e.es) e.es.gain.setTargetAtTime(heaven ? VOICE.heavenEcho : 0, ct, 0.15); // 🗣 天の声だけエコーを足す
       if (e.sends) { // 響き：声の主のいる場所と自分のいる場所の響きの種類を混ぜて、短い・中くらい・長いの3つへ、それぞれ送る量を決める（場所が変わっても、ゆっくり混ざり替わる）
         const L = this.envL || VOICE.env.corridor, S = (!sp3 && p && p.floor === sc.floor && !p.g3 && !p.gl) ? this._envAt(sc, p.x || 0, p.y || 0) : L, a = VOICE.srcEnvMix;
-        const scale = wet * (a * S.wet + (1 - a) * L.wet);
-        for (let i = 0; i < e.sends.length; i++) e.sends[i].gain.setTargetAtTime(scale * (a * (S.w[i] || 0) + (1 - a) * (L.w[i] || 0)), ct, 0.25);
+        const H = heaven ? VOICE.env.sanctuary : null; // 🗣 天の声：聖域の長い響きをたっぷり
+        const scale = heaven ? VOICE.heavenWet * H.wet : wet * (a * S.wet + (1 - a) * L.wet);
+        for (let i = 0; i < e.sends.length; i++) e.sends[i].gain.setTargetAtTime(scale * (heaven ? (H.w[i] || 0) : (a * (S.w[i] || 0) + (1 - a) * (L.w[i] || 0))), ct, 0.25);
       }
       if (e.pn) { // 立体音響：画面の上＝前、下＝後ろ、右＝右として、方向だけを渡す（距離による音量は上の gain で決めている）。すぐ近くは、方向を前に寄せて、急に入れ替わらないようにする
-        const nk = Math.min(1, hd / Math.max(1, VOICE.panSoft)), hx = ux * nk * 3, hz = (uy * nk - (1 - nk)) * 3;
-        const hy = uz * nk * 3;
+        const nk = Math.min(1, hd / Math.max(1, VOICE.panSoft)), hx = heaven ? VOICE.heavenPos[0] : ux * nk * 3, hz = heaven ? VOICE.heavenPos[2] : (uy * nk - (1 - nk)) * 3;
+        const hy = heaven ? VOICE.heavenPos[1] : uz * nk * 3;
         if (e.pn.positionX) { e.pn.positionX.setTargetAtTime(hx, ct, 0.08); e.pn.positionY.setTargetAtTime(hy, ct, 0.08); e.pn.positionZ.setTargetAtTime(hz, ct, 0.08); } else e.pn.setPosition(hx, hy, hz);
       }
     });
@@ -28899,6 +29007,7 @@ class VoiceChat {
     if (e.gain) { try { e.gain.disconnect(); } catch (x) {} e.gain = null; }
     if (e.lp) { try { e.lp.disconnect(); } catch (x) {} e.lp = null; }
     if (e.sends) { e.sends.forEach((sg) => { try { sg.disconnect(); } catch (x) {} }); e.sends = null; }
+    if (e.es) { try { e.es.disconnect(); } catch (x) {} e.es = null; }
     if (e.shelf) { try { e.shelf.disconnect(); } catch (x) {} e.shelf = null; }
     if (e.pn) { try { e.pn.disconnect(); } catch (x) {} e.pn = null; }
     const pc = new RTCPeerConnection(RTC_CONFIG);
@@ -28950,7 +29059,8 @@ class VoiceChat {
       if (pan) { g.connect(pan); pan.connect(this.master); } else g.connect(this.master);
       let sends = null; // 響き（短い・中くらい・長い）へ送る量（距離と場所で変わる）。左右の振り分けの前から送るので、響きは方向を持たず広がる（声は方向がはっきり、響きはぼんやり）
       if (this.revTaps) sends = this.revTaps.map((tap) => { const sg = this.ctx.createGain(); sg.gain.value = 0; lp.connect(sg); sg.connect(tap); return sg; });
-      e.src = src; e.lp = lp; e.shelf = shelf; e.gain = g; e.pan = pan; e.sends = sends; e.pn = null; this._applySpatial(e);
+      let es = null; if (this.echoIn) { es = this.ctx.createGain(); es.gain.value = 0; lp.connect(es); es.connect(this.echoIn); } // 🗣 天の声のエコーへ送る量（普段は0）
+      e.src = src; e.lp = lp; e.shelf = shelf; e.gain = g; e.pan = pan; e.sends = sends; e.es = es; e.pn = null; this._applySpatial(e);
     } catch (err) {}
   }
   _addCand(pc, pending, c) {
@@ -29029,6 +29139,7 @@ class VoiceChat {
     try { if (e.gain) e.gain.disconnect(); } catch (x) {}
     try { if (e.lp) e.lp.disconnect(); } catch (x) {}
     try { if (e.sends) e.sends.forEach((sg) => sg.disconnect()); } catch (x) {}
+    try { if (e.es) e.es.disconnect(); } catch (x) {}
     try { if (e.shelf) e.shelf.disconnect(); } catch (x) {}
     try { if (e.pn) e.pn.disconnect(); } catch (x) {}
     try { if (e.audioEl) { e.audioEl.pause(); e.audioEl.srcObject = null; } } catch (x) {}
@@ -29594,7 +29705,8 @@ async function waitWithMessage(waitFn) {
   btn.innerHTML = '通信できませんでした。もう一度押してください'; setTimeout(() => { btn.innerHTML = old; }, 3500); // 裏では読み込みのやり直しを続けている
   return false;
 }
-async function enterPartyRoom() { // 🎉 パーティールームへ：固定のルーム（PARTYLIVE）に入る。同時に入った人は、全員同じ部屋にいる
+async function enterPartyRoom() { // 🎉 パーティールームへ：固定のルーム（PARTYLIVE）に入る。同時に入った人は、全員同じ部屋にいる（エンディングを見た人だけ）
+  try { if (!loadSave().endingDone) return; } catch (e) { return; }
   partyOpen = true;
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   setLobbyBusy(true); setLobbyStatus('パーティールームに入室中...');
@@ -29616,7 +29728,8 @@ document.getElementById('soloBtn').addEventListener('click', async () => {
   partyBusy = true;
   try {
     if (!(await waitWithMessage(waitPartyNumber))) return; // 合言葉を読めなかった：始めずに、もう一度押してもらう
-    const party = !PARTY_NOFB && PARTY_NUM != null && PARTY_NUM !== '' && PARTY_NUM === raw;
+    let endingSeen = false; try { endingSeen = !!loadSave().endingDone; } catch (e) { /* 読めなければ、見ていない扱い */ }
+    const party = endingSeen && !PARTY_NOFB && PARTY_NUM != null && PARTY_NUM !== '' && PARTY_NUM === raw; // エンディングを見た（endingDone）人だけが入れる。見ていない人が合言葉を入れても、ふつうのダンジョン番号として扱う
     discardPartyNumber(); // 読んだ番号は、確認が終わったらすぐ捨てる（どこにも保存しない）
     if (party) { document.getElementById('soloSeedInput').value = ''; enterPartyRoom(); return; } // 合言葉は入力欄にも残さない
     if (!(await waitWithMessage(waitGodFloor))) return; // 白い扉などの判定に使う雪原のフロアの番号も、読み終えてから始める
