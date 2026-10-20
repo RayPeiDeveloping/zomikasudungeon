@@ -6382,7 +6382,7 @@ class GameScene extends Phaser.Scene {
     }
     if (!list) { if (cv && cv.style.display !== 'none') cv.style.display = 'none'; return; }
     const r = this.game.canvas.getBoundingClientRect(), W = Math.max(1, Math.round(r.width / 2)), H = Math.max(1, Math.round(r.height / 2)); // 軽くするため、半分の大きさで描いて引き伸ばす（ぼんやりした光なので、粗くても見えない）
-    if (!cv) { cv = this._dsCv = document.createElement('canvas'); cv.id = 'demonSensor'; cv.style.cssText = 'position:fixed;pointer-events:none;z-index:2;'; document.body.appendChild(cv); }
+    if (!cv) { cv = this._dsCv = document.createElement('canvas'); cv.id = 'demonSensor'; cv.style.cssText = 'position:fixed;pointer-events:none;z-index:11;'; document.body.appendChild(cv); }
     cv.style.display = ''; cv.style.left = r.left + 'px'; cv.style.top = r.top + 'px'; cv.style.width = r.width + 'px'; cv.style.height = r.height + 'px';
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
     const x = cv.getContext('2d'); x.clearRect(0, 0, W, H);
