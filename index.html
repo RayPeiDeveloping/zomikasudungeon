@@ -28260,7 +28260,7 @@ function askConfirm(message, opts) {
 // 端末ごとの設定（付けている装飾品・エンディング演出の進行中の印）は同期しない。コードを作っていない人は、何も送らない。
 const SYNC_CODE_KEY = 'zomikasudungeon_synccode';
 const SYNC_MAX = ['soloBestFloor', 'nightmareBestFloor', 'nightmareClears', 'soloTotalKills', 'soloTotalBosses', 'frontlineBestSec', 'pvpWins', 'bossRushBestBosses', 'armorFloor10Fast', 'arms4RitualClears', 'libraryVisits', 'demonMeets', 'soloClears']; // 大きいほうを採用
-const SYNC_OR = ['arms4RitualPlayed', 'libraryReported', 'hutVisited', 'endingDone']; // どちらかが true なら true
+const SYNC_OR = ['arms4RitualPlayed', 'arms4RitualCounted', 'libraryReported', 'hutVisited', 'endingDone']; // どちらかが true なら true
 const SYNC_UNION = ['accUnlocked', 'specialAccs']; // 両方の合計
 const SYNC_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; // 0/1/O/I/L は使わない（読み間違い防止）
 let _syncTimer = 0, _syncChain = Promise.resolve(), _syncFail = 0;
@@ -28607,16 +28607,23 @@ function updateArms4RitualBtn() {
 // 天使・調伏の儀の成功者数（全プレイヤー共通）：Firebaseの stats/arms4Ritual/winnerCount に「成功した人」を1人1回だけ数える。
 // 同じ端末は何度成功しても1人（セーブの arms4RitualCounted で判定）。この更新前に成功済みの人も、次にロビーを開いた時に1人として加わる。
 // Firebaseに繋がらない・データベースのルールで読み書きできない時は、表示を出さないだけでゲームには影響しない。
-async function refreshArms4RitualCount() {
+let _arms4CountChain = Promise.resolve(); // 同時に2回走って二重に数えないよう、1つずつ順番に実行する
+function refreshArms4RitualCount() { _arms4CountChain = _arms4CountChain.then(_refreshArms4RitualCountOnce); return _arms4CountChain; }
+async function _refreshArms4RitualCountOnce() {
   const el = document.getElementById('arms4RitualCount'); if (!el) return;
   try {
     if (typeof netInstance === 'undefined' || !netInstance.enabled) { el.textContent = '調伏成功者：Firebase未接続'; el.style.display = ''; return; }
     await netInstance.signIn();
     const ref = netInstance.db.ref('stats/arms4Ritual/winnerCount');
-    const sv = loadSave();
+    let sv = loadSave();
     if ((sv.arms4RitualClears || 0) > 0 && !sv.arms4RitualCounted) {
-      await ref.transaction(v => (v || 0) + 1);
-      const sv2 = loadSave(); sv2.arms4RitualCounted = true; writeSave(sv2);
+      const code = syncGetCode();
+      if (code) { try { await syncRun(code); } catch (e) { /* 合流できなくても、数える処理は続ける */ } sv = loadSave(); } // 引き継ぎ先の別の端末で数え済みなら、その印をここで受け取ってから判定する
+    }
+    if ((sv.arms4RitualClears || 0) > 0 && !sv.arms4RitualCounted) {
+      sv.arms4RitualCounted = true; writeSave(sv); // 加算の「前」に印を立てる（加算の途中でページが閉じても、次に二重に数えないように）
+      try { await ref.transaction(v => (v || 0) + 1); }
+      catch (err) { const svB = loadSave(); svB.arms4RitualCounted = false; writeSave(svB); throw err; } // 加算できなかった時だけ印を戻して、次の機会にやり直す
     }
     const n = (await ref.once('value')).val() || 0;
     el.textContent = '調伏成功者 ' + n + '人'; el.style.display = '';
