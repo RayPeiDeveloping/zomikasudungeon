@@ -999,6 +999,8 @@ const SECRET_LIBRARY_CHANCE = 1 / 25; // 階ごとに1/25（25階層に1回、4�
 const DEMON_ENABLED = true;
 // 😈 プレイヤーがスタート部屋の悪魔にこのマス数まで近づくと、悪魔が影の中から現れる（大きいほど遠くから出る）
 const DEMON_APPEAR_TILES = 8;
+// 🔴 悪魔に会える条件を満たしている間（その階まで敵を全滅させてきた間）、その階の残りの敵が、その階にいた敵の数のこの割合になると、画面の端の「敵のいる方角」がぼんやり赤く光る（同じ方角に敵が重なるほど濃くなる）。割合を変えれば、センサーが働く残り数を変えられる
+const DEMON_SENSOR_RATIO = 1 / 3;
 // 🔧 確認用のURLパラメータ（URLの末尾に付ける。例: index.html?library=1&demon=1）
 //   ?library=1 … 隠し書庫の扉が、確率に関係なく毎階（扉を置ける階なら）出る
 //   ?test=1    … テスト用ボタン（PvP一人テスト・小屋ワープ・エンディング・地獄）を出す。ただし、下の TEST_BUTTONS_SHOWN が true の時だけ（普段は false なので、?test=1 を付けても何も出ない。出したい時だけ true にする）
@@ -4361,6 +4363,7 @@ class GameScene extends Phaser.Scene {
     // テストプレイを始められる。協力プレイでは部屋側の階を優先する。
     this._rlEffect = !this.mp ? (app.rouletteEffect || null) : null; this._rlWisps = this._rlEffect === 'cyan' ? 3 : 0; /* 👻 水色：亡霊の鬼火の数＝あと何回、HP全回復で生き返れるか */ this._syncFixBtn();
     if (this._rlEffect === 'purple') { this._rlBarFn = () => this._rlPurpleBars(); this.events.on('postupdate', this._rlBarFn); this.events.once('shutdown', () => this.events.off('postupdate', this._rlBarFn)); } // 🎰 紫：実際のHPは半分だが、HPバーは「通常の最大HPに対する割合」で見せる（最大値そのものは変えない＝回復する敵などの処理に影響しない）
+    this._dsFn = () => this._demonSensor(); this.events.on('postupdate', this._dsFn); const _dsOff = () => { this.events.off('postupdate', this._dsFn); const c = document.getElementById('demonSensor'); if (c) c.remove(); this._dsCv = null; }; this.events.once('shutdown', _dsOff); this.events.once('destroy', _dsOff); // 🔴 悪魔センサー（残りの敵が少ない時、画面の端が赤く光る）
     this._ghostFloorOn = !this.mp && !!app.ghostFloor; this._gf = null; // 👻 ロビーの番号が library/ghostfloor と同じなら、1階に隠しゴースト（ソロ専用）
     this.bossRush = !this.mp && !!app.bossRush; // ボスラッシュ（ソロ専用）
     this.nightmare = !this.mp && !!app.nightmare; // ナイトメア（ソロ専用）：通常のダンジョンに「壁の裏が見えない」視界をつける
@@ -6366,6 +6369,33 @@ class GameScene extends Phaser.Scene {
     }
   }
   // 😈 今いる階に、生きているゴースト以外のモンスターが残っているか（敵は倒されると this.enemies から消える。「敵残り」の数字からゴーストを除いたもの）
+  // 🔴 悪魔センサー：悪魔に会える条件を満たしている（_demonRun）間、その階の残りの敵（ゴースト以外）が、最初の数の DEMON_SENSOR_RATIO になると、画面の外にいる敵の方角の画面の端が、ぼんやり赤く光る。近い敵ほど強く光り、同じ方角に重なるほど濃くなる。画面の中にいる敵は見えているので光らせない
+  _demonSensor() {
+    let cv = this._dsCv; if (cv && !cv.isConnected) cv = this._dsCv = null;
+    let list = null;
+    if (this.enemies && this._dsDun !== this.dungeon) { this._dsDun = this.dungeon; this._dsMax = 0; } // 階が変わったら、その階にいた敵の数を数え直す
+    const _all = this.enemies ? this.enemies.filter(e => e.gfx && e.gfx.scene && !(e.type && e.type.key === 'ghost') && !isChargeGhostId(e.id)) : [];
+    this._dsMax = Math.max(this._dsMax || 0, _all.length); // その階で、いちばん多かった時の敵の数（最初に出そろった数）
+    if (DEMON_ENABLED && this._demonRun && this.floor >= 2 && this.floor <= 24 && !this.bossFloor && !this.snowfield && !this.hell && !this.sanctuary && !this._endingNext && this.enemies && this.player) {
+      list = _all;
+      if (!list.length || list.length > Math.floor(this._dsMax * DEMON_SENSOR_RATIO + 1e-9)) list = null; // 残りが、最初の数の1/3になるまでは光らない（1/3ちょうどになった時から光る。割り切れない時は切り捨て）
+    }
+    if (!list) { if (cv && cv.style.display !== 'none') cv.style.display = 'none'; return; }
+    const r = this.game.canvas.getBoundingClientRect(), W = Math.max(1, Math.round(r.width / 2)), H = Math.max(1, Math.round(r.height / 2)); // 軽くするため、半分の大きさで描いて引き伸ばす（ぼんやりした光なので、粗くても見えない）
+    if (!cv) { cv = this._dsCv = document.createElement('canvas'); cv.id = 'demonSensor'; cv.style.cssText = 'position:fixed;pointer-events:none;z-index:2;'; document.body.appendChild(cv); }
+    cv.style.display = ''; cv.style.left = r.left + 'px'; cv.style.top = r.top + 'px'; cv.style.width = r.width + 'px'; cv.style.height = r.height + 'px';
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    const x = cv.getContext('2d'); x.clearRect(0, 0, W, H);
+    const wv = this.cameras.main.worldView, cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.3, pulse = 0.85 + 0.15 * Math.sin(this.time.now / 450);
+    for (const e of list) {
+      const sx = (e.gfx.x - wv.x) / wv.width * W, sy = (e.gfx.y - wv.y) / wv.height * H;
+      if (sx >= 0 && sx <= W && sy >= 0 && sy <= H) continue;
+      const dx = sx - cx, dy = sy - cy, kk = Math.min((cx - 2) / (Math.abs(dx) || 1e-6), (cy - 2) / (Math.abs(dy) || 1e-6)), gx = cx + dx * kk, gy = cy + dy * kk; // 画面の中心から敵へ向かう線が、画面の端と交わる所
+      const a = (0.2 + 0.2 * Math.max(0, 1 - Math.hypot(e.gfx.x - this.player.x, e.gfx.y - this.player.y) / (TILE * 40))) * pulse; // 近いほど濃い
+      const g = x.createRadialGradient(gx, gy, 0, gx, gy, R); g.addColorStop(0, 'rgba(255,40,40,' + a.toFixed(3) + ')'); g.addColorStop(1, 'rgba(255,40,40,0)');
+      x.fillStyle = g; x.fillRect(gx - R, gy - R, R * 2, R * 2);
+    }
+  }
   hasLivingNonGhostEnemy() {
     return this.enemies.some(e => e.hp > 0 && !e._pvp && !(e.type && e.type.key === 'ghost') && !isChargeGhostId(e.id));
   }
