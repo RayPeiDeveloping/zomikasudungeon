@@ -1763,7 +1763,7 @@ function openGrassland(onClose, opt) {
   const glFrame = (dt, t) => {
     if (!glNet) return;
     glAcc += dt; if (glAcc >= 0.06) { glAcc = 0; glPublish(false); }
-    { const v = glNet._voice; if (v && !v.stopped) { glVS.x = P.x; glVS.z = P.z; glVS.yaw = P.yaw; glVS.pitch = P.pitch; glVS.env = inDungeon ? 'corridor' : 'open'; glVS.radius = inDungeon ? VOICE.radius / 32 * DG.TS : 0; glVS.wall = inDungeon ? dWallTiles : null; glVS.path = inDungeon ? dVoicePath : null; glVS.d = inDungeon ? 1 : 0; glVS.sd = inDungeon ? dSeed : 0; v.space3d = glVS; } }
+    { const v = glNet._voice; if (v && !v.stopped) { glVS.x = P.x; glVS.z = P.z; glVS.yaw = P.yaw; glVS.pitch = P.pitch; glVS.env = inDungeon ? 'corridor' : 'open'; glVS.radius = inDungeon ? VOICE.space3dDungeonRadius : 0; glVS.wall = inDungeon ? dWallTiles : null; glVS.path = inDungeon ? dVoicePath : null; glVS.d = inDungeon ? 1 : 0; glVS.sd = inDungeon ? dSeed : 0; v.space3d = glVS; } }
     const players = (glSc && glSc.latestPlayers) || {}, sc = inDungeon ? dScene : scene; if (!sc) return;
     const want = new Set();
     for (const uid in players) {
@@ -28527,6 +28527,7 @@ const VOICE = {
   // 参考：縦に見える範囲は400（REF_VIEW_H）なので半高は200、16:9なら半幅は約356。広げると遠くまで聞こえ、狭めると近くだけ聞こえる
   radius: 300,
   space3dRadius: 14, // 🎙 3Dの広場：距離の基準(メートル)。この半径の円を「距離1」とみなす（fullRatio・outRatio は2Dと共通：約4.5m以内で最大音量・約35mで聞こえなくなる）
+  space3dDungeonRadius: 9, // 🕳 草原の暗いダンジョン：距離の基準(メートル)。小さいほど近くの声しか聞こえない（9なら、約3m以内で最大音量・約22mで聞こえなくなる。迷路は1マス3m）
   space3dPitch: 1, // 🎙 3Dの広場：視線の上下（pitch）を声の聞こえ方に反映する強さ。0＝反映しない・1＝見ているままに反映（0.5くらいに下げると控えめ）。立体音響（HRTF）オンのときだけ効く
   fullRatio: 0.32,   // この距離(半径＝1)より近いと、最大音量で聞こえる（0.32×半径300＝96px＝3マス以内。1マス＝TILE 32px）
   maxVolume: 1,      // 最大音量(0〜1)。聞こえすぎる時は下げる
