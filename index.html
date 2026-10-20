@@ -593,7 +593,7 @@
       <button id="soloBtn">ダンジョン</button>
       <button id="hutWarpBtn" style="background:#6b8fa8; margin-top:0.8vh; display:none !important;">🛠 テスト：小屋の入り口へワープ</button>
       <button id="endingTestBtn" style="background:#ffd77a; color:#222; margin-top:0.8vh; display:none !important;">🛠 テスト：エンディング（神の最後の台詞が終わったところから）</button>
-      <button id="endingFullTestBtn" style="display:none; background:#ff7a7a; color:#222; margin-top:0.8vh;">🛠 テスト：エンディング（最初から）</button>
+      <button id="endingFullTestBtn" style="display:none !important; background:#ff7a7a; color:#222; margin-top:0.8vh;">🛠 テスト：エンディング（最初から）</button>
       <button id="hellTestBtn" style="background:#8a2a1a; color:#fff; margin-top:0.8vh; display:none !important;">🛠 テスト：地獄（扉から出ると1階）</button> <!-- テスト用：最初から地獄で始める。奥の扉に入ると1階に出る --> <!-- テスト用：ソロで25階から始めて、悪魔の問答を必ず出す --> <!-- テスト用：雪原の小屋の入り口から始める（表示中。デベロッパーモードでも使える） -->
     </div>
     <div class="lobbyBox lobbySide lobbyRight">
@@ -1001,10 +1001,12 @@ const DEMON_ENABLED = true;
 const DEMON_APPEAR_TILES = 8;
 // 🔧 確認用のURLパラメータ（URLの末尾に付ける。例: index.html?library=1&demon=1）
 //   ?library=1 … 隠し書庫の扉が、確率に関係なく毎階（扉を置ける階なら）出る
+//   ?test=1    … テスト用ボタン（PvP一人テスト・小屋ワープ・エンディング・地獄）を出す。ただし、下の TEST_BUTTONS_SHOWN が true の時だけ（普段は false なので、?test=1 を付けても何も出ない。出したい時だけ true にする）
 //   ?demon=1   … 25階（ソロ）に着いたら、全滅の記録やDEMON_ENABLEDに関係なく悪魔が出る（デベロッパーモードでも出る。デベロッパーモードは、?demon=1 が無い時だけ悪魔が出ない）
+const TEST_BUTTONS_SHOWN = false; // 🛠 テスト用ボタンを出せるようにするか。普段は false（?test=1 を付けても何も出ない）。出したい時だけ true にする（true の間も、URLに ?test=1 を付けた時だけ出る）
 const DEBUG_URL = (function () {
   const q = new URLSearchParams(location.search);
-  return { library: q.get('library') === '1', demon: q.get('demon') === '1' };
+  return { library: q.get('library') === '1', demon: q.get('demon') === '1', test: TEST_BUTTONS_SHOWN && q.get('test') === '1' };
 })();
 // 😈 25階の悪魔の問答は、Firebase Realtime Database の library/demonTalk から、25階に着いた時に読み込む（HTMLにはセリフも選択肢も持たない）。
 //   会った回数で台本が変わる：1回目＝library/demonTalk／2回目＝library/demonTalk2／3回目＝library/demonTalk3／4回目以降＝library/demonTalk4（書式はどれも同じ。回数別の台本が無い時は、demonTalk を使う）。
@@ -2587,7 +2589,7 @@ const ROULETTE_SEGS = [ // 並び順＝円盤の上から時計回り。確率�
   { key: 'white',  n: '白',   c: '#f4f4f4', t: '#222222', p: 5, d: '全てのモンスター（ミミック・ボスも）がゴーストになる' },
   { key: 'red',    n: '赤',   c: '#e03c3c', t: '#ffffff', p: 10, d: '武器は棍棒固定。敵を一撃で倒せるが、自分も一撃で死ぬ' },
   { key: 'cyan',   n: '水', c: '#4fd0f0', t: '#06323d', p: 20, d: '亡霊の鬼火（水色の鬼火が3つ。力尽きても、HP全回復で3回まで生き返る）' },
-  { key: 'gold',   n: '金', c: '#d4a017', t: '#2b1d00', p: 2, d: '全ての敵が倒した時に必ず武器強化の宝箱をドロップする' },
+  { key: 'gold',   n: '金', c: '#d4a017', t: '#2b1d00', p: 2, d: 'ボスフロア以外のボス敵が全てバナナの皮に変わる' },
   { key: 'green',  n: '緑',   c: '#3cc864', t: '#06310f', p: 13, d: '全ての敵が倒した時に必ず回復（包帯）をドロップする' },
   { key: 'purple', n: '紫',   c: '#9a5be0', t: '#ffffff', p: 20, d: '敵全員（ボス・ミミックも）のHPが半分' },
   { key: 'black',  n: '黒',   c: '#1c1c22', t: '#ffffff', p: 10, d: '全てのモンスター（ミミック・ボスも）がシマハルになる' },
@@ -5672,16 +5674,58 @@ class GameScene extends Phaser.Scene {
     if (e.hpBar && e.hpBar.scene) e.hpBar.setVisible(true);
   }
 
-  // 🎰 ルーレットの色の効果で、モンスターを別の種類に置き換える：黒＝シマハル／白＝ゴースト。置き換えない時は null。boss＝true なら、ボス枠（倒すと「ボス撃破」になる）用の型を返す
+  // 🎰 ルーレットの色の効果で、モンスターを別の種類に置き換える：黒＝シマハル／白＝ゴースト／金＝ボスフロア以外のボスだけバナナの皮。置き換えない時は null。boss＝true なら、ボス枠（倒すと「ボス撃破」になる）用の型を返す
   _rlMonsterType(boss) {
     const e = this._rlEffect;
     if (e === 'black') return ENEMY_TYPES.find(t => t.key === 'simahar') || null;
+    if (e === 'gold') { // 🍌 金：ボス枠だけ、バナナの皮になる（通常の敵・ミミックはそのまま）。その場から動かず、触れてもダメージは無い。倒すと「ボス撃破」になる
+      if (!boss || this.bossFloor || this.bossRush) return null; // ボスフロア（5の倍数の階・ボスラッシュ）のボスはそのまま
+      const sl = ENEMY_TYPES.find(t => t.key === 'slime'); if (!sl) return null;
+      return this._rlBananaBoss || (this._rlBananaBoss = Object.assign({}, sl, { key: 'bananapeel', isBoss: true, bossLabel: '', displayName: 'バナナの皮', color: 0xffe14d, radius: 16, hp: 20, speed: 0, damage: 0, noContactDamage: true, aggroRange: 0 }));
+    }
     if (e === 'white') {
       const g = ENEMY_TYPES.find(t => t.key === 'ghost'); if (!g) return null;
       if (!boss) return g;
       return this._rlGhostBoss || (this._rlGhostBoss = Object.assign({}, g, { isBoss: true, bossLabel: 'ボス', displayName: 'GHOST' })); // ボス枠のゴースト：見た目・強さはゴーストのまま、倒したらボス撃破になる
     }
     return null;
+  }
+  // 🍌 金のバナナの皮：スライムの黄色い丸をそのまま当たり判定にして、見た目だけ「床に落ちたバナナの皮を横から見た絵」（1マス＝32pxほどの大きさ）を重ねる。丸は透明にして金の縁だけ残す。位置・表示・ダメージ時の点滅は丸に合わせる
+  _rlAttachPeel(gfx) {
+    const g = this.add.graphics().setDepth(4.05), PI = Math.PI;
+    g.fillStyle(0x000000, 0.3); g.fillEllipse(0, 7, 34, 8); // 床に落ちる影
+    const sample = pts => { // 中心線の点を、なめらかな曲線にする（Catmull-Rom）
+      const out = [], n = pts.length;
+      for (let i = 0; i < n - 1; i++) {
+        const p0 = pts[Math.max(i - 1, 0)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(i + 2, n - 1)];
+        for (let k = 0; k < 5; k++) { const t = k / 5, t2 = t * t, t3 = t2 * t;
+          out.push([0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+                    0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3)]); }
+      }
+      out.push(pts[n - 1]); return out;
+    };
+    const strip = (pts, W, k, fill, stroke) => { // 中心線のまわりに、上は細く、下で広がり、先はとがる帯（皮）を描く
+      const c = sample(pts), m = c.length, L = [], R = [];
+      for (let i = 0; i < m; i++) {
+        const a = c[Math.max(i - 1, 0)], b = c[Math.min(i + 1, m - 1)], dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1, t = i / (m - 1);
+        const w = W * k * (t < 0.55 ? 0.25 + 0.75 * Math.sin(t / 0.55 * PI / 2) : 0.04 + 0.96 * Math.cos((t - 0.55) / 0.45 * PI / 2)); // 上は細く、真ん中あたりがいちばん広く、先は細くとがる
+        L.push([c[i][0] - dy / d * w, c[i][1] + dx / d * w]); R.push([c[i][0] + dy / d * w, c[i][1] - dx / d * w]);
+      }
+      const poly = L.concat(R.reverse());
+      g.fillStyle(fill, 1); g.lineStyle(1.2, stroke, 1);
+      g.beginPath(); g.moveTo(poly[0][0], poly[0][1]); for (let i = 1; i < poly.length; i++) g.lineTo(poly[i][0], poly[i][1]); g.closePath(); g.fillPath(); g.strokePath();
+    };
+    const left = [[0, -13], [-2, -7], [-6, -1], [-12, 2], [-15, 6]], right = [[0, -13], [2, -7], [6, -2], [12, 1], [15, 5]], mid = [[0, -13], [0, -7], [0, -1], [0, 4], [0, 9]];
+    strip(left, 4.6, 1, 0xe3b92c, 0x8a5a06); strip(right, 4.6, 1, 0xe3b92c, 0x8a5a06); // 左右へ広がって床につく皮（少し濃い黄色）
+    strip(mid, 4.4, 1, 0xffe14d, 0x9a6a06); // 手前にまっすぐ垂れる皮
+    g.fillStyle(0x7a5a1e, 1); g.lineStyle(1, 0x3a2608, 1); g.fillRect(-1.9, -19, 3.8, 6); g.strokeRect(-1.9, -19, 3.8, 6); // いちばん上のへた
+    [[-8, 0], [8, -1], [0, 2]].forEach(([x, y]) => { g.fillStyle(0x8a5a14, 0.85); g.fillCircle(x, y, 0.9); }); // 茶色い点
+    const sync = () => {
+      if (!gfx.scene) { this.events.off('postupdate', sync); g.destroy(); return; }
+      gfx.fillAlpha = 0; // 黄色い丸は見せない（当たり判定と金の縁だけ残す）
+      g.setPosition(gfx.x, gfx.y); g.setVisible(gfx.visible); g.setAlpha(gfx.alpha * (gfx.fillColor !== 0xffe14d ? 0.5 : 1)); // 当たった時など色が変わった間は半透明に点滅
+    };
+    this.events.on('postupdate', sync); gfx.once('destroy', () => { this.events.off('postupdate', sync); if (g.scene) g.destroy(); }); sync();
   }
   spawnEnemies() {
     const rand = mulberry32(this.baseSeed + this.floor * 104729);
@@ -5840,6 +5884,7 @@ class GameScene extends Phaser.Scene {
           fontSize: '12px', color: '#ffd54c', fontStyle: 'bold', fontFamily: 'sans-serif',
         }).setOrigin(0.5).setDepth(4);
 
+        if (bossType.key === 'bananapeel') this._rlAttachPeel(gfx); // 🍌 バナナの皮の絵を重ねる
         const bossId = this.floor + '_boss' + (bi === 0 ? '' : (bi + 1)); // 1体目は従来どおり「N_boss」、2体目以降は「N_boss2」「N_boss3」
         // ボスグループ（分裂前提のボスは分裂後の全メンバーを束ねるID）の残り数を管理する。
         // 単体ボス（オーバーロード等）は最初から残り1体として扱う。
@@ -9711,7 +9756,6 @@ class GameScene extends Phaser.Scene {
   onDungeonKillDrop(e) {
     if (this.mp && !this.isHost) return; // 協力プレイ：ドロップの抽選はホストだけ
     if (this._rlEffect === 'green') { this.emitDungeonDrop('potion', e.gfx.x, e.gfx.y, null); return; } // 🎰 緑：全ての敵が必ず回復（包帯）をドロップする
-    if (this._rlEffect === 'gold') { this.emitDungeonDrop('chest', e.gfx.x, e.gfx.y, 'green'); return; } // 🎰 金色：全ての敵が必ず武器強化の宝箱（緑の「強化」・自分の今の武器がLv+1）をドロップする
     if (Math.random() >= DUNGEON_KILL_DROP.chance) return;
     const kind = Math.random() < DUNGEON_KILL_DROP.potionShare ? 'potion' : 'chest';
     // 宝箱の場合、さらに低確率でピンク（激レア・仲間全員の今の武器がLv+1）を抽選する。それ以外は緑（自分だけLv+1）。
@@ -30098,6 +30142,8 @@ const ENDING = { flashIn: 500, flashOut: 4500, edgeIn: 2500, typeWait: 1200, typ
   // ホーム画面の左下の丸いボタン：エンディングを一度見終わった（endingDone）人だけに出る。押すと、もう一度見られる（見直しても、フラグは変わらない）
   let playing = false;
   document.getElementById('endingFullTestBtn').addEventListener('click', () => { if (playing) return; playing = true; playEnding(); }); // 🛠 テスト用：エンディングを最初（赤い閃光 → 名前の入力 → 調伏の儀 …）から流す
+// 🛠 テスト用ボタン：ふだんは全部、非表示（HTMLの display:none !important）。TEST_BUTTONS_SHOWN が true で、URLに ?test=1 が付いている時だけ、その指定を外して出す
+if (DEBUG_URL.test) ['pvpTestBtn', 'hutWarpBtn', 'endingTestBtn', 'endingFullTestBtn', 'hellTestBtn'].forEach(id => { const el = document.getElementById(id); if (el) el.style.removeProperty('display'); });
   function addReplayButton() {
     const lobby = document.getElementById('lobby');
     if (!lobby || document.getElementById('endingReplayBtn')) return;
