@@ -4077,7 +4077,7 @@ const SPECIAL_ACCS = [
 // 追加するときは、ここに1行足して、解放する場所で earnTitle('key')（ゲーム中）／ grantPlayerTitle('key')（それ以外）を呼ぶ。
 // 「前から条件を満たしていた人」に起動時に渡したいものは checkStateTitles に足す。
 const PLAYER_TITLES = [
-  { key: 'demonslayer',  name: '悪魔殺し',   color: '#000000', outline: '#a855ff', desc: '悪魔を倒す' }, // outline＝ふち（縁取り・光）の色。あれば、字は color（ここでは黒）のまま、ふちだけがこの色になる。無ければ、これまで通り（ゲーム中は黒いふち、ホームなどは color で光る）
+  { key: 'demonslayer',  name: '悪魔狩り',   color: '#000000', outline: '#a855ff', desc: '悪魔を倒す' }, // outline＝ふち（縁取り・光）の色。あれば、字は color（ここでは黒）のまま、ふちだけがこの色になる。無ければ、これまで通り（ゲーム中は黒いふち、ホームなどは color で光る）
   { key: 'angelhunter',  name: '天使狩り',   color: '#ffe27a', desc: 'ホームのボタンから天使を調伏する' },
   { key: 'killervessel', name: '殺戮者の器', color: '#c2185b', desc: 'エンディングを見る' },
   { key: 'soulwing',     name: '魂の翼',     color: '#6fe3ff', desc: '翼を2段階目に強化する（雑魚敵を累計20000体倒す）' }, // 翼の段階：1＝悪魔の腕輪／2＝1回目の進化(WING_EVOLVE_KILLS)／3＝2回目の進化(WING_FULLGLOW_KILLS)
