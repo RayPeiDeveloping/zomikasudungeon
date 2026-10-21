@@ -7792,7 +7792,7 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  // 準備室で、全員（自分も含む）の頭の上に累計勝利数を出す。バトル中・リザルト中は隠す。
+  // 準備室で、全員（自分も含む）の体のすぐ下に累計勝利数を出す。バトル中・リザルト中は隠す。
   pvpUpdateWinLabels() {
     const pv = this.pv, show = !!pv && pv.phase === 'prep';
     const players = this.latestPlayers || {};
@@ -7804,7 +7804,7 @@ class GameScene extends Phaser.Scene {
     if (show && this.player) {
       const t = '🏆 ' + (this.pvpWins || 0);
       if (my.text !== t) my.setText(t);
-      my.x = this.player.x; my.y = this.player.y - 36;
+      my.x = this.player.x; my.y = this.player.y + 20; // 体のすぐ下
     }
     // 他のプレイヤー
     for (const uid in this.remotePlayers) {
@@ -7814,7 +7814,7 @@ class GameScene extends Phaser.Scene {
       if (!show) continue;
       const t = '🏆 ' + ((players[uid] && players[uid].wins) || 0);
       if (rp.winLabel.text !== t) rp.winLabel.setText(t);
-      rp.winLabel.x = rp.gfx.x; rp.winLabel.y = rp.gfx.y - 36;
+      rp.winLabel.x = rp.gfx.x; rp.winLabel.y = rp.gfx.y + 20; // 体のすぐ下
     }
   }
 
