@@ -3940,7 +3940,7 @@ const DEFAULT_SAVE = {
   soloBestFloor: 0,      // ソロ（通常ダンジョン）の最高到達階層
   nightmareBestFloor: 0, // ナイトメアの最高到達階層（通常ダンジョンの記録・装飾品の解放とは別）
   nightmareClears: 0,    // ナイトメアを全クリア（10階のボスを倒してクリア）した回数
-  soloTotalKills: 0,     // ソロの雑魚敵の累計撃破数
+  soloTotalKills: 0,     // 雑魚敵の累計撃破数（全モード・ソロ・協力プレイ）。パーティールームのメモの {untilfirstevole}／{untilsecondevolve} にも使う
   soloTotalBosses: 0,    // ソロのボスの累計撃破数
   frontlineBestSec: 0,   // 最北戦線（ソロ）の最長生存時間（秒）
   pvpWins: 0,            // PvPの累計勝利数
@@ -3962,6 +3962,7 @@ const DEFAULT_SAVE = {
   endingNextShown: false, // 調伏の儀のあとの続き（雪原のフロアのダンジョンへ自動で入る演出）を流した印。次に調伏の儀を終えるまで、二度と自動では始まらない
   endingDone: false,    // 特別演出が終わり、GAME COMPLETE を出した印（一度trueになったら、演出は二度と始まらない）
   soloClears: 0,        // ダンジョン（ソロ）を全クリア（25階オールクリア）した回数（デベロッパーモード・ボスラッシュを除く）。1回で装飾品「時計」を入手
+  soulColor: 0,         // 🎨 魂の色（soulcolor）：色相（0〜359）に1を足した値。0＝まだ決まっていない。最初にゲームを始めた時に1度だけ決めて、ずっと変えない。引き継ぎ（クラウド同期）の対象（別の端末と違う時は、大きいほうに揃う）
 };
 function loadSave() {
   try {
@@ -3980,6 +3981,7 @@ function normalizeSave(s) {
   s.libraryReported = !!s.libraryReported;
   s.libraryFloors = (s.libraryFloors && typeof s.libraryFloors === 'object' && !Array.isArray(s.libraryFloors)) ? Object.assign({}, s.libraryFloors) : {};
   s.demonMeets = Math.max(0, Math.floor(Number(s.demonMeets) || 0));
+  s.soulColor = Math.max(0, Math.min(360, Math.floor(Number(s.soulColor) || 0)));
   if (s.soulSold && s.demonMeets < 1) s.demonMeets = 1; // 昔のセーブにあった「魂を売った印」は、1回会った扱いに引き継いでから消す
   delete s.soulSold;
   return s;
@@ -4019,7 +4021,7 @@ const ACCESSORIES = [
   { key: 'cloak', icon: '🧥', name: '透明マント', stat: 'nightmareClears', goal: 1, unit: '回', desc: 'ナイトメアをクリア', effect: '雑魚敵に認識されない（攻撃しない限り）' }, // 入手条件：ナイトメアを10階のボスまで倒してクリアする（nightmareClears）。効果：ボス以外の敵は、付けている人を狙わなくなる（getNearestPlayerTarget の cloakEnemy）。こちらから攻撃した敵は、その人を認識する（cloakReveal）
   { key: 'flame',  icon: '🔥', name: '炎',         stat: 'bossRushBestBosses', goal: 6,  unit: '体',  desc: 'ボスラッシュで6体目のボスを倒す', effect: '攻撃した敵が燃える（合計21ダメージ）' },
   { key: 'blackhole', icon: '🕳️', name: 'ブラックホール', stat: 'bossRushBestBosses', goal: 12, unit: '体', desc: 'ボスラッシュで12体目のボスを倒す', effect: '10秒に一度simaharのビームを撃つ' },
-  { key: 'swords', icon: '⚔️', name: '双剣', stat: 'soloTotalKills',   goal: 500, unit: '体',  desc: 'ダンジョンで雑魚敵を累計500体倒す', effect: 'ノックバックが2倍になる' },
+  { key: 'swords', icon: '⚔️', name: '双剣', stat: 'soloTotalKills',   goal: 500, unit: '体',  desc: '雑魚敵を累計500体倒す', effect: 'ノックバックが2倍になる' },
   { key: 'snow',   icon: '❄️', name: '雪',   stat: 'frontlineBestSec', goal: 240, unit: '秒',  desc: '最北戦線で4分間生き残る', effect: '移動速度+10%' },
   { key: 'trophy', icon: '🏆', name: 'トロフィー', stat: 'pvpWins', goal: 10, unit: '勝', desc: 'PvPで10回勝つ', effect: '開始時の武器レベル+1' }, // 入手条件：PvPで累計10回勝つ（pvpWins。recordPvpWin で加算）。効果：始まる時／やり直す時の武器レベルに ACC_TROPHY.levelBonus を足す（宝箱のエフェクトで途中から付けた場合は、開始時ではないので変わらない）
   { key: 'angelhalo', icon: '🪽', name: 'エンジェルヘイロー', stat: 'arms4RitualClears', goal: 1, unit: '回', desc: '天使を調伏する', effect: '1分ごとに50%の確率で天使を召喚' }, // 入手条件：ダンジョンまたはロビーの【期間限定】天使・調伏の儀で、天使の調伏の儀に成功する（arms4RitualClears。デベロッパーモードでは入手できない。協力プレイでも可）
@@ -4035,7 +4037,51 @@ const SPECIAL_ACCS = [
   { key: 'goldsilvernecklace', icon: '📿', name: '金銀のネックレス',                      effect: '階層を移動した時に、周りに回復と宝箱が合わせて6つ円形に出る' },
   { key: 'undeadcrest',        icon: '♾️', name: '不死の紋章',     effect: 'ダメージを受けても、0.2秒後に全回復する' },
 ];
-const ACC_DEMONWINGS = { count: 9, range: 300, dmg: 7, tick: 0.2, stabSpeed: 1100, pullTime: 1.5, holdDist: 110, spread: 1.5, retake: 0.35, ghostVanish: 10, calm: 1 }; // 悪魔の腕輪：付けている間、背中に悪魔の翼（根）が出る。count＝本数／range＝刺しにいける距離(px)／dmg＝1回のダメージ／tick＝何秒ごとにダメージ／stabSpeed＝刺しにいく速さ(px/秒)／pullTime＝刺してから背中側へ戻る秒数／holdDist＝刺した敵をぶら下げる、背中からの距離(px)／spread＝背中側の根が左右に開く角度(ラジアン。1.57＝真横まで＝身体の後ろ半分全体)／retake＝放した根が次を刺せるまでの秒数／ghostVanish＝ゴーストを掴んでから、何秒でパッと消えるか／calm＝刺しにいく時以外の、ゆらゆらの速さ（1＝ふつう、小さいほどゆっくり）
+const ACC_DEMONWINGS = { count: 9, range: 300, dmg: 7, tick: 0.2, stabSpeed: 1100, pullTime: 1.5, holdDist: 110, spread: 1.5, retake: 0.35, ghostVanish: 10, calm: 1 }; // 悪魔の腕輪：付けている間、背中に悪魔の翼（根）が出る。count＝本数／range＝刺しにいける距離(px)／dmg＝1回のダメージ／tick＝何秒ごとにダメージ／stabSpeed＝刺しにいく速さ(px/秒)／pullTime＝刺してから背中側へ戻る秒数／holdDist＝刺した敵をぶら下げる、背中からの距離(px。翼が大きくなっている時は、根の長さと同じ割合で遠くなる)／spread＝背中側の根が左右に開く角度(ラジアン。1.57＝真横まで＝身体の後ろ半分全体)／retake＝放した根が次を刺せるまでの秒数／ghostVanish＝ゴーストを掴んでから、何秒でパッと消えるか／calm＝刺しにいく時以外の、ゆらゆらの速さ（1＝ふつう、小さいほどゆっくり）
+// 😈 悪魔の翼の進化：雑魚敵の累計撃破数（soloTotalKills）がこの数に届くと、翼の見た目がエンディングの主人公の翼のように強化される（大きく・太く・とげ付き・縁が光る）。さらに、根のダメージが2倍（WING_EVOLVE_DMG_MULT）になり、壁越しの敵も掴めるようになる（根の本数や射程は変わらない）。
+const WING_EVOLVE_KILLS = 20000;
+const WING_EVOLVE_DMG_MULT = 2; // 😈 1回目の進化（累計20000体）：根が敵に与えるダメージの倍率
+const WING_EVOLVE2_DMG_MULT = 2; // 🌟 2回目の進化（累計40000体）：さらに掛かる倍率（1回目と合わせて、元の4倍）
+const WING_HOLD_BLAST = { time: 30, hpRate: 0.5 }; // 🌟 2回目の進化：同じ敵を掴み続けて time 秒たつと、掴んでいる敵が爆発し、その敵の現在HPの hpRate（0.5＝50%）のダメージを受ける（掴み続けている間は、time 秒ごとに繰り返す）
+const WING_BLAST = { radius: 170, damage: 160 }; // 🌟 2回目の進化：根が敵に刺さった瞬間の、魂の色の大きい爆発。radius＝半径(px)／damage＝爆心のダメージ（外側は半分まで弱まる）
+// 🌟 2回目の進化：累計がこの数に届くと、翼（根）の全体が、エンディングの最後に聖域を壊す直前と同じように、はっきり脈打って光る（色は魂の色）。さらに、根の全体（付け根から先端まで）と、根が掴んだ敵の体が触れた壁が壊れ、根のダメージがもう2倍（WING_EVOLVE2_DMG_MULT）になり、根が敵に刺さった時に魂の色の大きい爆発（WING_BLAST）が起き、30秒掴み続けると掴んでいる敵が爆発して現在HPの50%のダメージを受ける（WING_HOLD_BLAST）。
+const WING_FULLGLOW_KILLS = 40000;
+function mixColor(a, b, t) { // 色a→色bへ、tの割合（0〜1）だけ近づけた色
+  const ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255, br = (b >> 16) & 255, bg = (b >> 8) & 255, bb = b & 255;
+  return (Math.round(ar + (br - ar) * t) << 16) | (Math.round(ag + (bg - ag) * t) << 8) | Math.round(ab + (bb - ab) * t);
+}
+// 🎨 魂の色（soulcolor）：プレイヤーごとに最初から決まっている色。進化した翼の光る縁・とげが、エンディングの赤の代わりにこの色になる。
+// 最初にゲームを始めた時に1度だけ決めて、セーブ（soulColor）に入れる。引き継ぎ（クラウド同期）で、別の端末でも同じ色になる。他のプレイヤーには、色相（0〜359）を送って同じ色で見せる。
+let _soulHueCache = null, _soulHueAt = 0;
+function getSoulHue() {
+  const now = Date.now();
+  if (_soulHueCache != null && now - _soulHueAt < 5000) return _soulHueCache; // 毎フレーム呼ばれても軽いように、数秒おぼえておく（別の端末から同期で変わった時も、すぐ追いつく）
+  let hue = null;
+  try {
+    const sv = loadSave();
+    if (sv.soulColor > 0) hue = sv.soulColor - 1;
+    else { // まだ決まっていない：いま1度だけ決めて、セーブに入れる（引き継ぎで、別の端末にも同じ色が届く）
+      let id = null;
+      try { id = localStorage.getItem('verseSoulId'); } catch (e) {}
+      if (!id) {
+        try { if (typeof netInstance !== 'undefined' && netInstance && netInstance.uid) id = String(netInstance.uid); } catch (e) {}
+        if (!id) id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        try { localStorage.setItem('verseSoulId', id); } catch (e) {}
+      }
+      let h = 2166136261;
+      for (let k = 0; k < id.length; k++) { h ^= id.charCodeAt(k); h = Math.imul(h, 16777619) >>> 0; }
+      hue = h % 360;
+      sv.soulColor = hue + 1; writeSave(sv);
+    }
+  } catch (e) { /* セーブが読み書きできない時は、前に使った色（無ければ0）のまま */ }
+  if (hue == null) hue = _soulHueCache != null ? _soulHueCache : 0;
+  _soulHueCache = hue; _soulHueAt = now;
+  return hue;
+}
+function soulColorsFromHue(hue) { // 光る縁（glow）・濃い縁（edge）・とげ（spike）の3色
+  const mk = (sat, l) => Phaser.Display.Color.HSLToColor(((hue % 360) + 360) % 360 / 360, sat, l).color;
+  return { glow: mk(1, 0.55), edge: mk(0.9, 0.38), spike: mk(1, 0.66) };
+}
 const ACC_UNDEAD = { delay: 0.2 }; // 不死の紋章：ダメージを受けてから、何秒後に受けたぶんを回復するか（1回ごとに数える）
 const ACC_GOLDSILVER = { count: 6, radius: 70 }; // 金銀のネックレス：階層を移動した時に、回復と宝箱を合わせて何個／自分からの距離（px。円形に並ぶ）
 function specialAccByKey(key) { return SPECIAL_ACCS.find(a => a.key === key) || null; }
@@ -4552,6 +4598,10 @@ class GameScene extends Phaser.Scene {
     this._autoWalk = this._endingNext ? { pts: [], i: 0, speed: 0.55 } : null; this._autoFace = null; this._endHudHidden = undefined; this._endLocked = undefined; // エンディングの続き：雪原のフロアのダンジョンに入った時から、エンディングが終わるまで、ずっと操作を受けつけない（目的地が空のあいだは、その場で止まって待つ。根が全部の敵を掴むので、動かなくても進む）
     this._hellDoorDone = false; this._hellDoorT = 0; // エンディングの続き：1階を全滅させたあと、右の部屋に地獄の扉を開けたか
     this._wingDouble = this._endingNext; // 翼（根）の本数が二倍になっているか（調伏の儀では、翼が大きくなる時に二倍になる）
+    this._wingEvolved = false; try { this._wingEvolved = (Number(loadSave().soloTotalKills) || 0) >= WING_EVOLVE_KILLS; } catch (e) {} // 😈 悪魔の翼が進化しているか（雑魚敵を累計20000体倒した）
+    this._soulCols = null; this._soulColsHue = null;
+    this._wingMaxed = false; try { this._wingMaxed = (Number(loadSave().soloTotalKills) || 0) >= WING_FULLGLOW_KILLS; } catch (e) {} // 🌟 雑魚敵を累計40000体倒した：翼の全体が光る
+    try { getSoulHue(); } catch (e) {} // 🎨 魂の色は、最初にゲームを始めた時に決めて保存する（進化の前から、引き継ぎの対象にするため）
     this.arms4Ritual = !this.mp && !!app.arms4Ritual; this._endingRun = this.arms4Ritual && !!app.endingRitual; this._endingT = 0; this._wingBigT = -1; this._ritualWon = false; // 【期間限定】四つ腕の調伏の儀
     this.devWeaponLevel = this.arms4Ritual ? ((Object.values(SUMMON2.skills).find(k => k && k.key === 'arms4') || {}).minLevel || 8) : (app.devWeaponLevel || null); // デベロッパーモードで指定した開始時の武器レベル（create()で使う）。四つ腕の調伏の儀は、挑めるLvで始める
     this.isDevMode = !!app.devMode; // リザルト画面の表示切り替え用（デベロッパーモードで遊んだかどうか）
@@ -4938,6 +4988,17 @@ class GameScene extends Phaser.Scene {
       this.spawnBurst(payload.x, payload.y, 0xffd54c, 14);
       return;
     }
+    if (payload.allyFx === 'soulBlast') { this._wingSoulBlast(payload.x, payload.y, { glow: payload.c1, spike: payload.c2 }, true); return; } // 😈 他のプレイヤーの悪魔の翼の爆発（見た目だけ）
+    if (payload.allyFx === 'wallPts') { // 😈 他のプレイヤーの悪魔の翼（根の全体）が壊した壁
+      const a = payload.pts;
+      if (Array.isArray(a) && a.length >= 3) { for (let i = 0; i + 2 < a.length; i += 3) this.destroyWallsInRadius(a[i], a[i + 1], a[i + 2]); this.spawnBurst(a[a.length - 3], a[a.length - 2], 0xb070e0, 6); }
+      return;
+    }
+    if (payload.allyFx === 'wallLine') { // 😈 他のプレイヤーの悪魔の翼（2回目の進化）が壊した壁
+      this.destroyWallsAlongLine(payload.x1, payload.y1, payload.x2, payload.y2, payload.halfWidth);
+      this.spawnBurst(payload.x2, payload.y2, 0xb070e0, 6);
+      return;
+    }
     if (payload.allyFx === 'summon') {
       // 他のプレイヤーが大当たり（ボス級など）を召喚した：バナーと演出で知らせる（味方本体は位置の配信で現れる）
       const nm = ALLY_NAMES[payload.key];
@@ -5313,6 +5374,9 @@ class GameScene extends Phaser.Scene {
       for (let i = 0; i < n; i++) W.roots.push({ i, st: 'idle', tx: rp.gfx.x, ty: rp.gfx.y, ph: i * 0.97, bend: (i % 2 ? 1 : -1), age: 0 });
     }
     if (!W.gfx || !W.gfx.scene) W.gfx = this.add.graphics().setDepth(4.8);
+    const evo = (wg.e === 1 || wg.e === 2) && typeof wg.c === 'number' && isFinite(wg.c); // 😈 相手の翼が進化している（大きく・とげ付き・魂の色）
+    W.evolved = evo; W.glowFull = evo && wg.e === 2; // e＝2：40000体、全体が光る
+    if (!evo) { W.soul = null; W._soulHue = null; } else if (W._soulHue !== wg.c) { W._soulHue = wg.c; W.soul = soulColorsFromHue(wg.c); }
     W.s += dt * C.calm;
     if (typeof wg.f === 'number') W.face += Phaser.Math.Angle.Wrap(wg.f - W.face) * Math.min(1, dt * 12);
     // いま掴まれている敵（こちらの画面にいる、生きている敵だけ）
@@ -5339,13 +5403,13 @@ class GameScene extends Phaser.Scene {
         r.tx += (e.gfx.x - r.tx) * kHeld; r.ty += (e.gfx.y - r.ty) * kHeld;
       } else { // 何も刺していない：背中でゆらゆら（自分の翼の待機と同じ形）
         r.st = 'idle';
-        const sa = back + (n > 1 ? (i / (n - 1) - 0.5) * 2 * C.spread : 0), sway = Math.sin(W.s * 2.2 + r.ph), restLen = 88 + 22 * Math.sin(W.s * 1.7 + r.ph * 1.3);
+        const sa = back + (n > 1 ? (i / (n - 1) - 0.5) * 2 * C.spread : 0), sway = Math.sin(W.s * 2.2 + r.ph), restLen = (88 + 22 * Math.sin(W.s * 1.7 + r.ph * 1.3)) * (evo ? 1 + ENDING.wingScale : 1);
         const rx = px + Math.cos(sa + sway * 0.22) * restLen, ry = py + Math.sin(sa + sway * 0.22) * restLen;
         r.tx += (rx - r.tx) * kIdle; r.ty += (ry - r.ty) * kIdle;
       }
     }
     W.gfx.setVisible(rp.gfx.alpha > 0.05);
-    this._drawWings(W, px, py);
+    this._drawWings(W, px, py, evo ? 1 : 0);
   }
 
   destroyRemotePlayer(uid) {
@@ -11827,7 +11891,7 @@ class GameScene extends Phaser.Scene {
         }
       }
     }
-    if (changed.length) this._queueWallRedraw(changed); // 同じフレームで何度壊れても、床の描き直しは1回にまとめる（壊れた区画だけ）
+    if (changed.length) { this._wallBrokenTotal = (this._wallBrokenTotal || 0) + changed.length; this._queueWallRedraw(changed); } // 同じフレームで何度壊れても、床の描き直しは1回にまとめる（壊れた区画だけ）
   }
   // 線分(x1,y1)-(x2,y2)に沿って壁を壊す（destroyWallsInRadiusを線分上に何度も呼ぶ簡易実装）。
   // halfWidthはビームの半分の太さ：見た目のビームより少し広めに壊れるよう、タイル半分ぶん余裕を持たせる。
@@ -12252,6 +12316,10 @@ class GameScene extends Phaser.Scene {
     const mx = px - W.px, my = py - W.py; W.px = px; W.py = py;
     if (mx * mx + my * my > 0.25) { const na = Math.atan2(my, mx); W.face += Phaser.Math.Angle.Wrap(na - W.face) * Math.min(1, dt * 8); }
     const bigK = this._wingBigK(); // エンディング演出：翼が大きくなっている度合い
+    W.evolved = !!this._wingEvolved && !this.arms4Ritual;
+    if (W.evolved && !this._endingNext) { const hue = getSoulHue(); if (!this._soulCols || this._soulColsHue !== hue) { this._soulCols = soulColorsFromHue(hue); this._soulColsHue = hue; } W.soul = this._soulCols; } else W.soul = null; // エンディングの続きの翼は、物語どおり赤のまま
+    W.glowFull = !!(W.soul && this._wingMaxed); // 🌟 40000体：全体が光る
+    const tier = (this.arms4Ritual || this._endingNext) ? 0 : (this._wingMaxed ? 2 : this._wingEvolved ? 1 : 0); // 😈 翼の進化の段階：1＝ダメージ2倍＋壁越しに掴める／2＝さらに、触れた壁が壊れる・ダメージがもう2倍・刺さった時に魂の色の爆発（エンディング演出中は強化なし）
     if (this._endingRun && !this._rootReviveOn) W.face = -Math.PI / 2; // 上を向いている＝翼は背中（下）側に出る
     const back = W.face + Math.PI, n = W.roots.length, reach = C.range;
     const slotAng = (r) => back + (n > 1 ? (r.i / (n - 1) - 0.5) * 2 * C.spread : 0); // 背中側の、その根の持ち場
@@ -12285,7 +12353,7 @@ class GameScene extends Phaser.Scene {
             if (!e.gfx || !e.type || e.hp <= 0 || e._removed || e._pvp || e._wingBy || (e._wingRemote && (!this.net || e._wingRemote !== this.net.uid)) || this._endingRun || this._rootsOff) continue; // エンディング演出中は、翼は敵を刺さない／エンディングの続きで雪原へ行ったあとも、根は自動で敵を掴まない（_rootsOff）
             const d = Math.hypot(e.gfx.x - px, e.gfx.y - py);
             if ((!unl && d > reach + e.type.radius) || d >= bd) continue;
-            if (!unl && !this.meleeCanReach(e.gfx.x, e.gfx.y, e.type.radius)) continue; // 壁の向こうには届かない（エンディングの続きだけは、壁越しでも掴む）
+            if (!unl && tier < 1 && !this.meleeCanReach(e.gfx.x, e.gfx.y, e.type.radius)) continue; // 壁の向こうには届かない（エンディングの続きだけは、壁越しでも掴む）
             best = e; bd = d;
           }
           if (best) { r.tgt = best; best._wingBy = r; r.st = 'stab'; r.t = 0; r.nextTick = C.tick; if (best.type.multiplyCount) { best._multiplyScheduled = true; best._noBrood = true; } } // 掴まれた胞子は増殖（分裂）しない
@@ -12293,10 +12361,14 @@ class GameScene extends Phaser.Scene {
       } else if (r.st === 'stab') { // シュッと敵へ伸びる
         const e = r.tgt, ex = e.gfx.x, ey = e.gfx.y, dx = ex - r.tx, dy = ey - r.ty, d = Math.hypot(dx, dy), step = C.stabSpeed * dt;
         if (d <= step + 2) {
-          r.tx = ex; r.ty = ey; r.t = 0; r.held = 0;
+          r.tx = ex; r.ty = ey; r.t = 0; r.held = 0; r._gt = 0;
           const a = Math.atan2(ey - py, ex - px), sr = e.type.radius;
           if (!(e.type.key === 'ghost' || isChargeGhostId(e.id))) this.knifeBlood(ex, ey, a, sr, false);
           this.cameras.main.shake(40, 0.002);
+          if (tier >= 2) { // 🌟 刺さった瞬間、魂の色の大きい爆発（爆発で倒れたら、根は放す）
+            this._wingSoulBlast(ex, ey, W.soul);
+            if (!(e.hp > 0) || e._removed || !e.gfx || !e.gfx.scene) { this._wingRelease(e); r.tgt = null; r.st = 'idle'; r.cd = C.retake; r.stuck = false; continue; }
+          }
           if (bossLike(e)) { r.st = 'hold'; r.stuck = true; } else { r.st = 'pull'; r.stuck = false; r.pull = { x: ex, y: ey }; }
         } else { r.tx += dx / d * step; r.ty += dy / d * step; }
       }
@@ -12305,7 +12377,7 @@ class GameScene extends Phaser.Scene {
         if (!bossLike(e)) e.hitCooldown = Math.max(e.hitCooldown || 0, 0.3); // 刺した雑魚敵は、プレイヤーに触れても接触ダメージを出さない（ボス・天使などは対象外）
         if (!r.stuck) { // 刺したまま背中側へ戻って、ゆらゆら揺れる
           e.kbX = 0; e.kbY = 0;
-          const dist = C.holdDist + sr, sw = Math.sin(W.s * 2.6 + r.ph), sw2 = Math.cos(W.s * 1.9 + r.ph * 0.7);
+          const dist = C.holdDist * (1 + ENDING.wingScale * bigK) + sr, sw = Math.sin(W.s * 2.6 + r.ph), sw2 = Math.cos(W.s * 1.9 + r.ph * 0.7);
           const hx = px + Math.cos(sa + sw * 0.28) * (dist + sw2 * 9), hy = py + Math.sin(sa + sw * 0.28) * (dist + sw2 * 9);
           let ntx, nty;
           if (r.st === 'pull') { r.t += dt; const u = Math.min(1, r.t / C.pullTime), k = 1 - (1 - u) * (1 - u) * (1 - u); ntx = r.pull.x + (hx - r.pull.x) * k; nty = r.pull.y + (hy - r.pull.y) * k; if (u >= 1) r.st = 'hold'; }
@@ -12325,18 +12397,94 @@ class GameScene extends Phaser.Scene {
             continue;
           }
         }
+        if (tier >= 2 && !e.type.invulnerable && e.type.key !== 'ghost' && !isChargeGhostId(e.id)) { // 🌟 30秒掴み続けると、掴んでいる敵が爆発し、現在HPの50%のダメージを受ける
+          r._gt = (r._gt || 0) + dt;
+          if (r._gt >= WING_HOLD_BLAST.time) {
+            r._gt = 0;
+            const hx = e.gfx.x, hy = e.gfx.y, sc = W.soul;
+            this._wingSoulBlast(hx, hy, sc, true); // 魂の色の爆発（見た目だけ。ダメージは掴んでいる敵だけに入れる）
+            this.cameras.main.shake(160, 0.006);
+            if (this.mp && this.net) this.net.sendShot({ allyFx: 'soulBlast', x: hx, y: hy, c1: sc ? sc.glow : 0xff1428, c2: sc ? sc.spike : 0xff6070, floor: this.floor });
+            this.damageEnemy(e, Math.max(1, Math.round(e.hp * WING_HOLD_BLAST.hpRate)), Math.atan2(hy - py, hx - px), 0);
+            this.cleanupDeadEnemies();
+            if (!(e.hp > 0) || e._removed || !e.gfx || !e.gfx.scene) { this._wingRelease(e); r.tgt = null; r.st = 'idle'; r.cd = C.retake; r.stuck = false; continue; }
+          }
+        }
         if (r.st === 'hold' || r.stuck) { // 継続ダメージ
           r.nextTick -= dt;
           if (r.nextTick <= 0) {
             r.nextTick += C.tick;
-            const dmg = C.dmg;
+            const dmg = C.dmg * (tier >= 1 ? WING_EVOLVE_DMG_MULT : 1) * (tier >= 2 ? WING_EVOLVE2_DMG_MULT : 1); // 😈 進化した翼：1回目で2倍、2回目でさらに2倍
             this.damageEnemy(e, dmg, Math.atan2(e.gfx.y - py, e.gfx.x - px), 0);
             this.cleanupDeadEnemies();
           }
         }
       }
+      // 🧱 2回目の進化（累計40000体）：根の先端（と、掴んだ敵の体）が触れた壁は壊れる。刺しにいく道・引き寄せる道も、壁を壊しながら通る
+      if (tier >= 2 && r.tgt && (r.st === 'stab' || r.st === 'pull' || r.st === 'hold')) {
+        this._wingBreakBody(W, r, px, py, bigK); // 根の全体（背中の付け根〜先端）が触れた壁も壊す
+        const bx = r._bx, by = r._by, moved = bx == null ? Infinity : Math.hypot(r.tx - bx, r.ty - by);
+        if (moved >= 1) {
+          const hw = r.st === 'stab' ? 6 : Math.min(40, (r.tgt.type && r.tgt.type.radius) || 12);
+          const fx = moved < 400 ? bx : r.tx, fy = moved < 400 ? by : r.ty;
+          this._wingBreakWalls(fx, fy, r.tx, r.ty, hw);
+          r._bx = r.tx; r._by = r.ty;
+        }
+      } else { r._bx = null; r._by = null; }
     }
     this._drawWings(W, px, py, bigK);
+  }
+  // 🌟 悪魔の翼（2回目の進化）：根が敵に刺さった瞬間の、魂の色の大きい爆発。fxOnly＝見た目だけ（他のプレイヤーの画面用。ダメージは撃った本人の画面が与える）
+  _wingSoulBlast(x, y, soul, fxOnly) {
+    const B = WING_BLAST, r = B.radius, glow = soul ? soul.glow : 0xff1428, spike = soul ? soul.spike : 0xff6070, ADD = Phaser.BlendModes.ADD;
+    const core = this.add.circle(x, y, r * 0.35, 0xffffff, 1).setDepth(7).setBlendMode(ADD);
+    const flash = this.add.circle(x, y, r, glow, 0.6).setDepth(6).setBlendMode(ADD);
+    const ring = this.add.circle(x, y, r * 0.55, glow, 0).setDepth(6).setStrokeStyle(Math.max(4, r * 0.08), spike, 0.95).setBlendMode(ADD);
+    this.tweens.add({ targets: core, scale: 1.8, alpha: 0, duration: 220, ease: 'Cubic.easeOut', onComplete: () => core.destroy() });
+    this.tweens.add({ targets: flash, alpha: 0, scale: 1.25, duration: 380, ease: 'Cubic.easeOut', onComplete: () => flash.destroy() });
+    this.tweens.add({ targets: ring, scale: 1.9, alpha: 0, duration: 460, ease: 'Cubic.easeOut', onComplete: () => ring.destroy() });
+    this.spawnBurst(x, y, spike, 14);
+    if (fxOnly) return;
+    this.cameras.main.shake(160, 0.006);
+    let hit = false;
+    for (const en of this.enemies.slice()) { // 爆心に近いほど強い（外側でも半分は入る）
+      if (!(en.hp > 0) || en._introAnim || en._pvp || !en.gfx || !en.type || en.type.invulnerable) continue;
+      const d = Phaser.Math.Distance.Between(x, y, en.gfx.x, en.gfx.y);
+      if (d >= r + en.type.radius) continue;
+      this.damageEnemy(en, Math.round(B.damage * Math.max(0.5, 1 - 0.5 * d / r)), Phaser.Math.Angle.Between(x, y, en.gfx.x, en.gfx.y), 0);
+      hit = true;
+    }
+    if (hit) this.cleanupDeadEnemies();
+    if (this.mp && this.net) this.net.sendShot({ allyFx: 'soulBlast', x, y, c1: glow, c2: spike, floor: this.floor });
+  }
+  // 🧱 悪魔の翼（2回目の進化）：根1本の全体（背中の付け根から先端まで。_drawWings と同じ曲線）に触れた壁を壊す。太さは根の太さ（先端ほど細い）＋タイル半分。
+  //   協力プレイでは、壊れた時だけ、壊した位置と半径のリスト（pts＝[x, y, 半径, ...]）を他のプレイヤーにも配信する。
+  _wingBreakBody(W, r, px, py, bigK) {
+    const sx = px + Math.cos(W.face + Math.PI) * 8, sy = py + Math.sin(W.face + Math.PI) * 8;
+    const tx = r.tx, ty = r.ty, dx = tx - sx, dy = ty - sy, dist = Math.hypot(dx, dy) || 1, nx = -dy / dist, ny = dx / dist;
+    const fast = r.st === 'stab';
+    const bend = fast ? dist * 0.05 : (dist * 0.22 + 10) * r.bend * (1 + 0.35 * Math.sin(W.s * 3 + r.ph));
+    const cx = (sx + tx) / 2 + nx * bend, cy = (sy + ty) / 2 + ny * bend;
+    const N = Math.max(6, Math.min(24, Math.ceil(dist / 14))), before = this._wallBrokenTotal || 0, pts = [];
+    for (let k = 0; k <= N; k++) {
+      const u = k / N, a0 = (1 - u) * (1 - u), a1 = 2 * (1 - u) * u, a2 = u * u;
+      const wob = Math.sin(W.s * 7 + r.ph + u * 6) * 2.6 * Math.sin(u * Math.PI) * (fast ? 0.2 : 1);
+      const x = a0 * sx + a1 * cx + a2 * tx + nx * wob, y = a0 * sy + a1 * cy + a2 * ty + ny * wob;
+      const th = 12 * (1 + ENDING.wingThick * bigK) * (0.2 + 0.8 * Math.pow(1 - u, 0.75)), rad = th / 2 + TILE * 0.5;
+      this.destroyWallsInRadius(x, y, rad);
+      pts.push(Math.round(x), Math.round(y), Math.round(rad));
+    }
+    if ((this._wallBrokenTotal || 0) === before) return;
+    this.spawnBurst(tx, ty, 0xb070e0, 6);
+    if (this.mp && this.net) this.net.sendShot({ allyFx: 'wallPts', pts, floor: this.floor });
+  }
+  // 🧱 悪魔の翼（2回目の進化）：線分(x1,y1)→(x2,y2)に触れた壁を壊す。壊れた時だけ、協力プレイの他のプレイヤーにも配信する
+  _wingBreakWalls(x1, y1, x2, y2, halfWidth) {
+    const before = this._wallBrokenTotal || 0;
+    this.destroyWallsAlongLine(x1, y1, x2, y2, halfWidth);
+    if ((this._wallBrokenTotal || 0) === before) return;
+    this.spawnBurst(x2, y2, 0xb070e0, 6);
+    if (this.mp && this.net) this.net.sendShot({ allyFx: 'wallLine', x1, y1, x2, y2, halfWidth, floor: this.floor });
   }
   // 🪽 エンディング：主人公の根が、半分は悪魔を、半分は天使を、掴むような動きをし続ける。
   //   根の先端は、相手の体のまわり（主人公に近い側）を行き来する：体の外へ伸びる（ひらく）→ 体の中へ食い込む（にぎる）を、根ごとにずらしながら繰り返す
@@ -12392,13 +12540,17 @@ class GameScene extends Phaser.Scene {
       // 悪魔の根と同じ色：ふちの暗い紫（太め）の上に、真っ黒な体を重ねる。先端は悪魔の根と同じく丸くする
       // 大きくなった翼：悪魔のHPが半分以下の根と同じ、赤く光る縁ととげ付きの見た目（光はどくどく脈打つ）
       const glowW = (0.25 + 0.1 * Math.sin(this.time.now / 90)) * Math.min(1, bigK);
+      const soul = W.soul || null; // 😈 進化した翼：赤の代わりに魂の色
       let wingPasses = bigK > 0.02
-        ? [{ col: 0xff2030, al: glowW, ex: 16 }, { col: 0xc01028, al: 0.9, ex: 7 }, { col: 0x000000, al: 1, ex: 0 }]
+        ? [{ col: soul ? soul.glow : 0xff2030, al: glowW, ex: 16 }, { col: soul ? soul.edge : 0xc01028, al: 0.9, ex: 7 }, { col: 0x000000, al: 1, ex: 0 }]
         : [{ col: 0x2a1038, al: 0.7, ex: 7 }, { col: 0x000000, al: 1, ex: 0 }];
       const rr = this._rootRed || 0;
       if (rr > 0) { // 🔴 エンディングの最後：根の全体が真っ赤に輝く（ぼんやりにじませず、はっきりした真っ赤な根。どくどく明るさが脈打つ）
         const pu = 0.5 + 0.5 * Math.sin(this.time.now / 90);
         wingPasses = [{ col: 0xff1428, al: (0.32 + 0.18 * pu) * rr, ex: 22 }, { col: 0xff0000, al: rr, ex: 11 }, { col: (Math.round(255 * rr) << 16) | (Math.round(rr * (24 + 56 * pu)) << 8) | Math.round(rr * (24 + 36 * pu)), al: 1, ex: 0 }];
+      } else if (W.glowFull && soul) { // 🌟 2回目の進化（40000体）：上の「根の全体が真っ赤に輝く」と同じ作りで、赤の代わりに魂の色。どくどく明るさが脈打つ
+        const pu = 0.5 + 0.5 * Math.sin(this.time.now / 90);
+        wingPasses = [{ col: soul.glow, al: 0.32 + 0.18 * pu, ex: 22 }, { col: soul.glow, al: 1, ex: 11 }, { col: mixColor(soul.spike, 0xffffff, 0.15 + 0.3 * pu), al: 1, ex: 0 }];
       }
       let LA = 0, BA = 1, lc = 0xffffff, lc2 = 0xffffff;
       if (rvOn) { // ✨ 復活の最中：根は、天使の金／悪魔の紫の光（根ごとに交互）として現れ、光が薄れるのと入れ替わりに、黒い体と赤いふちが現れて、根の形になる
@@ -12428,7 +12580,7 @@ class GameScene extends Phaser.Scene {
         for (let j = 0; j < 3; j++) { const kk = Math.floor(((this.time.now / 600 + ri * 0.37 + j * 0.33) % 1) * N2), c = pts[Math.min(N2, kk)]; g.fillCircle(c.x + Math.sin(this.time.now / 130 + j + ri) * 7, c.y + Math.cos(this.time.now / 110 + j * 2 + ri) * 7, 2 + 2 * ((j + ri) % 2)); }
       }
       if (bigK > 0.3) { // とげ：体の左右から、後ろ向きにとがった赤いとげ（悪魔の根と同じ形）
-        g.fillStyle(0xff2a3c, BA);
+        g.fillStyle(soul ? soul.spike : 0xff2a3c, BA);
         for (let k = 2; k < N2 - 1; k += 2) {
           const p0 = pts[k - 1], p1 = pts[k + 1]; let ddx = p1.x - p0.x, ddy = p1.y - p0.y; const dl = Math.hypot(ddx, ddy) || 1; ddx /= dl; ddy /= dl;
           const nx2 = -ddy, ny2 = ddx, hw = pts[k].th / 2, len = (6 + hw * 0.9) * Math.min(1, bigK), c = pts[k];
@@ -23638,6 +23790,7 @@ class GameScene extends Phaser.Scene {
   // 翼の大きさ・赤さ・とげの度合い（0〜1。グンと伸びて、少し行き過ぎて戻る）
   _wingBigK() {
     if (this._endingNext) return 1; // エンディングの続き：最初から、大きく赤くとげのある強力な根
+    if (this._wingEvolved && !this.arms4Ritual) return 1; // 😈 進化した翼：最初から、大きくとげのある根（色は魂の色）。調伏の儀では、儀式の演出を優先する
     if (!(this._wingBigT >= 0)) return 0;
     const u = Math.min(1, this._wingBigT / ENDING.wingGrow), c1 = 1.70158, c3 = c1 + 1;
     return 1 + c3 * Math.pow(u - 1, 3) + c1 * Math.pow(u - 1, 2);
@@ -24362,6 +24515,7 @@ class GameScene extends Phaser.Scene {
             const hh = []; // 掴んでいる（刺しにいっている最中も含む）敵のID。ボスなど、引き寄せない敵も含める
             for (const r of Wn.roots) { const te = r.tgt; if (te && te.gfx && te.hp > 0 && !te._removed) hh.push(te.id); }
             ownState.wg = { f: Math.round(Wn.face * 100) / 100, h: hh };
+            if (Wn.evolved) { ownState.wg.e = Wn.glowFull ? 2 : 1; ownState.wg.c = getSoulHue(); } // 😈 進化した翼：e＝1（20000体）／2（40000体：全体が光る）、c＝魂の色の色相（0〜359）
             this._wgSent = true;
           } else if (this._wgSent) { ownState.wg = null; this._wgSent = false; }
         }
@@ -24501,14 +24655,21 @@ class GameScene extends Phaser.Scene {
     this.time.delayedCall(700, () => this.showBanner(text, 3200));
   }
 
-  // リザルト表示時に、この挑戦の成績を累計に足す（ダンジョン／最北戦線。ソロ・協力プレイとも対象。ボスラッシュ・PvP・デベロッパーは対象外）。
+  // リザルト表示時に、この挑戦の成績を累計に足す。雑魚敵の累計撃破数は、どのモード（ダンジョン・ナイトメア・最北戦線・ボスラッシュ・調伏の儀。ソロ・協力プレイとも）でも足す。
+  // 最高到達階層・ボス撃破数・クリア回数は、ダンジョン／最北戦線だけ。PvP・デベロッパーは何も足さない。
   // 今回新しく入手した装飾品の配列を返す。同じ挑戦で二度足さないよう、runStatsの同一性で判定する。
   commitRunStats() {
-    if (this.pvp || this.bossRush || this.arms4Ritual || this.isDevMode) return [];
+    if (this.pvp || this.isDevMode) return [];
     if (this._committedStats === this.runStats) return [];
     this._committedStats = this.runStats;
     // 協力プレイでは、倒した数は自分の分（mpStats）を使う（runStats.kills/bosses はソロ専用の集計のため）
     const st = this.mp ? Object.assign({}, this.runStats, { kills: (this.mpStats && this.mpStats.kills) || 0, bosses: (this.mpStats && this.mpStats.bosses) || 0 }) : this.runStats, save = loadSave();
+    save.soloTotalKills += st.kills || 0; // 🗡 雑魚敵の累計撃破数：全モード共通（魔法陣で消えた幽霊・調伏の儀の最中の敵・ボスは数えない）
+    if (this.bossRush || this.arms4Ritual) { // ボスラッシュ・調伏の儀は、撃破数以外（階層・ボス数・クリア回数）は記録しない
+      const rAdded = unlockAccessories(save);
+      writeSave(save);
+      return rAdded;
+    }
     if (this.nightmare) { // ナイトメアは別の記録だけ更新する（通常ダンジョンの累計・装飾品の解放には足さない）
       if (this.floor > (save.nightmareBestFloor || 0)) save.nightmareBestFloor = this.floor;
       if (this._allClear) save.nightmareClears = (save.nightmareClears || 0) + 1;
@@ -24520,7 +24681,6 @@ class GameScene extends Phaser.Scene {
       const sec = Math.floor(this.fl ? this.fl.elapsed : st.time);
       if (sec > save.frontlineBestSec) save.frontlineBestSec = sec;
     } else {
-      save.soloTotalKills += st.kills || 0;
       save.soloTotalBosses += st.bosses || 0;
       if (this.floor > save.soloBestFloor) save.soloBestFloor = this.floor;
       if (this._allClear) save.soloClears = (save.soloClears || 0) + 1; // 🕒 ダンジョン（ソロ）クリア
@@ -25051,6 +25211,12 @@ class GameScene extends Phaser.Scene {
   }
   _partyReadNote(title, text) { // メモを読む画面（小屋の本と同じ作り）。E・Esc・クリック／タップで閉じる
     if (this._hutReading) return;
+    // メモの中の {untilfirstevole}（{untilfirstevolve} も同じ）＝今まで倒した雑魚敵数／20000、{untilsecondevolve}（{untilsecondevole} も同じ）＝今まで倒した雑魚敵数／40000 に置き換える（ソロ・協力プレイの累計。目標を超えたら目標の数で止める）
+    try {
+      const kills = Math.max(0, Math.floor(Number(loadSave().soloTotalKills) || 0));
+      const prog = (goal) => Math.min(kills, goal) + '／' + goal;
+      text = String(text).replace(/\{untilfirstevol[ev]+\}/g, prog(20000)).replace(/\{untilsecondevol[ev]+\}/g, prog(40000));
+    } catch (e) { /* セーブが読めない時は、そのまま表示する */ }
     this._hutReading = true;
     const ov = document.createElement('div'); ov.id = 'hutBookOverlay'; // #hutBookOverlay は「ポーズを出さない画面」の目印にもなっている
     ov.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.84);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;box-sizing:border-box;font-family:sans-serif;touch-action:manipulation;';
@@ -28876,9 +29042,22 @@ class VoiceChat {
   // ----- マイク（押すたびにオン／オフ。オフにするとマイク自体も止める） -----
   async toggleMic() {
     if (this.micOn) { this._micStop(); this._paintButtons(); return; }
+    if (this._micPicking) return; // マイク選びの最中は、もう一度押しても何もしない
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('unsupported');
-      this.micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      this._micPicking = true;
+      let deviceId;
+      try { deviceId = await this._pickMic(); } finally { this._micPicking = false; }
+      if (deviceId === null) { this._paintButtons(); return; } // 選ばずに閉じた：マイクはオンにしない
+      const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      if (deviceId) audio.deviceId = { exact: deviceId };
+      try {
+        this.micStream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
+      } catch (e1) {
+        // 選んだマイクが外されていた時は、既定のマイクで入り直す（許可されていない等は、そのまま下のエラー表示へ）
+        if (deviceId && e1 && (e1.name === 'OverconstrainedError' || e1.name === 'NotFoundError')) { delete audio.deviceId; this.micStream = await navigator.mediaDevices.getUserMedia({ audio, video: false }); }
+        else throw e1;
+      }
       this.micTrack = this.micStream.getAudioTracks()[0];
       this.micOn = true;
       this.peers.forEach(e => { if (e.sender) e.sender.replaceTrack(this.micTrack).catch(() => {}); });
@@ -28887,6 +29066,67 @@ class VoiceChat {
       if (this.scene && this.scene.showBanner) this.scene.showBanner('⚠ マイクを使えません（許可されていないか、HTTPSでない可能性があります）', 3500, '#ffb0b0');
     }
     this._paintButtons();
+  }
+  // 🎤 マイクをオンにする時、最初に使うマイクを選ぶ。ワイヤレスイヤホンのマイクを使うと、イヤホンが通話モード（モノラル）になって、声の左右の聞こえ方がなくなることがあるため。
+  // 戻り値：マイクのdeviceId／undefined＝選ばずに既定のマイク（選べるマイクが1つ以下、または一覧が取れない）／null＝選ばずに閉じた（マイクはオンにしない）
+  async _pickMic() {
+    const md = navigator.mediaDevices;
+    if (!md.enumerateDevices) return undefined;
+    const list = async () => { try { return (await md.enumerateDevices()).filter(d => d.kind === 'audioinput' && d.deviceId !== 'communications'); } catch (e) { return []; } };
+    let devs = await list();
+    if (!devs.length || devs.some(d => !d.label)) { // 許可前はマイクの名前が空：一度だけ仮に開いて許可をもらい、すぐ閉じる（許可されなければ、ここでエラーになって通常のエラー表示へ）
+      const tmp = await md.getUserMedia({ audio: true, video: false });
+      tmp.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
+      devs = await list();
+    }
+    if (!devs.length) return undefined; // 一覧が取れない時だけ、選ばずに既定のマイクで入る（1つだけ見えている時も、選ぶ画面は出す。下の案内を参照）
+    // ★推奨：端末自体（内蔵）のマイク。ワイヤレスの可能性があるものは除く。「既定」の行は、実体と重なるので、実体の行があればそちらだけに付ける
+    const isWireless = (d) => /bluetooth|airpods|buds|hands-?free|ハンズフリー/i.test(d.label || '');
+    const builtin = devs.filter(d => !isWireless(d) && /built-?in|internal|内蔵|microphone array|マイク配列|macbook|iphone|ipad|surface|realtek|front|back|bottom|前面|背面|下部/i.test(d.label || ''));
+    const recommend = new Set((builtin.some(d => d.deviceId !== 'default') ? builtin.filter(d => d.deviceId !== 'default') : builtin).map(d => d.deviceId));
+    return new Promise(resolve => {
+      const back = document.createElement('div');
+      back.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;';
+      const box = document.createElement('div');
+      box.style.cssText = 'width:min(440px,100%);max-height:90vh;overflow:auto;background:#14141c;color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:12px;padding:16px;font-family:sans-serif;box-sizing:border-box;';
+      const h = document.createElement('div'); h.textContent = '🎤 使うマイクを選んでください'; h.style.cssText = 'font-size:17px;font-weight:bold;margin-bottom:8px;';
+      const note = document.createElement('div'); note.textContent = 'ワイヤレスイヤホンのマイクを使うと、イヤホンが通話モード（モノラル）になって、声の左右の聞こえ方がなくなることがあります。本体や有線のマイクを選ぶと、左右の聞こえ方が保たれます。';
+      note.style.cssText = 'font-size:12px;line-height:1.5;color:#c8c8d4;margin-bottom:12px;';
+      box.appendChild(h); box.appendChild(note);
+      if (devs.length === 1) { // ブラウザには1つしか見えていない（Chromebook などは、使うマイクを端末側の設定で切り替える。ブラウザからは切り替えられない）
+        const one = document.createElement('div');
+        const ua = navigator.userAgent || '';
+        const isIOS = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1); // iPadOS は Mac と名乗るので、タッチの有無で見分ける
+        const head = 'いま、ブラウザには使えるマイクが1つしか見えていません。';
+        let how;
+        if (isIOS) how = 'iPhone・iPad では、このページからマイクを切り替えることはできません。ワイヤレスイヤホンのマイクだと左右の聞こえ方がなくなることがあるので、その時はワイヤレスイヤホンを外す（またはBluetoothを切る）か、有線イヤホンを使ってから、もう一度🎤を押してください。';
+        else if (/Android/i.test(ua)) how = 'Android では、このページからマイクを切り替えることはできません。端末の Bluetooth 設定で、そのイヤホンの「通話の音声（Phone calls）」をオフにできる機種なら、マイクが本体になって、左右の聞こえ方が保たれることがあります（機種によっては、この項目がありません）。それが難しい時は、ワイヤレスイヤホンを外す（またはBluetoothを切る）か、有線イヤホンを使ってから、もう一度🎤を押してください。Braveなど一部のブラウザは、保護機能でマイクの一覧が減ることがあります。';
+        else if (/CrOS/i.test(ua)) how = '別のマイクを使いたい時は、端末の設定で入力を切り替えてから、もう一度🎤を押してください（Chromebook：画面右下のクイック設定 → 音量の横の矢印 → 入力 → 使いたいマイク）。';
+        else how = '別のマイクを使いたい時は、パソコンのサウンド設定で入力（マイク）を切り替えてから、もう一度🎤を押してください。';
+        one.textContent = head + how;
+        one.style.cssText = 'font-size:12px;line-height:1.5;color:#ffd98a;background:rgba(255,200,80,0.12);border-radius:8px;padding:8px;margin-bottom:12px;';
+        box.appendChild(one);
+      }
+      const done = (v) => { window.removeEventListener('keydown', onKey, true); if (back.parentNode) back.parentNode.removeChild(back); resolve(v); };
+      const onKey = (ev) => { if (ev.key === 'Escape') { ev.stopPropagation(); ev.preventDefault(); done(null); } };
+      window.addEventListener('keydown', onKey, true);
+      devs.forEach(d => {
+        const b = document.createElement('button'); b.type = 'button';
+        let name = d.deviceId === 'default' ? ('既定のマイク' + (d.label ? '（' + d.label.replace(/^Default\s*-\s*/i, '') + '）' : '')) : (d.label || 'マイク');
+        if (isWireless(d)) name += '（ワイヤレスの可能性）';
+        if (recommend.has(d.deviceId)) name += ' ★推奨';
+        b.textContent = name;
+        b.style.cssText = 'display:block;width:100%;text-align:left;margin:0 0 8px;padding:12px;font-size:14px;color:#fff;background:#262634;border:1px solid rgba(255,255,255,0.3);border-radius:8px;cursor:pointer;';
+        b.onclick = () => done(d.deviceId);
+        box.appendChild(b);
+      });
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'やめる';
+      cancel.style.cssText = 'display:block;width:100%;margin-top:4px;padding:10px;font-size:14px;color:#ddd;background:transparent;border:1px solid rgba(255,255,255,0.25);border-radius:8px;cursor:pointer;';
+      cancel.onclick = () => done(null);
+      box.appendChild(cancel);
+      back.onclick = (ev) => { if (ev.target === back) done(null); };
+      back.appendChild(box); document.body.appendChild(back);
+    });
   }
   _micStop() {
     this.micOn = false;
@@ -29242,7 +29482,7 @@ function askConfirm(message, opts) {
 // 上書きではなく「合流」：最高記録・累計は大きいほう、印はどちらかが立っていれば立てる、装飾品は両方の合計。何度同期しても結果は変わらない（順番も関係ない）。
 // 端末ごとの設定（付けている装飾品・エンディング演出の進行中の印）は同期しない。コードを作っていない人は、何も送らない。
 const SYNC_CODE_KEY = 'zomikasudungeon_synccode';
-const SYNC_MAX = ['soloBestFloor', 'nightmareBestFloor', 'nightmareClears', 'soloTotalKills', 'soloTotalBosses', 'frontlineBestSec', 'pvpWins', 'bossRushBestBosses', 'armorFloor10Fast', 'arms4RitualClears', 'libraryVisits', 'demonMeets', 'soloClears']; // 大きいほうを採用
+const SYNC_MAX = ['soloBestFloor', 'nightmareBestFloor', 'nightmareClears', 'soloTotalKills', 'soloTotalBosses', 'frontlineBestSec', 'pvpWins', 'bossRushBestBosses', 'armorFloor10Fast', 'arms4RitualClears', 'libraryVisits', 'demonMeets', 'soloClears', 'soulColor']; // 大きいほうを採用
 const SYNC_OR = ['arms4RitualPlayed', 'arms4RitualCounted', 'libraryReported', 'hutVisited', 'endingDone']; // どちらかが true なら true
 const SYNC_UNION = ['accUnlocked', 'specialAccs']; // 両方の合計
 const SYNC_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; // 0/1/O/I/L は使わない（読み間違い防止）
