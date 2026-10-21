@@ -2883,6 +2883,30 @@ function generateDungeon(seed, floor, opts) {
     exit = carveExit(grid, farRoom, width, height, rand);
   }
 
+  // 🐲 ボスの部屋：出口から、床を歩いてたどり着ける距離がいちばん近い部屋（スタートの部屋は除く）。
+  // 出口の通路を掘り始めた部屋（exitRoom）とは限らない（通路の途中に別の部屋がある時など）。幅優先探索なので乱数は使わず、マップもシードの結果も変わらない
+  let bossRoom = exitRoom;
+  if (exit && exit.exitPos) {
+    const inRoom = (r, x, y) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+    const seen = new Set([exit.exitPos.y * width + exit.exitPos.x]);
+    const queue = [exit.exitPos];
+    let found = null;
+    for (let qi = 0; qi < queue.length && !found; qi++) {
+      const t = queue[qi];
+      for (const r of others) { if (inRoom(r, t.x, t.y)) { found = r; break; } }
+      if (found) break;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = t.x + dx, ny = t.y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height || grid[ny][nx] === 0) continue;
+        const key = ny * width + nx;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        queue.push({ x: nx, y: ny });
+      }
+    }
+    if (found) bossRoom = found;
+  }
+
   // 🚪 隠し書庫の扉：次の階への出口と同じ carveExit で、別の部屋からマップの端まで通路を掘って、端に扉を作る。
   // 専用の乱数（seed から別に作る）を使うので、扉が出ない階のマップは、これまでと全く同じになる。
   // 通路の終わり3マスは carveExit が出口と同じ印(3)を付けるので、床(1)に戻す（本物の出口と重なったマスは触らない）。
@@ -2930,7 +2954,8 @@ function generateDungeon(seed, floor, opts) {
   if (opts && opts.ghostFloor && others.length > 0) ghostFloor = carveGhostPassage(grid, width, height, byDist, seed);
   return {
     grid, width: (ghostFloor && ghostFloor.newW) || width, height: (ghostFloor && ghostFloor.newH) || height, rooms, exitPos: exit.exitPos, secretDoor, whiteDoor, ghostFloor,
-    exitRoom, // 出口のある部屋（部屋の中に出口がある場合はその部屋、端の出口の場合は通路がつながっている部屋）。ボスはここに出す
+    exitRoom, // 出口のある部屋（部屋の中に出口がある場合はその部屋、端の出口の場合は通路を掘り始めた部屋）。隠し扉などの配置に使う
+    bossRoom, // ボスを出す部屋：出口から歩く距離がいちばん近い部屋（スタート以外）
     playerStart: { x: Math.floor(sx), y: Math.floor(sy) },
     // フロアが広くなるほど敵も比例して増やす（広いのに敵が少なくて簡単すぎる、を防ぐ）。
     // 密度が下がりすぎないよう、以前の上限(24体)よりだいぶ高めの上限にしてある。
@@ -5925,10 +5950,10 @@ class GameScene extends Phaser.Scene {
       }
     }
 
-    // 10階以降の通常階：毎回、出口のある部屋にボスが出る（人数・階層が増えるほど複数体になりやすい）。
+    // 10階以降の通常階：毎回、出口から歩く距離がいちばん近い部屋にボスが出る（人数・階層が増えるほど複数体になりやすい）。
     // ボス階（5階ごと：10・15・20…）は、アリーナにボスが1体だけ。種類はシードで決まる（協力プレイでも全員同じ）。
     if ((this.floor >= 10 || this.nightmare) && !this.snowfield && !this.hell) { // ナイトメアは1階からボスが出る（雪原にはボスは出さない）
-      const BOSS_SPAWN_CHANCE = 1.0; // 検証用に一旦100%出現。ボスの種類は、bossSpawn:trueの全種類（オーバーロード/カルテット/デトネーター/ゾートロープ）から均等に抽選する
+      const BOSS_SPAWN_CHANCE = 1.0; // 仕様：10階以降の通常階は、毎回必ずボスが出る（100%）。ボスの種類は、bossSpawn:trueの全種類から均等に抽選する
       // ナイトメアの10階未満：minFloorを無視して全ボスから抽選（ダメージ99999のシマハルだけは25階の確定枠のみ）
       const bossPool = (this.nightmare && this.floor < 10)
         ? ENEMY_TYPES.filter(t => t.bossSpawn && t.key !== 'simahar')
@@ -5977,10 +6002,10 @@ class GameScene extends Phaser.Scene {
             by = (room.y + room.h / 2 + Math.sin(ang) * room.h * 0.38) * TILE;
           }
         } else {
-          // ボスは必ず「出口のある部屋（出口と通路でつながっている部屋）」に出す。
-          // 出口の部屋が特定できない（スタート部屋しかない等）場合のみ、ランダムな部屋にする。
+          // ボスは必ず「出口から歩く距離がいちばん近い部屋（スタート以外）」に出す。
+          // その部屋が特定できない（スタート部屋しかない等）場合のみ、出口の部屋 → ランダムな部屋の順にする。
           const randomRoom = candidateRooms[Math.floor(brand() * candidateRooms.length)];
-          const room = (d.exitRoom && d.exitRoom !== startRoom) ? d.exitRoom : randomRoom;
+          const room = (d.bossRoom && d.bossRoom !== startRoom) ? d.bossRoom : ((d.exitRoom && d.exitRoom !== startRoom) ? d.exitRoom : randomRoom);
           bx = (room.x + 1 + brand() * Math.max(1, room.w - 2)) * TILE;
           by = (room.y + 1 + brand() * Math.max(1, room.h - 2)) * TILE;
         }
@@ -6520,12 +6545,12 @@ class GameScene extends Phaser.Scene {
     }
   }
   // 😈 今いる階に、生きているゴースト以外のモンスターが残っているか（敵は倒されると this.enemies から消える。「敵残り」の数字からゴーストを除いたもの）
-  // 🔴 悪魔センサー：悪魔に会える条件を満たしている（_demonRun）間、その階の残りの敵（ゴースト以外）が、最初の数の DEMON_SENSOR_RATIO になると、画面の外にいる敵の方角の画面の端が、ぼんやり赤く光る。近い敵ほど強く光り、同じ方角に重なるほど濃くなる。画面の中にいる敵は見えているので光らせない
+  // 🔴 悪魔センサー：悪魔に会える条件を満たしている（_demonRun）間、その階の残りの敵（ゴースト・ウロボロスの胴体以外）が、最初の数の DEMON_SENSOR_RATIO になると、画面の外にいる敵の方角の画面の端が、ぼんやり赤く光る。近い敵ほど強く光り、同じ方角に重なるほど濃くなる。画面の中にいる敵は見えているので光らせない
   _demonSensor() {
     let cv = this._dsCv; if (cv && !cv.isConnected) cv = this._dsCv = null;
     let list = null;
     if (this.enemies && this._dsDun !== this.dungeon) { this._dsDun = this.dungeon; this._dsMax = 0; } // 階が変わったら、その階にいた敵の数を数え直す
-    const _all = this.enemies ? this.enemies.filter(e => e.gfx && e.gfx.scene && !(e.type && e.type.key === 'ghost') && !isChargeGhostId(e.id)) : [];
+    const _all = this.enemies ? this.enemies.filter(e => e.gfx && e.gfx.scene && !(e.type && e.type.key === 'ghost') && !(e.type && e.type.snakeBody) && !isChargeGhostId(e.id)) : []; // ウロボロスの胴体は数えない（頭だけで1体。胴体28個ぶんで、最初の数が膨らむのを防ぐ）
     this._dsMax = Math.max(this._dsMax || 0, _all.length); // その階で、いちばん多かった時の敵の数（最初に出そろった数）
     if (DEMON_ENABLED && this._demonRun && this.floor >= 2 && this.floor <= 24 && !this.bossFloor && !this.snowfield && !this.hell && !this.sanctuary && !this._endingNext && this.enemies && this.player) {
       list = _all;
@@ -9766,7 +9791,7 @@ class GameScene extends Phaser.Scene {
       fl.spawnTimer -= dt;
       if (fl.spawnTimer <= 0) {
         const party = this.frontlinePartyMult();
-        if (this.enemies.length < Math.round(F.maxAlive * party.spawn)) {
+        if (this.enemies.filter(e => !(e.type && e.type.snakeBody)).length < Math.round(F.maxAlive * party.spawn)) { // ウロボロスの胴体は数えない（頭だけで1体）
           this.spawnFrontlineEnemy();
           this.updateHud();
         }
@@ -11858,9 +11883,9 @@ class GameScene extends Phaser.Scene {
     }
     if (this._spUndead == null) this._spUndead = this.hasSpecial('undeadcrest');
     hpFillEl.style.background = this._spUndead ? 'linear-gradient(90deg,#8a4dff,#c58bff)' : ''; // ♾️ 不死の紋章を付けている間は、HPバーが紫（外すと元の色）
-    document.getElementById('enemyNum').textContent = this.enemies ? this.enemies.filter(e => !(e.type && e.type.key === 'ghost') && !isChargeGhostId(e.id)).length : 0; // 敵残り：ゴースト（種類がゴースト／チャージゴーストのID）は数えない
+    document.getElementById('enemyNum').textContent = this.enemies ? this.enemies.filter(e => !(e.type && e.type.key === 'ghost') && !(e.type && e.type.snakeBody) && !isChargeGhostId(e.id)).length : 0; // 敵残り：ゴースト（種類がゴースト／チャージゴーストのID）とウロボロスの胴体は数えない
     { const enEl = document.getElementById('enemyNum'); if (enEl) {
-      const _n = this.enemies ? this.enemies.filter(e => !(e.type && e.type.key === 'ghost') && !isChargeGhostId(e.id)).length : 0;
+      const _n = this.enemies ? this.enemies.filter(e => !(e.type && e.type.key === 'ghost') && !(e.type && e.type.snakeBody) && !isChargeGhostId(e.id)).length : 0;
       if (this._demonRun && this.floor === 1) { if (_n > 0) this._demonSeenEnemy = true; else if (this._demonSeenEnemy) this._demonRedOn = true; } // 😈 1階で、敵を倒して残り0になった時から赤くする（開始直後の0は数えない）
       enEl.style.color = (this._demonRedOn && this._demonRun && DEMON_ENABLED && !this._demonMetCounted && !this._endingNext) ? '#ff3b3b' : ''; } } // 😈 25階の悪魔に会う条件（1階からここまで、ゴースト以外の敵を残さず進んでいる）が満たされているうちは、敵残りの数字が赤い。悪魔に会ったあと／条件を外れたら、元の色（エンディングの続きは対象外）
     const row1 = document.getElementById('uiRow1'); if (row1) row1.style.display = (this.pv && this.pv.mode === 'werewolf') ? 'none' : ''; // 人狼ゲームでは「階層／PvP・敵残り」の1行目はいらない
