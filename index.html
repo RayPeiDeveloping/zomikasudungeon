@@ -23998,6 +23998,14 @@ class GameScene extends Phaser.Scene {
       // 変化するものではない（リロードが終わった瞬間だけ変わる）ので、リロード中は
       // 毎フレームDOMを書き換えず、終了時に1回だけ更新すれば見た目は同じまま軽くなる。
     }
+    { // 🏷 通信プレイ：自分の称号も、自分の頭上に出す（他のプレイヤーの画面と同じ、その称号だけの色。ゴースト中は出さない）
+      const td = this.mp ? playerTitleByKey(this.titleKey) : null;
+      if (td && this.player) {
+        if (!this._myTitleTxt || !this._myTitleTxt.scene) this._myTitleTxt = this.add.text(0, 0, td.name, { fontSize: '10px', color: td.color, fontFamily: 'sans-serif', fontStyle: 'bold', stroke: '#000000', strokeThickness: 3 }).setOrigin(0.5).setDepth(5);
+        this._myTitleTxt.x = this.player.x; this._myTitleTxt.y = this.player.y - 40;
+        this._myTitleTxt.setVisible(!this.isGhost);
+      } else if (this._myTitleTxt && this._myTitleTxt.scene) this._myTitleTxt.setVisible(false);
+    }
     // 弾数がある武器は、リロード中の表示が出ていない間、同じ位置（プレイヤーの頭上）に「残弾/最大弾数」を出す。
     // マジックボム（chargeBomb）と召喚術（summon）は、装填数が常に1発の特殊武器なので出さない。
     const ammoText = (!this.reloading && this.weapon && this.weapon.maxAmmo && this.ammo != null && !this.isGhost && !this.isDowned
