@@ -4083,6 +4083,8 @@ const PLAYER_TITLES = [
   { key: 'soulwing',     name: '魂の翼',     color: '#6fe3ff', desc: '翼を2段階目に強化する（雑魚敵を累計20000体倒す）' }, // 翼の段階：1＝悪魔の腕輪／2＝1回目の進化(WING_EVOLVE_KILLS)／3＝2回目の進化(WING_FULLGLOW_KILLS)
   { key: 'fallenwing',   name: '堕翼',       color: '#a24dff', desc: '翼を3段階目に強化する（雑魚敵を累計40000体倒す）' },
   { key: 'deadline',     name: '死線',       color: '#e03c3c', desc: 'ルーレット：赤でダンジョンをクリアする' },
+  { key: 'judge',        name: '審判者',     color: '#e8e8ff', desc: 'ボスを累計1000体倒す' },
+  { key: 'end',          name: '終焉',       color: '#ff7a1a', desc: '敵を累計10万体倒す' },
 ];
 function playerTitleByKey(k) { return (typeof k === 'string' && PLAYER_TITLES.find(t => t.key === k)) || null; }
 // 称号を入手済みにする。新しく入手した時だけ、その定義を返す（すでに持っていれば null）
@@ -4101,6 +4103,8 @@ function checkStateTitles(save) {
   const kills = Number(save.soloTotalKills) || 0; // 翼の強化は、雑魚敵の累計撃破数で決まる
   if (kills >= WING_EVOLVE_KILLS) give('soulwing');
   if (kills >= WING_FULLGLOW_KILLS) give('fallenwing');
+  if ((Number(save.totalBossKills) || 0) >= 1000) give('judge'); // ボスの累計撃破数（totalBossKills：全モード）
+  if (kills + (Number(save.totalBossKills) || 0) >= 100000) give('end'); // 敵の累計撃破数（雑魚敵＋ボス）
   return added;
 }
 function currentTitleKey() { // 付けている称号のkey（入手済みのものだけ。エンディング演出中は付けない）
