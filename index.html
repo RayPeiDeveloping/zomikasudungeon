@@ -4077,7 +4077,7 @@ const SPECIAL_ACCS = [
 // 追加するときは、ここに1行足して、解放する場所で earnTitle('key')（ゲーム中）／ grantPlayerTitle('key')（それ以外）を呼ぶ。
 // 「前から条件を満たしていた人」に起動時に渡したいものは checkStateTitles に足す。
 const PLAYER_TITLES = [
-  { key: 'demonslayer',  name: '悪魔殺し',   color: '#ff4d4d', desc: '悪魔を倒す' },
+  { key: 'demonslayer',  name: '悪魔殺し',   color: '#000000', outline: '#a855ff', desc: '悪魔を倒す' }, // outline＝ふち（縁取り・光）の色。あれば、字は color（ここでは黒）のまま、ふちだけがこの色になる。無ければ、これまで通り（ゲーム中は黒いふち、ホームなどは color で光る）
   { key: 'angelhunter',  name: '天使狩り',   color: '#ffe27a', desc: 'ホームのボタンから天使を調伏する' },
   { key: 'killervessel', name: '殺戮者の器', color: '#c2185b', desc: 'エンディングを見る' },
   { key: 'soulwing',     name: '魂の翼',     color: '#6fe3ff', desc: '翼を2段階目に強化する（雑魚敵を累計20000体倒す）' }, // 翼の段階：1＝悪魔の腕輪／2＝1回目の進化(WING_EVOLVE_KILLS)／3＝2回目の進化(WING_FULLGLOW_KILLS)
@@ -4087,6 +4087,10 @@ const PLAYER_TITLES = [
   { key: 'end',          name: '終焉',       color: '#ff7a1a', desc: '敵を累計10万体倒す' },
 ];
 function playerTitleByKey(k) { return (typeof k === 'string' && PLAYER_TITLES.find(t => t.key === k)) || null; }
+// 称号の光（text-shadow用）：他の称号と同じ1重の光。色は、outline があればそれ、無ければ color
+function titleGlowCss(t, px) { return '0 0 ' + px + 'px ' + (t.outline || t.color); }
+// ゲーム中（Phaserの文字）：称号の色とふちの色を付け直す。ふちは outline があればその色、無ければ黒（太さは他の称号と同じ）
+function applyTitleTextStyle(txt, t) { txt.setColor(t.color); txt.setStroke(t.outline || '#000000', 3); }
 // 称号を入手済みにする。新しく入手した時だけ、その定義を返す（すでに持っていれば null）
 function grantPlayerTitle(key) {
   const def = playerTitleByKey(key); if (!def) return null;
@@ -4096,9 +4100,12 @@ function grantPlayerTitle(key) {
 // セーブの回数項目を1（n）増やす（デベロッパーモードなどの除外は、呼び出し側で行う）
 function addSaveCount(key, n) { const sv = loadSave(); sv[key] = (Number(sv[key]) || 0) + (n == null ? 1 : n); writeSave(sv); }
 // セーブの状態から決まる称号（すでに条件を満たしている人にも渡す）。save を書き換えて、新しく入手した定義の配列を返す（書き込みは呼び出し側）
+// 【テスト用】true の間は、条件に関係なく全ての称号を入手済みにする（起動時にセーブへ書き込まれるので、false に戻しても解放済みのまま。ロビーの「リセット」で消せる）。試し終わったら false に戻す。
+const TEST_UNLOCK_ALL_TITLES = false;
 function checkStateTitles(save) {
   const added = [];
   const give = k => { if (save.titles[k] !== true) { save.titles[k] = true; added.push(playerTitleByKey(k)); } };
+  if (TEST_UNLOCK_ALL_TITLES) PLAYER_TITLES.forEach(t => give(t.key));
   if (save.endingDone) give('killervessel');
   const kills = Number(save.soloTotalKills) || 0; // 翼の強化は、雑魚敵の累計撃破数で決まる
   if (kills >= WING_EVOLVE_KILLS) give('soulwing');
@@ -4516,7 +4523,7 @@ function accFxUpdate(fx, key, x, y, dt, alpha) {
 }
 // 【テスト用】true の間は、条件に関係なく全ての装飾品（エフェクト）を入手済みにして試せる。試し終わったら false に戻す。
 // 注意：起動時に入手済みとしてセーブへ書き込まれるので、false に戻しても解放済みのままになる（ロビーの「リセット」で消せる）。
-const TEST_UNLOCK_ALL_ACC = false;
+const TEST_UNLOCK_ALL_ACC = false; // 🛠 テスト用：true にすると、悪魔の装飾品（SPECIAL_ACCS）も含めて、起動時に全部入手済みになる
 // 条件を満たした装飾品を入手済みにする。今回新しく入手したものの配列を返す（save自体は呼び出し側で保存する）。
 function unlockAccessories(save) {
   const added = [];
@@ -5360,8 +5367,12 @@ class GameScene extends Phaser.Scene {
       rp.label.x = rp.gfx.x; rp.label.y = rp.gfx.y - 28;
       if (rp.titleLabel) { // 🏷 称号：名前の上に、その称号だけの色で出す（届いたkeyが一覧に無ければ出さない）
         const td = playerTitleByKey(p.title);
-        if (td !== rp._tdef) { rp._tdef = td; if (td) { rp.titleLabel.setText(td.name); rp.titleLabel.setColor(td.color); } }
-        rp.titleLabel.x = rp.gfx.x; rp.titleLabel.y = rp.gfx.y - 40;
+        if (td !== rp._tdef) { rp._tdef = td; if (td) { rp.titleLabel.setText(td.name); applyTitleTextStyle(rp.titleLabel, td); } }
+        // 画質：カメラのズーム（画面の高さ÷400）で拡大されてもぼやけないよう、文字をズーム×画面密度の解像度で作る（上限4）。
+        // 位置は画面の1ピクセルに合わせて丸める（小数の位置だとにじむ）。
+        const zm = (this.cameras.main.zoom || 1), tres = Math.max(1, Math.min(4, Math.ceil(zm * Math.min(2, window.devicePixelRatio || 1))));
+        if (rp._tres !== tres) { rp._tres = tres; rp.titleLabel.setResolution(tres); }
+        rp.titleLabel.x = Math.round(rp.gfx.x * zm) / zm; rp.titleLabel.y = Math.round((rp.gfx.y - 40) * zm) / zm;
       }
       rp.hpBarBg.x = rp.gfx.x; rp.hpBarBg.y = rp.gfx.y - 20;
       rp.hpBarFill.x = rp.gfx.x; rp.hpBarFill.y = rp.gfx.y - 20;
@@ -12111,7 +12122,7 @@ class GameScene extends Phaser.Scene {
   // 🏷 称号を入手した時のバナー：「称号を獲得！」の下に、その称号だけの色で名前を出す
   showTitleBanner(t) {
     const b = document.getElementById('banner'); if (!b || !t) return;
-    b.innerHTML = '<span style="font-size:0.62em;color:#fff;">称号を獲得！</span>\n<span style="color:' + t.color + ';letter-spacing:0.12em;text-shadow:0 0 1.6vh ' + t.color + ',0 0.3vh 0.3vh rgba(0,0,0,0.9);">「' + escapeHtml(t.name) + '」</span>';
+    b.innerHTML = '<span style="font-size:0.62em;color:#fff;">称号を獲得！</span>\n<span style="color:' + t.color + ';letter-spacing:0.12em;text-shadow:0 0 1.6vh ' + (t.outline || t.color) + ',0 0.3vh 0.3vh rgba(0,0,0,0.9);">「' + escapeHtml(t.name) + '」</span>';
     b.style.zIndex = '300'; b.style.top = '40vh'; b.style.color = ''; // 悪魔の問答・リザルト画面より手前の、画面の少し下
     b.style.display = 'block';
     clearTimeout(this._bannerTimeout);
@@ -24001,8 +24012,11 @@ class GameScene extends Phaser.Scene {
     { // 🏷 通信プレイ：自分の称号も、自分の頭上に出す（他のプレイヤーの画面と同じ、その称号だけの色。ゴースト中は出さない）
       const td = this.mp ? playerTitleByKey(this.titleKey) : null;
       if (td && this.player) {
-        if (!this._myTitleTxt || !this._myTitleTxt.scene) this._myTitleTxt = this.add.text(0, 0, td.name, { fontSize: '10px', color: td.color, fontFamily: 'sans-serif', fontStyle: 'bold', stroke: '#000000', strokeThickness: 3 }).setOrigin(0.5).setDepth(5);
-        this._myTitleTxt.x = this.player.x; this._myTitleTxt.y = this.player.y - 40;
+        if (!this._myTitleTxt || !this._myTitleTxt.scene) { this._myTitleTxt = this.add.text(0, 0, td.name, { fontSize: '10px', color: td.color, fontFamily: 'sans-serif', fontStyle: 'bold', stroke: '#000000', strokeThickness: 3 }).setOrigin(0.5).setDepth(5); applyTitleTextStyle(this._myTitleTxt, td); }
+        // 画質：他のプレイヤーの称号と同じ（ズーム×画面密度の解像度、位置は画面の1ピクセルに丸める）
+        const zm = (this.cameras.main.zoom || 1), tres = Math.max(1, Math.min(4, Math.ceil(zm * Math.min(2, window.devicePixelRatio || 1))));
+        if (this._myTitleRes !== tres || this._myTitleTxt._res0 !== true) { this._myTitleRes = tres; this._myTitleTxt._res0 = true; this._myTitleTxt.setResolution(tres); }
+        this._myTitleTxt.x = Math.round(this.player.x * zm) / zm; this._myTitleTxt.y = Math.round((this.player.y - 40) * zm) / zm;
         this._myTitleTxt.setVisible(!this.isGhost);
       } else if (this._myTitleTxt && this._myTitleTxt.scene) this._myTitleTxt.setVisible(false);
     }
@@ -29920,7 +29934,7 @@ function openAccModal() {
 document.getElementById('accModalClose').addEventListener('click', () => { accModal.style.display = 'none'; });
 accModal.addEventListener('click', e => { if (e.target === accModal) accModal.style.display = 'none'; });
 // 過去の記録（最高到達階層など）で条件を満たしていた装飾品を、起動時に入手済みにする
-(function unlockOnBoot() { const s0 = loadSave(); const a0 = unlockAccessories(s0).length, t0 = checkStateTitles(s0); if (a0 || t0.length) writeSave(s0); if (t0.length) setTimeout(() => showLobbyTitleToast(t0), 600); })();
+(function unlockOnBoot() { const s0 = loadSave(); const a0 = unlockAccessories(s0).length, t0 = checkStateTitles(s0); let sp0 = false; if (TEST_UNLOCK_ALL_ACC) SPECIAL_ACCS.forEach(a => { if (!s0.specialAccs[a.key]) { s0.specialAccs[a.key] = true; sp0 = true; } }); if (a0 || t0.length || sp0) writeSave(s0); if (t0.length) setTimeout(() => showLobbyTitleToast(t0), 600); })();
 renderAccPicker();
 // ---- 🏷 称号：ホーム画面の「プレイヤー名」の場所に、付けている称号を出す。押すと選択画面 ----
 const titlePickBtn = document.getElementById('titlePickBtn');
@@ -29930,7 +29944,7 @@ function renderTitlePickBtn() {
   titlePickBtn.appendChild(document.createTextNode('称号：'));
   const nm = document.createElement('span');
   nm.textContent = def ? def.name : 'なし';
-  if (def) { nm.style.color = def.color; nm.style.textShadow = '0 0 8px ' + def.color; nm.style.fontWeight = 'bold'; }
+  if (def) { nm.style.color = def.color; nm.style.textShadow = titleGlowCss(def, 8); nm.style.fontWeight = 'bold'; }
   titlePickBtn.appendChild(nm);
   titlePickBtn.classList.remove('has');
 }
@@ -29939,7 +29953,7 @@ function openTitleModal() {
   const owned = PLAYER_TITLES.filter(t => s.titles[t.key] === true); // 入手していない称号は、見せない
   const cur = currentTitleKey();
   list.innerHTML = owned.length ? owned.map(t => '<div class="titleRow' + (cur === t.key ? ' sel' : '') + '" data-key="' + escapeHtml(t.key) + '">'
-    + '<div class="tName" style="color:' + t.color + ';text-shadow:0 0 8px ' + t.color + '">' + escapeHtml(t.name) + '</div>'
+    + '<div class="tName" style="color:' + t.color + ';text-shadow:' + titleGlowCss(t, 8) + '">' + escapeHtml(t.name) + '</div>'
     + '<div class="tDesc">' + escapeHtml(t.desc) + '</div>'
     + '<div class="tState">' + (cur === t.key ? '✔ 装備中' : 'タップで装備') + '</div></div>').join('')
     : '<div class="titleEmpty">まだ称号を持っていません</div>';
@@ -29959,7 +29973,7 @@ renderTitlePickBtn();
 function showLobbyTitleToast(defs) {
   let el = document.getElementById('titleToast');
   if (!el) { el = document.createElement('div'); el.id = 'titleToast'; document.body.appendChild(el); }
-  el.innerHTML = '<div style="font-size:12px;color:#fff;">称号を獲得！</div>' + defs.map(d => '<div style="color:' + d.color + ';text-shadow:0 0 10px ' + d.color + ';">「' + escapeHtml(d.name) + '」</div>').join('');
+  el.innerHTML = '<div style="font-size:12px;color:#fff;">称号を獲得！</div>' + defs.map(d => '<div style="color:' + d.color + ';text-shadow:' + titleGlowCss(d, 10) + ';">「' + escapeHtml(d.name) + '」</div>').join('');
   el.style.display = 'block'; clearTimeout(el._t); el._t = setTimeout(() => { el.style.display = 'none'; }, 3800);
   try { renderTitlePickBtn(); } catch (e) {}
 }
