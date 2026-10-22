@@ -2104,7 +2104,7 @@ function openStairs(onClose, opt) {
     const b = ac.createOscillator(), bg = ac.createGain(); b.type = 'sine'; b.frequency.setValueAtTime(90, t0); b.frequency.exponentialRampToValueAtTime(30, t0 + 0.5); bg.gain.setValueAtTime(0.9, t0); bg.gain.exponentialRampToValueAtTime(0.001, t0 + 0.6); b.connect(bg); bg.connect(master); b.start(t0); b.stop(t0 + 0.65);
   } catch (e) { /* 何もしない */ } };
   const stChaseSpeed = (at, total, sp0, DELAY, REACT) => { // 🏃 化け物の速さ：「いまの踊り場(sp0)から、REACT秒あとに走り出して、化け物と同じ向きへ走り続ければ」化け物が扉に入るまで、ずっと約3m以上はなれている（＝ギリギリ捕まらない）速さを、道のりから計算する
-    const VP = 2.8 * 1.8, GAP = 3.0; // VP＝走る速さ(水平)／GAP＝いちばん近づいた時の、化け物との道のりの差(m)
+    const VP = 2.8 * 1.8, GAP = 4.0; // VP＝走る速さ(水平)／GAP＝いちばん近づいた時の、化け物との道のりの差(m)
     const runner = []; let u = sp0; for (let n = 0; n < 3000; n++) { runner.push(u); if (n * 0.02 >= REACT) { const q = at(u), h = Math.hypot(q.dx, q.dz), len = Math.hypot(q.dx, q.dy, q.dz); u += VP * 0.02 * (u < total && h > 1e-6 ? len / h : 1.1); } } // 0.02秒ごとの、走る自分の位置（斜めの階段は、その分だけ道のりが長い。扉の先も走り続ける）
     const ok = v => { for (let n = 0; n < runner.length; n++) { const t = n * 0.02, m = Math.min(total, Math.max(0, v * (t - DELAY))); if (runner[n] - m < GAP) return false; if (m >= total) return true; } return true; };
     let lo = 4.2, hi = 40; if (!ok(lo)) return lo; for (let t = 0; t < 30; t++) { const mid = (lo + hi) / 2; if (ok(mid)) lo = mid; else hi = mid; } return lo; // 速さの上限は設けない
@@ -2113,7 +2113,7 @@ function openStairs(onClose, opt) {
       if (stairTickers.length) return false; // もう何か動いている時は起こさない
       const rm = ctx.remote || null; // rm＝ほかの人が起こしたイベントを、こちらでも同じように見せる時の情報 { el＝起きてからの経過秒 }
       if (!rm) stEvOut = { id: o.id, d: o.dir, f: ctx.floor, k: Math.random().toString(36).slice(2, 10), t: Math.round(stNow()) }; // 自分が起こした：「どの階で・いつ」をほかの人に配る（階段も化け物の動きも式だけで決まるので、これだけで全員に同じものが見える）
-      const dn = ctx.floor - 1, up = o.dir >= 0, DELAY = o.DELAY, CATCH_H = 1.6, CATCH_V = 1.8; // dn＝自分のいる踊り場の番号／up＝下から上へ向かう化け物か（false なら、上から下へ）
+      const dn = ctx.floor - 1, up = o.dir >= 0, DELAY = o.DELAY, CATCH_H = 1.6, CATCH_V = 1.8, CATCH_W = 2.7; // dn＝自分のいる踊り場の番号／up＝下から上へ向かう化け物か（false なら、上から下へ）
       const jLow = up ? dn - 1 : dn - 3, jHigh = up ? dn + 3 : dn + 1, j0 = up ? jLow : jHigh, jEnd = up ? jHigh : jLow, yLo = jLow * R - 3, yHi = jHigh * R + 3; // j0＝化け物が出てくる扉の階／jEnd＝入っていく扉の階（自分のいる階から、進む向きに3つ先）／yLo〜yHi＝通り道の高さの範囲
       // // j0＝出てくる扉の階（いまの1つ下）／jEnd＝入っていく扉の階（いまの3つ上）
       let SPD = 4.2; // SPD＝化け物の速さ（m/秒）。このあと、道のりと「自分のいる踊り場」の位置から計算し直す
@@ -2194,7 +2194,7 @@ function openStairs(onClose, opt) {
           eyeMat.color.setRGB(1, 0.1 + 0.1 * Math.sin(t * 9), 0.1);
           stepT += dt; if (stepT > 0.24 / Math.min(4, SPD / 4.2)) { stepT = 0; { const d = Math.hypot(P.x - q.x, P.y - q.y, P.z - q.z); stairThud(Math.pow(Math.max(0, 1 - d / 22), 2) * 2.0); camShake = Math.max(camShake, Math.pow(Math.max(0, 1 - d / 14), 2) * 1.2); } } // 近いほど大きい足音・大きい揺れ
           if (!endOpened && s >= endOpenAt) { endOpened = true; openDoor(jEnd); }
-          if (Math.hypot(P.x - q.x, P.z - q.z) < CATCH_H && Math.abs(P.y - q.y) < CATCH_V) { phase = 3; scareT = 0; scareLock = true; sprintBoost = false; catchAng = Math.atan2(-(q.x - P.x), -(q.z - P.z)); scareFx = document.createElement('div'); scareFx.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:4;background:#fff;'; ctx.root.appendChild(scareFx); stairScream(); return false; } // 追いつかれた：恐怖演出のあと即死
+          if ((Math.hypot(P.x - q.x, P.z - q.z) < CATCH_H || ((q.x < 0 || q.x > L) && (P.x < 0 || P.x > L) && Math.abs(P.x - q.x) < CATCH_H && Math.abs(P.z - q.z) < CATCH_W)) && Math.abs(P.y - q.y) < CATCH_V) { phase = 3; scareT = 0; scareLock = true; sprintBoost = false; catchAng = Math.atan2(-(q.x - P.x), -(q.z - P.z)); scareFx = document.createElement('div'); scareFx.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:4;background:#fff;'; ctx.root.appendChild(scareFx); stairScream(); return false; } // 追いつかれた：恐怖演出のあと即死
           if (s >= total) { phase = 2; tm = 0; mon.visible = false; rattleSnd(); sprintBoost = false; ctx.toast('化け物は扉の中へ消えた…', 3000); }
           return false;
         },
