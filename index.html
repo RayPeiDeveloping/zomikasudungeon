@@ -2093,8 +2093,79 @@ function openPartyHall(onClose, opt) {
 //   部屋の中の座標は「ピクセル」で、PARTY_SLOTS などはその座標。マップは generatePartyMap()、飾りと調べる操作は GameScene の setupParty / _updateParty / _drawParty。
 const PARTY_SLOTS = [[60, 40], [130, 40], [200, 40], [440, 40], [510, 40], [580, 40], [16, 150], [16, 300], [624, 150], [624, 300], [110, 390], [530, 390], [16, 225], [16, 375], [624, 225], [624, 375], [60, 432], [190, 432], [450, 432], [580, 432]]; // メモを貼る場所（最大20枚。13枚目以降は左右の壁の間と下の壁に貼る）
 const PARTY_BALLOONS = [[90, 150], [550, 170], [120, 300], [520, 320], [240, 120], [60, 235]];
+const PARTY_OPEN_TO_ALL = true; // 🧪 テスト用：true の間は、エンディングを見ていない人（endingDone でない人）も、合言葉を入れればパーティールームに入れる。公開する前に false に戻す
 const PARTY_MEMOS_READABLE = true; // 📋 true の間は、パーティールームのメモをプレイヤーが読める（近づいて調べられる）。false にすると読めなくなる
 const PARTY_PORTAL = { i: -2, portal: true, x: 320, y: 118 }; // 🌿 草原への入口（メモと同じ要領で、近づいて E／タップ）
+const VS_HERO = { // ⚔ vs主人公の調整値
+  duelTiles: 9,        // 自分と敵の間のマス数
+  moveSpeed: 1.0,      // 自由に動く速さ（ふつうの移動速度の何倍か）
+  stepDead: 0.2,       // 移動スティックのデッドゾーン（これ未満は動かない）
+  screenMargin: 4,     // 画面の端から、これだけ内側までしか動けない（px）
+  slashSpeed: 1520,     // 斬撃の速さ（px/秒）
+  slashTurn: 6.0,      // 斬撃をスティックで曲げられる速さ（ラジアン/秒。大きいほど曲げやすい）
+  slashCooldown: 0.5,  // 次に撃てるまでの秒数
+  slashDamage: 40,     // 斬撃が敵に当たった時のダメージ
+  slashLife: 2.2,      // 斬撃が消えるまでの秒数
+  slashRadius: 16,     // 斬撃の当たり判定の半径（px）
+  slashColor: 0xffc933, // 自分の斬撃の色
+  sparkColor: 0xffc933,    // 自分の火花の色（本物の火花っぽい黄色。斬撃そのものの色は slashColor のまま）
+  sparkHot: 0xfff4b8,      // 火花のうち、ときどき混ざる芯の明るい色（白っぽい黄色）
+  // --- 敵の動き（画面内を動き回り、まっすぐ飛んでくる斬撃は避ける。曲げないと当たらない） ---
+  enemyMoveSpeed: 150,     // 敵が動き回る速さ（px/秒）
+  enemyRoamLeft: 0.45,     // 敵が動ける範囲：画面の左から、この割合より右側（0＝画面全体）
+  enemyMinDist: 128,       // 敵が、自分にこの距離（px）より近い所へは行かない
+  enemyWaitMin: 0.15,      // 目的地に着いてから、次へ動き出すまでの秒（最短）
+  enemyWaitMax: 0.7,       // 同、最長
+  dodgeEnabled: false,      // 敵が自分の斬撃をシュンと避けるか（true＝避ける、false＝避けない）。避ける場合は、下の dodge～ の値が使われる
+  dodgeRange: 320,         // 自分の斬撃が、この距離（px）まで近づいて、このまま進むと当たるなら、敵が横へ避ける
+  dodgePad: 14,            // 当たりそうかの判定に足す余裕（px。大きいほど、早めに避ける）
+  dodgeSpeed: 420,         // 避ける速さ（px/秒）
+  dodgeTime: 0.22,         // 避ける秒数（速さ×秒数＝避ける距離）
+  dodgeCd: 0.7,            // 避けたあと、次に避けられるようになるまでの秒（この間に曲げた斬撃を当てる）
+  // --- 敵の攻撃 ---
+  enemyFirstDelay: 1.0,    // 戦いが始まってから、最初に撃つまでの秒数
+  enemyIntervalMin: 0.1,   // 次に撃つまでの間隔（秒）の最短
+  enemyIntervalMax: 0.3,   // 同、最長
+  enemyAimLock: 0.12,       // 撃つ何秒前に、向きを固定するか（予告の間は自分を追って向きを変え、ここから先は変えない）
+  enemyTelegraph: 0.3,     // 撃つ前の予告の秒数（狙うマスが赤く光り、線が出る）
+  enemySlashSpeed: 1280,    // 敵の斬撃の速さ（px/秒）
+  enemySlashTurn: 2.0,     // 敵の斬撃が、撃ったあとも、ずっと自分の方へ向きを変え続ける速さ（ラジアン/秒。大きいほど追ってくる。予告線の向きには縛られない）
+  flankChance: 0.35,       // 敵の攻撃のうち、大きく回り込んで上や下から来る斬撃になる割合（0〜1）
+  flankAngle: 0.8,         // 回り込む斬撃が、最初に自分の方向から上か下へそれる角度（ラジアン）
+  flankTurn: 7.6,          // 回り込む斬撃が、自分の方へ曲がる速さ（ラジアン/秒。大きいほど小回り）
+  enemyCommitDist: 260,    // 追尾する斬撃は、自分にこの距離（px）まで近づき、向きがほぼ合ったら、追尾をやめて直進する（ここから先は横にずれれば避けられる）
+  enemyCommitAng: 0.35,    // 「向きがほぼ合った」とみなす角度のずれ（rad）
+  flankHomeTime: 2.2,      // 回り込む斬撃が、自分を追う秒数（これを過ぎるとまっすぐ飛ぶ。slashLife と同じなら、消えるまでずっと追う）
+  enemySlashRadius: 12,    // 敵の斬撃の当たり判定の半径（px）
+  enemySlashDamage: 20,    // 敵の斬撃が当たった時のダメージ
+  enemySlashColor: 0xff4a4a, // 敵の斬撃の色
+  clashRadius: 34,         // 自分の斬撃と敵の斬撃がこの距離まで近づくと、ぶつかって弾き合う（速いので、すり抜けないよう大きめ）
+  clashDeflect: 1.3,       // ぶつかった時に、お互いが外側へ大きく曲がる角度（ラジアン。1.3≒75度）
+  clashCooldown: 0.35,     // 弾き合ったあと、この秒数のあいだは、同じ斬撃どうしで再びぶつからない
+  clashLock: 0.45,         // 弾き合ったあと、この秒数のあいだは、曲がった向きを保つ（スティック・追尾で向きが戻らない）
+  invuln: 0.6,             // 被弾したあとの無敵の秒数
+  // --- 斬撃が地面に残す跡（自分の斬撃も敵の斬撃も、通った道すじに斬られたような傷が残り、だんだん薄れて消える） ---
+  scarLife: 5.0,           // 跡が残る秒数（最後の scarFade 秒でだんだん薄くなる）
+  scarFade: 2.0,           // 消えていく秒数
+  scarWidth: 6,            // 跡の太さ（px。斬撃が出た所が最も太く、だんだん細くなる）
+  scarMax: 2600,           // 跡の線分の最大数（これを超えたら古い順に消す）
+  scarStep: 5,             // 何px進むごとに跡の線分を1つ足すか（小さいほどなめらかだが重くなる）
+  // --- スローモーション（敵の斬撃が自分に近づくと、全体がゆっくりになる） ---
+  slowRange: 200,          // 敵の斬撃が、自分からこの距離（px）より近づくと、遅くなり始める
+  slowFull: 70,            // この距離（px）まで近づくと、最も遅くなる
+  slowMin: 0.25,           // 最も遅い時の速さ（1＝ふつう。0.25＝4分の1）
+  slowEase: 10,                        // 速さの変わりやすさ（大きいほど、すぐ切り替わる）
+  // --- 血しぶき（斬撃が、自分にも敵にも当たるたびに散る。地面に落ちた血は、しばらく残ってから消える） ---
+  bloodCount: 26,          // 1回当たるたびに散る血の粒の数
+  bloodLife: 6.0,          // 地面に落ちた血が残る秒数（最後の bloodFade 秒でだんだん薄くなる）
+  bloodFade: 2.0,          // 消えていく秒数
+  bloodMax: 900,           // 血の粒の最大数（これを超えたら古い順に消す）
+  bloodColor: 0xb3141a,    // 血の色（明るい方）
+  bloodDark: 0x7d0d12,     // 血の色（暗い方。粒ごとに、この2色のどちらかがランダムに混ざる）
+  faceBarLen: 14,          // 敵の「向きを示す白い棒」の長さ（px）。自分のものと同じ
+  faceBarGap: 8            // 敵の体の縁から、白い棒の中心までの距離（px）
+};
+const PARTY_PORTAL_HERO = { i: -4, portal: true, hero: true, x: 220, y: 118 }; // ⚔ vs主人公への入口（入るとボス部屋へ飛ぶ。装飾品は全部持っていけない）
 const PARTY_PORTAL_SOCIAL = { i: -3, portal: true, social: true, x: 420, y: 118 }; // 🎙 みんなの広場（洋室）への入口（同じ部屋の人と一緒に入って、歩き回りながらボイスチャット）
 function generatePartyMap() {
   const width = 20, height = 15; // 640×480（部屋は640×448。いちばん下の1行は扉の裏）
@@ -4572,14 +4643,15 @@ class GameScene extends Phaser.Scene {
     this.titleKey = playerTitleByKey(app.title) ? app.title : null; // 🏷 付けている称号のkey
     this.playerColor = (typeof app.color === 'number') ? app.color : 0x5bd1ff;
     this._bh = null; // ブラックホールのビームの状態（毎回作り直す）
-    this.accKey = ((!app.arms4Ritual || app.endingRitual) && accessoryByKey(app.acc)) ? app.acc : ''; // 付けている装飾品のkey（無ければ''）。四つ腕の調伏の儀は装飾品なし
+    this.vsHero = !this.mp && !!app.vsHero; // ⚔ vs主人公（ボス部屋。装飾品は全部持っていけない）
+    this.accKey = (!this.vsHero && (!app.arms4Ritual || app.endingRitual) && accessoryByKey(app.acc)) ? app.acc : ''; // 付けている装飾品のkey（無ければ''）。四つ腕の調伏の儀は装飾品なし
     this._usedAccKeys = this.accKey ? [this.accKey] : []; // リザルト用：このゲーム中に付けた装飾品のkey（最初から付けていたものも含む。付けた順）
     this._skFx = []; this._skG = null; this._skT = 0; // 🔪 シリアルキラーの斬撃線
     this._clkOn = false; this._clkMine = false; this._clkCd = 0; this._clkLeft = 0; // 🕒 時計：発動中か／次に使えるまでの秒数（最初は使える）
     try { if (this.time) this.time.timeScale = 1; if (this.tweens) this.tweens.timeScale = 1; } catch (e) { /* 初回起動前 */ }
     { const o = document.getElementById('clockOverlay'); if (o) o.style.display = 'none'; const cb = document.getElementById('clockBtn'); if (cb) cb.style.display = 'none'; }
     this._spUndead = undefined; this._spWings = false; this._godAccGone = false; this._rootReviveOn = false; this._rootRevive = 0; this._rootRed = 0; this._godRF = null; this._neckFloor = null; this._spT = 0; // 特別な装飾品を付けているかの記録（1回の挑戦ごとに取り直す）
-    this.limitedKey = (app.arms4Ritual && !app.endingRitual) ? '' : limitedEquippedKey(); /* 通常の天使・調伏の儀は、限定武器の固定もなし */ // 限定武器の装飾品を付けていれば、その装飾品のkey（付けている間、武器はその限定武器で固定される）
+    this.limitedKey = (this.vsHero || (app.arms4Ritual && !app.endingRitual)) ? '' : limitedEquippedKey(); /* 通常の天使・調伏の儀は、限定武器の固定もなし */ // 限定武器の装飾品を付けていれば、その装飾品のkey（付けている間、武器はその限定武器で固定される）
     this.skullRevives = this.accKey === 'skull' ? SKULL_WISPS : 0; // ドクロ：残りの鬼火の数＝あと何回生き返れるか（1回の挑戦ごとに SKULL_WISPS 個）
     this._initAccKey = this.accKey; // 「もう一度」でやり直す時に、この状態（ロビーで付けていた装飾品）へ戻すために覚えておく
     this._paused = false; this._pauseAt = 0; this._pbChkAt = null; { const po = document.getElementById('pauseOverlay'); if (po) po.style.display = 'none'; const pb = document.getElementById('pauseBtn'); if (pb) { pb.style.display = 'none'; setPauseIcon(pb, false); } } // ⏸ ポーズは、始めるたびに解除しておく
@@ -4625,7 +4697,7 @@ class GameScene extends Phaser.Scene {
     if (this._rlEffect === 'purple') { this._rlBarFn = () => this._rlPurpleBars(); this.events.on('postupdate', this._rlBarFn); this.events.once('shutdown', () => this.events.off('postupdate', this._rlBarFn)); } // 🎰 紫：実際のHPは半分だが、HPバーは「通常の最大HPに対する割合」で見せる（最大値そのものは変えない＝回復する敵などの処理に影響しない）
     this._dsFn = () => this._demonSensor(); this.events.on('postupdate', this._dsFn); const _dsOff = () => { this.events.off('postupdate', this._dsFn); const c = document.getElementById('demonSensor'); if (c) c.remove(); this._dsCv = null; }; this.events.once('shutdown', _dsOff); this.events.once('destroy', _dsOff); // 🔴 悪魔センサー（残りの敵が少ない時、画面の端が赤く光る）
     this._ghostFloorOn = !this.mp && !!app.ghostFloor; this._gf = null; // 👻 ロビーの番号が library/ghostfloor と同じなら、1階に隠しゴースト（ソロ専用）
-    this.bossRush = !this.mp && !!app.bossRush; // ボスラッシュ（ソロ専用）
+    this.bossRush = !this.mp && (!!app.bossRush || this.vsHero); // vs主人公は、ボスラッシュと同じボス部屋を使う // ボスラッシュ（ソロ専用）
     this.nightmare = !this.mp && !!app.nightmare; // ナイトメア（ソロ専用）：通常のダンジョンに「壁の裏が見えない」視界をつける
     this.pvp = !!app.pvp && this.mp; // PvPモード（協力ルーム専用）
     this.party = !!app.party && this.mp; // 🎉 パーティールーム（協力ルーム専用。敵も宝箱もない、おまけの部屋）
@@ -4673,7 +4745,7 @@ class GameScene extends Phaser.Scene {
       app.hellTest = false;
       if (!this.mp && !this.pvp && !this.frontline && !this.bossRush) { this.hell = true; this._hellDest = this.floor; this._hellT0 = performance.now(); }
     }
-    this.rushWeaponKey = ((!this.mp && (app.bossRush || app.arms4Ritual)) || app.frontline || app.pvp) ? (app.rushWeaponKey || null) : null;
+    this.rushWeaponKey = ((!this.mp && (app.bossRush || app.arms4Ritual || app.vsHero)) || app.frontline || app.pvp) ? (app.rushWeaponKey || null) : null;
     // ボスラッシュでは選んだ武器のLv.5でスタートする（デベロッパーモードの開始武器と同じ仕組みを流用）
     this.devWeaponKey = this.rushWeaponKey || app.devWeaponKey || null;
     this._endingNext = !this.mp && !this.bossRush && !this.frontline && !app.arms4Ritual && !!ENDING_STATE.next && isGodFloorSeed(this.baseSeed); // エンディングの続き：主人公の強力な根（二倍の本数）で始まり、壁越しにすべての敵を掴む
@@ -6214,6 +6286,7 @@ class GameScene extends Phaser.Scene {
   // ボスラッシュ：ボスの種類をシャッフルして順番に出す（一巡するまで同じ種類は出ない。
   // 次の一巡の最初が直前のボスと同じにならないようにする）。撃破するごとに少しずつ強くなる。
   spawnBossRushBoss() {
+    if (this.vsHero) { this.spawnVsHero(); return; }
     // 【テスト用】ここにボスのkeyを入れると、ボスラッシュで毎回そのボスだけが出る（出現率100%）。
     // 通常の抽選（全ボスをシャッフルして順番に）に戻すときは null にする。
     const TEST_FORCE_BOSS = null;
@@ -6264,6 +6337,321 @@ class GameScene extends Phaser.Scene {
     if (bossType.initialChargeDelay) {
       this.enemies[0].chargeLock = bossType.initialChargeDelay;
       this.enemies[0].chargeLockMax = bossType.initialChargeDelay;
+    }
+  }
+
+  // ⚔ vs主人公：ボス部屋に、エンディングの主人公と同じ見た目（青い体＋シリアルキラーの赤い目）の敵が1体立っている。
+  //   ★まだ動かない・攻撃しない（動きは今後ここに足す）。HPバーとボス名だけ出る。
+  spawnVsHero() {
+    const sl = ENEMY_TYPES.find(t => t.key === 'slime');
+    const type = this._vsHeroType || (this._vsHeroType = Object.assign({}, sl, { key: 'vshero', isBoss: true, bossLabel: '', displayName: '主人公', color: 0x5bd1ff, radius: TILE * 0.32, hp: 1000, speed: 0, damage: 0, noContactDamage: true, aggroRange: 0 }));
+    const room = this.dungeon.rooms[0];
+    const bx = (room.x + room.w - 6 + 0.5) * TILE, by = (room.y + room.h / 2 + 0.5) * TILE; // マスの真ん中に立つ
+    const gfx = this.add.circle(bx, by, type.radius, type.color).setDepth(4);
+    const hpBar = this.add.rectangle(bx, by - type.radius - 10, type.radius * 2, 6, 0xff5b5b).setDepth(4);
+    const label = this.add.text(bx, by - type.radius - 22, '主人公', { fontSize: '12px', color: '#ffd54c', fontStyle: 'bold', fontFamily: 'sans-serif' }).setOrigin(0.5).setDepth(4);
+    const bossId = this.floor + '_boss';
+    this.bossGroupCounts = this.bossGroupCounts || {};
+    this.bossGroupCounts[bossId] = 1;
+    this.enemies = [{ id: bossId, type, gfx, hpBar, label, hp: type.hp, maxHp: type.hp, damage: 0, state: 'idle', timer: 0, dirX: 0, dirY: 0, hitCooldown: 0, bossGroupId: bossId, _bossScale: 1 }];
+    this.showBossUi(type, bossId);
+    if (this._vsHeroG && this._vsHeroG.scene) this._vsHeroG.destroy();
+    this._vsHeroG = this.add.graphics().setDepth(4.5); // 赤い目を描く板
+    // ⚔ 位置は固定：敵は bx,by、自分はそこから duelTiles マス手前の同じ高さ。ここが開始位置（画面の中なら自由に動ける）
+    this._vhEnemyHome = { x: bx, y: by };
+    this._vhHome = { x: bx - VS_HERO.duelTiles * TILE, y: by };
+    this._vhRoam = null; this._vhCell = { x: 0, y: 0 }; this._vhSlashes = []; this._vhParts = []; this._vhTris = []; this._vhSparks = []; this._vhScars = []; this._vhGhosts = []; this._vhBloods = [];
+    this._vhWasHeld = false; this._vhCd = 0;
+    this._vhEn = { cd: VS_HERO.enemyFirstDelay, tele: 0, ang: 0, tx: 0, ty: 0 }; // 敵の攻撃の状態
+    this.player.x = this._vhHome.x; this.player.y = this._vhHome.y;
+    this._vhCamLock(); // カメラは自分と敵の真ん中に固定（自分を追わない）
+    for (const k of ['_vhFx', '_vhGrid', '_vhScarG', '_vhFace']) if (this[k] && this[k].scene) this[k].destroy();
+    this._vhGrid = this.add.graphics().setDepth(1);   // （使わない）
+    this._vhScarG = this.add.graphics().setDepth(1.5); // 🗡 地面に残る斬撃の跡（キャラクターより下）
+    this._vhFace = this.add.rectangle(0, 0, VS_HERO.faceBarLen, 3, 0xffffff).setDepth(5).setVisible(false); // 敵の「向きを示す白い棒」（自分のと同じ見た目）
+    this._vhFx = this.add.graphics().setDepth(4.8);   // 斬撃・火花・残像
+  }
+  // 毎フレーム：主人公の敵の赤い目（シリアルキラーと同じ描き方）を描き、斬撃などを進める
+  _updateVsHero(t, dt) {
+    const g = this._vsHeroG; if (!g || !g.scene) return; g.clear();
+    this._vhCamLock();
+    // 🐌 スローモーション：敵の斬撃が自分に近づくほど遅くなる（斬撃・敵・火花・自分の動きが全部遅くなる）
+    const V = VS_HERO; let near = 1e9;
+    if (this.player && this._vhSlashes) for (const q of this._vhSlashes) if (!q.dead && q.owner === 'e') near = Math.min(near, Math.hypot(q.x - this.player.x, q.y - this.player.y));
+    const want = near >= V.slowRange ? 1 : (near <= V.slowFull ? V.slowMin : V.slowMin + (1 - V.slowMin) * (near - V.slowFull) / (V.slowRange - V.slowFull));
+    const k = Math.min(1, V.slowEase * dt); this._vhTs = (this._vhTs == null ? 1 : this._vhTs) + (want - (this._vhTs == null ? 1 : this._vhTs)) * k;
+    dt *= this._vhTs; // 以降の動きは、遅くなった時間で進む
+    this._vhTick(t, dt);
+    const e = this.enemies && this.enemies.find(x => x.type && x.type.key === 'vshero');
+    if (!e || !e.gfx || !e.gfx.scene || !this.player) return;
+    const face = Math.atan2(this.player.y - e.gfx.y, this.player.x - e.gfx.x);
+    ACC_FX.serialkiller(g, { face, gt: g }, e.gfx.x, e.gfx.y, t, dt, e.gfx.alpha);
+  }
+  // ⚔ カメラ：自分と敵の真ん中に固定して、自分を追わない（毎フレーム呼んで、ほかの処理で追従が戻っても固定し直す）
+  _vhCamLock() {
+    const a = this._vhHome, b = this._vhEnemyHome, cam = this.cameras.main; if (!a || !b || !cam) return;
+    cam.stopFollow(); cam.centerOn((a.x + b.x) / 2, (a.y + b.y) / 2);
+  }
+  // ⚔ 移動：スティック（または WASD）で、画面の中ならどこでも自由に動ける（壁には、ぶつかって止まる）
+  _vhStep(dx, dy, dt) {
+    if (!this.player) return;
+    const V = VS_HERO, cam = this.cameras.main, r = this.player.radius;
+    const m = Math.hypot(dx, dy);
+    if (m > V.stepDead && !this.isGhost && !this.isDowned) {
+      const sp = (this.speed || PLAYER_BASE_SPEED) * V.moveSpeed * Math.min(1, m);
+      const ux = dx / m, uy = dy / m;
+      this._vhGhostT = (this._vhGhostT || 0) - dt;
+      if (this._vhGhostT <= 0) { this._vhGhosts.push({ x: this.player.x, y: this.player.y, t: 0.22 }); this._vhGhostT = 0.04; } // 動いている間は、残像を残す
+      const nx = this.player.x + ux * sp * dt, ny = this.player.y + uy * sp * dt;
+      if (!this.circleHitsWall(nx, this.player.y, r)) this.player.x = nx; // 壁にそって、すべる
+      if (!this.circleHitsWall(this.player.x, ny, r)) this.player.y = ny;
+    }
+    const wv = cam.worldView; // いま見えている範囲の外には出られない
+    if (wv) {
+      const mg = V.screenMargin + r;
+      this.player.x = Phaser.Math.Clamp(this.player.x, wv.x + mg, wv.right - mg);
+      this.player.y = Phaser.Math.Clamp(this.player.y, wv.y + mg, wv.bottom - mg);
+    }
+  }
+  // ⚔ 敵の動き：画面の右側を、あちこちへ動き回る。自分の斬撃がまっすぐ当たりそうなら、横へさっと避ける（避けたあとは少しの間、避けられない）
+  _vhEnemyMove(e, dt) {
+    const V = VS_HERO, cam = this.cameras.main, wv = cam.worldView, g = e.gfx, r = e.type.radius;
+    if (!wv || !this.player || !g || !g.scene) return;
+    const R = this._vhRoam || (this._vhRoam = { tx: g.x, ty: g.y, wait: 0.5, dT: 0, dx: 0, dy: 0, cd: 0 });
+    R.cd = Math.max(0, R.cd - dt);
+    const mg = V.screenMargin + r, x0 = wv.x + wv.width * V.enemyRoamLeft, x1 = wv.right - mg, y0 = wv.y + mg, y1 = wv.bottom - mg;
+    if (V.dodgeEnabled && R.dT <= 0 && R.cd <= 0) { // 自分の斬撃が、このまま進んで当たりそうなら、斬撃の進む向きと直角に避ける
+      for (const s of this._vhSlashes) {
+        if (s.dead || s.owner !== 'p') continue;
+        const hx = Math.cos(s.a), hy = Math.sin(s.a), rx = g.x - s.x, ry = g.y - s.y;
+        const along = rx * hx + ry * hy, sd = ry * hx - rx * hy; // along＝斬撃の前方までの距離／sd＝進路からの横のずれ
+        if (along <= 0 || along > V.dodgeRange || Math.abs(sd) > r + V.slashRadius + V.dodgePad) continue;
+        const sg = Math.abs(sd) < 2 ? (Math.random() < 0.5 ? 1 : -1) : Math.sign(sd);
+        let ddx = -hy * sg, ddy = hx * sg;
+        const qx = g.x + ddx * 50, qy = g.y + ddy * 50;
+        if (this.circleHitsWall(qx, qy, r) || qx < wv.x + mg || qx > x1 || qy < y0 || qy > y1) { ddx = -ddx; ddy = -ddy; } // 壁や画面の端なら、反対側へ
+        R.dx = ddx; R.dy = ddy; R.dT = V.dodgeTime; R.cd = V.dodgeCd;
+        break;
+      }
+    }
+    let vx = 0, vy = 0;
+    if (R.dT > 0) { R.dT -= dt; vx = R.dx * V.dodgeSpeed; vy = R.dy * V.dodgeSpeed; }
+    else {
+      const dd = Math.hypot(R.tx - g.x, R.ty - g.y);
+      if (dd < 8) {
+        R.wait -= dt;
+        if (R.wait <= 0) { // 次の目的地：自分から離れた、壁でない所
+          for (let n = 0; n < 12; n++) {
+            const tx = x0 + Math.random() * Math.max(1, x1 - x0), ty = y0 + Math.random() * Math.max(1, y1 - y0);
+            if (Math.hypot(tx - this.player.x, ty - this.player.y) < V.enemyMinDist || this.circleHitsWall(tx, ty, r)) continue;
+            R.tx = tx; R.ty = ty; break;
+          }
+          R.wait = V.enemyWaitMin + Math.random() * (V.enemyWaitMax - V.enemyWaitMin);
+        }
+      } else { const sp = V.enemyMoveSpeed * Math.max(0.35, Math.min(1, dd / 60)); vx = (R.tx - g.x) / dd * sp; vy = (R.ty - g.y) / dd * sp; }
+    }
+    const nx = g.x + vx * dt, ny = g.y + vy * dt;
+    if (!this.circleHitsWall(nx, g.y, r)) g.x = nx;
+    if (!this.circleHitsWall(g.x, ny, r)) g.y = ny;
+    g.x = Phaser.Math.Clamp(g.x, wv.x + mg, x1); g.y = Phaser.Math.Clamp(g.y, y0, y1); // 画面の外には出ない
+    if (e.hpBar) e.hpBar.setPosition(g.x, g.y - r - 8);
+    if (e.label) e.label.setPosition(g.x, g.y - r - 22);
+  }
+  // ⚔ 右スティック（PCはクリック／スペース）の入力：held＝押している／angle＝その向き
+  _vhAimInput() {
+    if (IS_TOUCH_DEVICE) {
+      const a = window.aimVector;
+      if (a && a.active && Math.hypot(a.x, a.y) > 0.2857) return { held: true, angle: Math.atan2(a.y, a.x) };
+      return { held: false, angle: 0 };
+    }
+    const p = this.input.activePointer, w = this.cameras.main.getWorldPoint(p.x, p.y);
+    return { held: !!(p.isDown || (this.spaceKey && this.spaceKey.isDown)), angle: Math.atan2(w.y - this.player.y, w.x - this.player.x) };
+  }
+  _vhHurt(dmg) { // 自分が被弾する（ふつうの被弾と同じ：HP減少・無敵・やられたら onPlayerDeath）
+    if (this.isGhost || this.playerInvuln > 0) return false;
+    const d = this.accDmgTaken(dmg); this.recordDamageTaken(d);
+    this.playerHp -= d; this.playerInvuln = VS_HERO.invuln;
+    this.interruptBandage(); this.interruptChargeBomb(true);
+    this.spawnBurst(this.player.x, this.player.y, 0xff5b5b, 10);
+    flashHit(0.16, 220); this.updateHud();
+    if (this.playerHp <= 0) this.onPlayerDeath();
+    return true;
+  }
+  _vhTri(x, y, col, big) { // 割れ目から伸び上がる光る三角形を1つ足す（伸び上がって、落ちていく）
+    this._vhTris.push({ x, y, w: (7 + Math.random() * 8) * (big ? 1.3 : 1), h: (22 + Math.random() * 26) * (big ? 1.3 : 1), lean: (Math.random() - 0.5) * 8, t: 0, life: 0.3 + Math.random() * 0.2, col });
+  }
+  _vhSpark(x, y, vx, vy, vz, col, life) { // 火花を1つ足す（x,y＝地面の位置／z＝地面からの高さ。vz＝上へ跳ねる速さ。重力で落ちて、地面で小さく跳ねる）
+    if (col === VS_HERO.slashColor) col = VS_HERO.sparkColor; // 自分の火花は、斬撃の色（水色）ではなく、本物の火花っぽい黄色にする
+    this._vhSparks.push({ x, y, z: Math.random() * 3, vx, vy, vz, t: 0, life, col, hot: Math.random() < 0.4 ? (col === VS_HERO.sparkColor ? VS_HERO.sparkHot : 0xffffff) : col, b: 0 });
+  }
+  _vhWheelSpark(x, y, a, col) { // 見えない車輪が地面を走る接点：火花が、おもに後ろへ、横にも散る
+    const h = Math.cos(a), v = Math.sin(a), side = (Math.random() - 0.5) * 300, back = -230 + Math.random() * 270;
+    this._vhSpark(x + (Math.random() - 0.5) * 4, y + (Math.random() - 0.5) * 4, h * back - v * side, v * back + h * side, 70 + Math.random() * 200, col, 0.22 + Math.random() * 0.38);
+  }
+  _vhBlood(x, y, a, n) { // 🩸 血しぶき：当たった向き（a）へ多めに、少しだけ手前にも散る。地面に落ちて、血だまりのように残る
+    const V = VS_HERO, B = this._vhBloods; n = n || V.bloodCount;
+    for (let i = 0; i < n; i++) {
+      const fwd = Math.random() < 0.75, an = fwd ? a + (Math.random() - 0.5) * 1.7 : a + Math.PI + (Math.random() - 0.5) * 1.4, sp = 50 + Math.random() * 330;
+      B.push({ x: x + (Math.random() - 0.5) * 6, y: y + (Math.random() - 0.5) * 6, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp, r: 1.2 + Math.random() * 2.6, t: 0, stop: false, ang: an, col: Math.random() < 0.5 ? V.bloodColor : V.bloodDark });
+    }
+    if (B.length > V.bloodMax) B.splice(0, B.length - V.bloodMax);
+  }
+  _vhBurst(x, y, col, n) { // 当たった所・撃った所・ぶつかった所：火花がまとめて四方へ散る
+    for (let i = 0; i < n * 3; i++) {
+      const an = Math.random() * Math.PI * 2, sp = 70 + Math.random() * 280;
+      this._vhSpark(x + (Math.random() - 0.5) * 10, y + (Math.random() - 0.5) * 6, Math.cos(an) * sp, Math.sin(an) * sp, 90 + Math.random() * 230, col, 0.25 + Math.random() * 0.4);
+    }
+  }
+  _vhTick(t, dt) {
+    const g = this._vhFx, gg = this._vhGrid; if (!g || !g.scene || !this.player) return;
+    const V = VS_HERO, aim = this._vhAimInput();
+    // 発射：押した瞬間に1発（間隔あり）。押している間は、飛んでいる自分の斬撃を、スティックの向きへ少しだけ曲げられる
+    this._vhCd = Math.max(0, this._vhCd - dt);
+    if (aim.held && !this._vhWasHeld && this._vhCd <= 0 && !this.isGhost && !this.isDowned) {
+      this._vhSlashes.push({ x: this.player.x + Math.cos(aim.angle) * 14, y: this.player.y + Math.sin(aim.angle) * 14, a: aim.angle, age: 0, owner: 'p', col: V.slashColor, sp: 0, lx: this.player.x, ly: this.player.y });
+      this._vhCd = V.slashCooldown;
+      this._vhBurst(this.player.x + Math.cos(aim.angle) * 14, this.player.y + Math.sin(aim.angle) * 14, V.slashColor, 8);
+    }
+    this._vhWasHeld = aim.held;
+    const e = this.enemies && this.enemies.find(x => x.type && x.type.key === 'vshero' && x.hp > 0 && x.gfx && x.gfx.scene);
+    if (e && !this.transitioning) this._vhEnemyMove(e, dt); // 🏃 敵：画面内を動き回り、まっすぐ来る斬撃は避ける
+    // ⚔ 敵の攻撃：間隔をあけて狙うマスを決める → 予告（そのマスが赤く光る）→ その方向へ斬撃を撃つ
+    const en = this._vhEn, eh = this._vhEnemyHome, hh0 = this._vhHome;
+    if (e && en && eh && hh0 && this.playerHp > 0 && !this.isGhost && !this.isDowned && !this.transitioning) {
+      if (en.tele > 0) {
+        en.tele -= dt;
+        if (en.tele > V.enemyAimLock) { en.tx = this.player.x; en.ty = this.player.y; } // 予告のあいだは自分の方を向き続け、撃つ直前（enemyAimLock秒前）で向きを固定する
+        en.ang = Phaser.Math.Angle.Wrap(Math.atan2(en.ty - e.gfx.y, en.tx - e.gfx.x) + (en.off || 0)); // 敵が動き回るので、撃つ直前まで、今の位置から狙い直す
+        if (en.tele <= 0) {
+          this._vhSlashes.push({ x: e.gfx.x + Math.cos(en.ang) * 14, y: e.gfx.y + Math.sin(en.ang) * 14, a: en.ang, age: 0, owner: 'e', col: V.enemySlashColor, spd: V.enemySlashSpeed, turn: en.flank ? V.flankTurn : 0, homeT: en.flank ? V.flankHomeTime : null, sp: 0, lx: e.gfx.x, ly: e.gfx.y });
+          this._vhBurst(e.gfx.x + Math.cos(en.ang) * 14, e.gfx.y + Math.sin(en.ang) * 14, V.enemySlashColor, 6);
+          en.cd = V.enemyIntervalMin + Math.random() * (V.enemyIntervalMax - V.enemyIntervalMin);
+        }
+      } else {
+        en.cd -= dt;
+        if (en.cd <= 0) { // 自分の斬撃と同じように、自分（プレイヤー）の方へ向けて放つ（場所は狙わない）
+          en.tx = this.player.x; en.ty = this.player.y;
+          en.ang = Math.atan2(en.ty - e.gfx.y, en.tx - e.gfx.x);
+          en.flank = Math.random() < V.flankChance; // 回り込み：最初は上か下へそれて、大きく曲がりながら自分へ向かう
+          en.off = en.flank ? (Math.random() < 0.5 ? 1 : -1) * V.flankAngle : 0; // 回り込みは、狙う向きからそれる角度（敵が動くので、向きは撃つ直前まで計算し直す）
+          en.ang = Phaser.Math.Angle.Wrap(en.ang + en.off);
+          en.tele = V.enemyTelegraph;
+        }
+      }
+    } else if (en) en.tele = 0;
+    for (let i = this._vhSlashes.length - 1; i >= 0; i--) {
+      const s = this._vhSlashes[i]; if (s.dead) continue; s.age += dt;
+      if (s.cd > 0) s.cd -= dt; if (s.lock > 0) s.lock -= dt;
+      if (s.owner === 'p' && aim.held && !(s.lock > 0)) { // スティックの向きへ、少しずつ向きを変える
+        let d = Phaser.Math.Angle.Wrap(aim.angle - s.a); const m = V.slashTurn * dt;
+        s.a += Math.max(-m, Math.min(m, d));
+      }
+      if (s.owner === 'e' && !(s.lock > 0) && !s.committed && !(s.homeT != null && s.age > s.homeT)) { // 敵の斬撃は自分を追うが、近づいて向きが合ったら「直進」に切り替わる（避けられる）
+        const d = Phaser.Math.Angle.Wrap(Math.atan2(this.player.y - s.y, this.player.x - s.x) - s.a), m = (s.turn || V.enemySlashTurn) * dt;
+        if (Math.hypot(this.player.x - s.x, this.player.y - s.y) < V.enemyCommitDist && Math.abs(d) < V.enemyCommitAng) s.committed = true;
+        else s.a += Math.max(-m, Math.min(m, d));
+      }
+      const ox = s.x, oy = s.y;
+      s.x += Math.cos(s.a) * (s.spd || V.slashSpeed) * dt; s.y += Math.sin(s.a) * (s.spd || V.slashSpeed) * dt;
+      if (s.sx === undefined) { s.sx = ox; s.sy = oy; } // 跡：前に線分を足した位置から、scarStepぶん進むたびに、斬撃の道すじに傷を足す（曲がれば、曲がった傷になる）
+      if (Math.hypot(s.x - s.sx, s.y - s.sy) >= V.scarStep && !this.circleHitsWall(s.x, s.y, 5)) {
+        this._vhScars.push({ x1: s.sx, y1: s.sy, x2: s.x, y2: s.y, col: s.col, t: 0, w: Math.max(1.5, V.scarWidth * (1 - 0.65 * Math.min(1, s.age / V.slashLife))) });
+        s.sx = s.x; s.sy = s.y;
+      }
+      s.sp = (s.sp || 0) + dt * 140;
+      while (s.sp >= 1) { s.sp -= 1; this._vhWheelSpark(s.x, s.y, s.a, s.col); } // 斬撃の位置＝見えない車輪が地面に触れている所。そこから火花が次々と散る
+      let dead = s.age > V.slashLife || this.circleHitsWall(s.x, s.y, 5) || (s.owner === 'p' && !aim.held); // 自分の斬撃は、スティック（クリック・スペース）から手を離した時点で消える
+      if (!dead && s.owner === 'p' && e && Math.hypot(s.x - e.gfx.x, s.y - e.gfx.y) < e.type.radius + V.slashRadius) {
+        this.damageEnemy(e, V.slashDamage, s.a, 0); this._vhBurst(s.x, s.y, s.col, 18); this._vhBlood(s.x, s.y, s.a); dead = true;
+      }
+      if (!dead && s.owner === 'e' && !this.isGhost && Math.hypot(s.x - this.player.x, s.y - this.player.y) < this.player.radius + V.enemySlashRadius && this.playerInvuln <= 0) {
+        this._vhHurt(V.enemySlashDamage); this._vhBurst(s.x, s.y, s.col, 18); this._vhBlood(s.x, s.y, s.a); dead = true; // 無敵の間は、すり抜ける
+      }
+      if (dead) { if (s.age <= V.slashLife && !s.hitDone) this._vhBurst(s.x, s.y, s.col, 10); s.dead = true; }
+    }
+    // 斬撃どうしがぶつかったら、消えずに、お互いが外側へ大きく向きをそらす（三角形が大きく立ち上がる）
+    for (const a of this._vhSlashes) {
+      if (a.dead || a.owner !== 'p' || a.cd > 0) continue;
+      for (const b of this._vhSlashes) {
+        if (b.dead || b.owner !== 'e' || b.cd > 0 || Math.hypot(a.x - b.x, a.y - b.y) >= V.clashRadius) continue;
+        // 相手が左側にあれば右へ、右側にあれば左へ曲がる（外積で判定）。真正面なら、すれ違う向きにそれぞれ曲がる
+        const sideOf = (m, o) => { const cr = Math.cos(m.a) * (o.y - m.y) - Math.sin(m.a) * (o.x - m.x); return Math.abs(cr) < 0.5 ? 0 : (cr > 0 ? -1 : 1); };
+        let sa = sideOf(a, b), sb = sideOf(b, a);
+        if (!sa && !sb) sa = sb = (Math.random() < 0.5 ? 1 : -1); else if (!sa) sa = -sb; else if (!sb) sb = -sa;
+        a.a = Phaser.Math.Angle.Wrap(a.a + sa * V.clashDeflect); b.a = Phaser.Math.Angle.Wrap(b.a + sb * V.clashDeflect);
+        a.cd = b.cd = V.clashCooldown; a.lock = b.lock = V.clashLock;
+        this._vhBurst((a.x + b.x) / 2, (a.y + b.y) / 2, 0xffffff, 16); break;
+      }
+    }
+    this._vhSlashes = this._vhSlashes.filter(q => !q.dead);
+    // ===== 描画 =====
+    g.clear(); gg.clear();
+    if (en && en.tele > 0 && e && hh0) { // 予告：敵から、斬撃を放つ向きへ線が伸びる。敵の体も点滅する
+      const pu = 0.5 + 0.5 * Math.sin(t * 40), tx = en.tx, ty = en.ty;
+      g.lineStyle(2, V.enemySlashColor, 0.25 + 0.4 * pu);
+      if (en.flank) { // 回り込む斬撃：曲がっていく道すじを予告する
+        let px = e.gfx.x, py = e.gfx.y, pa = en.ang; g.beginPath(); g.moveTo(px, py);
+        for (let k = 0; k < 44; k++) {
+          const dd = Phaser.Math.Angle.Wrap(Math.atan2(ty - py, tx - px) - pa), mm = V.flankTurn * 0.025;
+          pa += Math.max(-mm, Math.min(mm, dd)); px += Math.cos(pa) * V.enemySlashSpeed * 0.025; py += Math.sin(pa) * V.enemySlashSpeed * 0.025;
+          g.lineTo(px, py); if (Math.hypot(tx - px, ty - py) < 20) break;
+        }
+        g.strokePath();
+      } else g.lineBetween(e.gfx.x, e.gfx.y, e.gfx.x + Math.cos(en.ang) * 480, e.gfx.y + Math.sin(en.ang) * 480); // 斬撃を放つ向きに、予告の線
+    }
+    if (this._vhFace && this._vhFace.scene) { // 敵の向きを示す白い棒：構えている間は撃つ向き、それ以外は自分のいる向き
+      if (e && e.gfx && e.gfx.scene && e.hp > 0) {
+        const fa = (en && en.tele > 0) ? en.ang : Math.atan2(this.player.y - e.gfx.y, this.player.x - e.gfx.x), fd = e.type.radius + V.faceBarGap;
+        this._vhFace.setPosition(e.gfx.x + Math.cos(fa) * fd, e.gfx.y + Math.sin(fa) * fd).setRotation(fa).setVisible(true).setAlpha(e.gfx.alpha);
+      } else this._vhFace.setVisible(false);
+    }
+    if (e && e.gfx && e.gfx.scene) e.gfx.setFillStyle(en && en.tele > 0 && Math.floor(t * 20) % 2 ? 0xff9a9a : e.type.color); // 予告中は体が赤く点滅
+    for (let i = this._vhGhosts.length - 1; i >= 0; i--) { // 残像
+      const o = this._vhGhosts[i]; o.t -= dt; if (o.t <= 0) { this._vhGhosts.splice(i, 1); continue; }
+      g.fillStyle(this.playerColor, 0.45 * (o.t / 0.22)); g.fillCircle(o.x, o.y, this.player.radius);
+    }
+    const hr = (a, b) => { const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return x - Math.floor(x); }; // 0〜1の疑似乱数（同じ入れ数なら同じ値）
+    const fk = Math.floor(t * 28); // ちらつきの刻み
+    const SP = this._vhSparks; // 火花：細い光の筋だけが見える（斬撃の本体・地面の傷・光だまりは描かない）
+    for (let i = SP.length - 1; i >= 0; i--) {
+      const q = SP[i]; q.t += dt; if (q.t >= q.life) { SP.splice(i, 1); continue; }
+      q.vz -= 720 * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt;
+      if (q.z < 0) { if (q.b >= 1) { SP.splice(i, 1); continue; } q.z = 0; q.vz = -q.vz * 0.4; q.vx *= 0.6; q.vy *= 0.6; q.b++; } // 地面で一度だけ、小さく跳ねる
+      const u = q.t / q.life, al = 1 - u * u, sx = q.x, sy = q.y - q.z, k = 0.035;
+      const tx2 = sx - q.vx * k, ty2 = sy - (q.vy - q.vz) * k; // 進んできた向きに、短い筋を引く
+      g.lineStyle(2.2, q.col, 0.9 * al); g.lineBetween(sx, sy, tx2, ty2);
+      g.lineStyle(1, q.hot, al); g.lineBetween(sx, sy, sx - q.vx * k * 0.55, sy - (q.vy - q.vz) * k * 0.55);
+    }
+    if (SP.length > 900) SP.splice(0, SP.length - 900);
+    if (this._vhTris.length > 300) this._vhTris.splice(0, this._vhTris.length - 300);
+    // 🗡 地面の跡：黒ずんだ切り傷に、斬撃の色の細い光が残る（縁取りはなし）。時間とともに薄れて消える
+    const sg = this._vhScarG;
+    if (sg && sg.scene) {
+      sg.clear();
+      const SC = this._vhScars, life = V.scarLife, fade = Math.max(0.01, V.scarFade);
+      for (let i = SC.length - 1; i >= 0; i--) {
+        const c = SC[i]; c.t += dt;
+        if (c.t >= life) { SC.splice(i, 1); continue; }
+        const al = Math.min(1, (life - c.t) / fade), glow = Math.max(0, 1 - c.t / 0.9); // 光は、出てすぐだけ強い
+        sg.lineStyle(c.w * 0.6, 0x000000, 0.6 * al); sg.lineBetween(c.x1, c.y1, c.x2, c.y2); // 黒い傷：同じ太さの1本線（縁なし）。scarLife のあいだ残る
+        if (glow > 0) { sg.lineStyle(c.w * 0.6, c.col, 0.85 * glow * al); sg.lineBetween(c.x1, c.y1, c.x2, c.y2); } // 斬撃の色：同じ太さで黒の上に重ね、出てすぐ薄れて、黒だけが残る
+      }
+      if (SC.length > V.scarMax) SC.splice(0, SC.length - V.scarMax);
+      const BL = this._vhBloods, bLife = V.bloodLife, bFade = Math.max(0.01, V.bloodFade); // 🩸 血：飛んでいる間は尾を引き、止まったら小さな血だまりになる
+      for (let i = BL.length - 1; i >= 0; i--) {
+        const d = BL[i]; d.t += dt;
+        if (d.t >= bLife) { BL.splice(i, 1); continue; }
+        const al = Math.min(1, (bLife - d.t) / bFade);
+        if (!d.stop) {
+          const px = d.x, py = d.y, f = Math.exp(-5 * dt);
+          d.x += d.vx * dt; d.y += d.vy * dt; d.vx *= f; d.vy *= f;
+          if (this.circleHitsWall(d.x, d.y, 1)) { d.x = px; d.y = py; d.stop = true; }
+          else if (Math.hypot(d.vx, d.vy) < 18) d.stop = true;
+          else { d.ang = Math.atan2(d.vy, d.vx); sg.lineStyle(d.r * 1.5, d.col, 0.9 * al); sg.lineBetween(px, py, d.x, d.y); }
+        }
+        sg.fillStyle(d.col, 0.92 * al); sg.fillCircle(d.x, d.y, d.r);
+        if (d.stop && d.r > 2) { sg.lineStyle(d.r * 1.1, d.col, 0.8 * al); sg.lineBetween(d.x, d.y, d.x - Math.cos(d.ang) * d.r * 1.8, d.y - Math.sin(d.ang) * d.r * 1.8); } // 大きい粒は、飛んできた向きに少し伸びた跡になる
+      }
     }
   }
 
@@ -6625,7 +7013,7 @@ class GameScene extends Phaser.Scene {
       else this._demonEnding();
     });
   }
-  hasSpecial(key) { if (this.mp && specialAccByKey(key)) return false; /* 通信プレイ（協力・PvPなど）では、悪魔の装飾品は全部使えない */ if (this.arms4Ritual && !this._endingRun && specialAccByKey(key)) return false; /* ホームの天使・調伏の儀（通常）：悪魔の装飾品は使えない（エンディング演出の調伏の儀だけは使う） */ if (this._godAccGone && specialAccByKey(key)) return false; /* 宇宙が割れて聖域に戻ったあと：悪魔の装飾は外れている */ if (ENDING_STATE.run && specialAccByKey(key)) return true; /* エンディング演出中：悪魔の装飾は全部オン */ const sv = loadSave(); return !!((sv.specialAccs[key] && sv.specialOn[key]) || (this._tmpSpecial || {})[key]); } // その特別な装飾品を、いま付けているか（デベロッパーモードでもらった分は、このゲームの間だけ）
+  hasSpecial(key) { if (this.mp && specialAccByKey(key)) return false; if (this.vsHero && specialAccByKey(key)) return false; /* vs主人公：悪魔の装飾品も使えない */ /* 通信プレイ（協力・PvPなど）では、悪魔の装飾品は全部使えない */ if (this.arms4Ritual && !this._endingRun && specialAccByKey(key)) return false; /* ホームの天使・調伏の儀（通常）：悪魔の装飾品は使えない（エンディング演出の調伏の儀だけは使う） */ if (this._godAccGone && specialAccByKey(key)) return false; /* 宇宙が割れて聖域に戻ったあと：悪魔の装飾は外れている */ if (ENDING_STATE.run && specialAccByKey(key)) return true; /* エンディング演出中：悪魔の装飾は全部オン */ const sv = loadSave(); return !!((sv.specialAccs[key] && sv.specialOn[key]) || (this._tmpSpecial || {})[key]); } // その特別な装飾品を、いま付けているか（デベロッパーモードでもらった分は、このゲームの間だけ）
   _giveSpecialAcc(sp) { // 台本の item が特別な装飾品の key だった時：入手済みにして、付けた状態にする（ホーム画面に出る）。限定武器なら、その武器に持ち替えて固定する
     { // デベロッパーモードでも、通常と同じように記録に残す（ホーム画面にも出る）
       const sv = loadSave(); sv.specialAccs[sp.key] = true; sv.specialOn[sp.key] = true;
@@ -12162,6 +12550,7 @@ class GameScene extends Phaser.Scene {
   // angleOverride: スマホの右ジョイスティックを離した瞬間の角度。
   // 省略時（PCのクリック）はマウス/ポインタの向きを使う。
   tryAttack(angleOverride) {
+    if (this.vsHero) return; // vs主人公：ふつうの武器は使わない（斬撃は _vhTick が出す）
     if (this.attackCooldown > 0 || this.transitioning || this.isDowned || this._autoWalk) return; // 自動で歩いている間（エンディングの続き）は攻撃できない
     if (this.wwNoAttack()) return; // 人狼ゲーム中の人狼以外、または夜以外の人狼：攻撃しない
     // マジックボム（chargeBomb）は「押し続けて溜め、離すと発射」専用の武器で、
@@ -24105,6 +24494,7 @@ class GameScene extends Phaser.Scene {
       dx *= 0.7071; dy *= 0.7071;
     }
     if (this._autoWalk) { const aw = this._autoWalkDir(); dx = aw.x; dy = aw.y; } // エンディングの続き：自動で歩く（操作は効かない）
+    if (this.vsHero) { this._vhStep(dx, dy, dt * (this._vhTs == null ? 1 : this._vhTs)); dx = 0; dy = 0; } // ⚔ vs主人公：画面の中なら、自由に動ける
 
     const r = this.player.radius;
     // マジックボムを溜めている間は、溜めた時間に応じて移動速度がどんどん落ちていく
@@ -24532,6 +24922,7 @@ class GameScene extends Phaser.Scene {
     if (this.snowfield) this._snowCold(delta / 1000);
     if (this.hell) this._hellTick(); // 🔥 地獄の住人をそろえる
     this._updateHutBook(); // 📖 小屋の机の本：近づくと「本を読む」が出る
+    if (this.vsHero) this._updateVsHero(time / 1000, delta / 1000);
     if (this.party) this._updateParty(time / 1000); // 🎉 パーティールーム：飾り・メモ・草原の入口・扉
     if (this.dungeon.hut) this._drawHut(this.exitGlow, time / 1000);
     else if (this._hutCover && this._hutCover.scene) this._hutCover.clear(); // 小屋のない所では目隠しを消しておく
@@ -24790,7 +25181,7 @@ class GameScene extends Phaser.Scene {
   // 最高到達階層・ボス撃破数・クリア回数は、ダンジョン／最北戦線だけ。PvP・デベロッパーは何も足さない。
   // 今回新しく入手した装飾品の配列を返す。同じ挑戦で二度足さないよう、runStatsの同一性で判定する。
   commitRunStats() {
-    if (this.pvp || this.isDevMode) return [];
+    if (this.pvp || this.isDevMode || this.vsHero) return []; // vs主人公は、どの記録にも足さない
     if (this._committedStats === this.runStats) return [];
     this._committedStats = this.runStats;
     // 協力プレイでは、倒した数は自分の分（mpStats）を使う（runStats.kills/bosses はソロ専用の集計のため）
@@ -25268,6 +25659,7 @@ class GameScene extends Phaser.Scene {
     this._partyTitle = tx(320, 30, '🎉 PARTY ROOM 🎉', 18, '#ffffff', { c: '#9c4f6a', w: 4 });
     tx(320, 432, '⭐', 14, '#ffffff'); tx(320, 151, 'ホラー', 11, '#ffffff', { c: '#2f7a49', w: 3 });
     tx(PARTY_PORTAL_SOCIAL.x, 119, '🎙', 14, '#ffffff'); tx(PARTY_PORTAL_SOCIAL.x, 151, '交流ルーム', 11, '#ffffff', { c: '#2f5f9a', w: 3 });
+    tx(PARTY_PORTAL_HERO.x, 119, '⚔', 14, '#ffffff'); tx(PARTY_PORTAL_HERO.x, 151, 'vs主人公', 11, '#ffffff', { c: '#9a2f2f', w: 3 });
     this.player.x += (Math.random() - 0.5) * 80; // 同時に入った人と重ならないように
     this._partyLoadMemos();
     this.events.once('shutdown', () => { const pb = document.getElementById('partyPrompt'); if (pb) pb.remove(); });
@@ -25288,9 +25680,9 @@ class GameScene extends Phaser.Scene {
       const y = by + Math.sin(t * 1.5 + i) * 6; g.lineStyle(1, 0x999999, 1); g.lineBetween(bx, y + 14, bx + Math.sin(t + i) * 3, y + 40);
       g.fillStyle(hsl(i * 67 + 10, 0.45, 0.66), 1); g.fillEllipse(bx, y, 22, 28); g.fillStyle(0xffffff, 0.5); g.fillEllipse(bx - 4, y - 5, 5, 8);
     });
-    for (const PP of [PARTY_PORTAL, PARTY_PORTAL_SOCIAL]) { // 🌿 草原（緑）／🎙 みんなの広場（水色）への入口：光る扉
-      const soc = !!PP.social, px = PP.x, py = PP.y, gl = 0.55 + 0.25 * Math.sin(t * 3);
-      g.fillStyle(soc ? 0x78b8ff : 0x78dc8c, 0.28 * gl); g.fillCircle(px, py, 27); g.fillStyle(soc ? 0x4f86ce : 0x4fae6a, 1); g.fillEllipse(px, py, 30, 40); g.fillStyle(soc ? 0xc9e2ff : 0xc9f2cf, 1); g.fillEllipse(px, py, 20, 30);
+    for (const PP of [PARTY_PORTAL, PARTY_PORTAL_SOCIAL, PARTY_PORTAL_HERO]) { // 🌿 草原（緑）／🎙 みんなの広場（水色）／⚔ vs主人公（赤）への入口：光る扉
+      const hero = !!PP.hero, soc = !!PP.social, px = PP.x, py = PP.y, gl = 0.55 + 0.25 * Math.sin(t * 3);
+      g.fillStyle(hero ? 0xff8a8a : soc ? 0x78b8ff : 0x78dc8c, 0.28 * gl); g.fillCircle(px, py, 27); g.fillStyle(hero ? 0xce4a4a : soc ? 0x4f86ce : 0x4fae6a, 1); g.fillEllipse(px, py, 30, 40); g.fillStyle(hero ? 0xffd0d0 : soc ? 0xc9e2ff : 0xc9f2cf, 1); g.fillEllipse(px, py, 20, 30);
       for (let k = 0; k < 5; k++) { const a = t * 1.6 + k * 1.26; g.fillStyle(0xffffff, 0.85); g.fillRect(px + Math.cos(a) * 21 - 1.5, py + Math.sin(a) * 25 - 1.5, 3, 3); }
       if (tg === PP) { g.lineStyle(2, 0xffffff, 1); g.strokeEllipse(px, py, 38, 48); }
     }
@@ -25318,7 +25710,7 @@ class GameScene extends Phaser.Scene {
     if (!this._partyFx || !this._partyFx.scene || !this.player) return;
     const p = this.player;
     let tg = null, bd = 46; // 近くの調べられる物（メモ・草原の入口）
-    if (!this.isGhost && !this.isDowned && !this._partyLeaving) for (const n of [PARTY_PORTAL, PARTY_PORTAL_SOCIAL].concat(PARTY_MEMOS_READABLE ? this._partyNotes : [])) { const d = Math.hypot(p.x - n.x, p.y - n.y); if (d < bd) { bd = d; tg = n; } }
+    if (!this.isGhost && !this.isDowned && !this._partyLeaving) for (const n of [PARTY_PORTAL, PARTY_PORTAL_SOCIAL, PARTY_PORTAL_HERO].concat(PARTY_MEMOS_READABLE ? this._partyNotes : [])) { const d = Math.hypot(p.x - n.x, p.y - n.y); if (d < bd) { bd = d; tg = n; } }
     this._partyTarget = tg;
     this._drawParty(t);
     if (this._partyTitle && this._partyTitle.scene) this._partyTitle.y = 30 + Math.sin(t * 3) * 2;
@@ -25332,7 +25724,7 @@ class GameScene extends Phaser.Scene {
         pb.addEventListener('pointerdown', go); pb.addEventListener('touchstart', go, { passive: false });
         document.body.appendChild(pb);
       }
-      const label = (tg.portal ? (tg.social ? '🎙 交流ルームへ行く' : 'ホラーへ行く') : '🔍 メモを読む') + (IS_TOUCH_DEVICE ? '' : '  [E]');
+      const label = (tg.portal ? (tg.hero ? '⚔ 主人公と戦う' : tg.social ? '🎙 交流ルームへ行く' : 'ホラーへ行く') : '🔍 メモを読む') + (IS_TOUCH_DEVICE ? '' : '  [E]');
       if (pb.textContent !== label) pb.textContent = label;
       pb._scene = this; pb.style.display = 'block';
       if (this._partyKey && Phaser.Input.Keyboard.JustDown(this._partyKey)) this._partyAct();
@@ -25342,6 +25734,7 @@ class GameScene extends Phaser.Scene {
   _partyAct() {
     const tg = this._partyTarget; if (!tg || this._hutReading || this._partyLeaving) return;
     const pb = document.getElementById('partyPrompt'); if (pb) pb.style.display = 'none';
+    if (tg.hero) { this._partyLeave(true); return; } // ⚔ vs主人公：部屋を出て、ボス部屋へ
     if (tg.portal) { // 🌿 草原（3D）へ。入っている間は、この画面を止める（小屋の本を読んでいる間と同じ）
       this._hutReading = true;
       try { const back = () => { this._hutReading = false; }; if (tg.social) openPartyHall(back, { net: this.net, scene: this }); else openGrassland(back, { net: this.net, scene: this }); } catch (err) { console.error('草原を開けませんでした:', err); this._hutReading = false; }
@@ -25371,12 +25764,13 @@ class GameScene extends Phaser.Scene {
     ov.addEventListener('click', () => { if (performance.now() - t0 > 250) close(); });
     this.events.once('shutdown', close);
   }
-  async _partyLeave() { // 下の扉：部屋から出てロビーへ（退出ボタンと同じ処理。Firebaseからの削除が終わるのを待ってから、読み込み直す）
+  async _partyLeave(toHero) { // 下の扉：部屋から出てロビーへ（退出ボタンと同じ処理。Firebaseからの削除が終わるのを待ってから、読み込み直す）
     if (this._partyLeaving) return; this._partyLeaving = true;
-    this.showBanner('退出中…', 3000);
+    this.showBanner(toHero ? '主人公のいるボス部屋へ…' : '退出中…', 3000);
     window.removeEventListener('pagehide', this._onPageHide); // 二重に退出処理が走らないように
     const others = Object.keys(this.latestPlayers || {}).filter(uid => uid !== this.net.uid);
     try { await Promise.race([others.length === 0 ? this.net.deleteRoom() : this.net.leaveRoom(), new Promise(resolve => setTimeout(resolve, 3000))]); } catch (e) {}
+    if (toHero) { try { sessionStorage.setItem('zk_vs_hero', '1'); } catch (e) {} } // 読み込み直したあと、ロビーを出てすぐボス部屋へ
     location.reload();
   }
   _hutBookSpot() { // 机のマスの中心（px）。小屋がなければ null
@@ -27331,7 +27725,7 @@ class GameScene extends Phaser.Scene {
       rows.push(['倒したボス', st.bosses + '体']);
     }
     if (newAcc.length) rows.push(['🎁 新しい装飾品', newAcc.map(a => a.icon + a.name).join(' ')]);
-    document.getElementById('resultMode').textContent = this.arms4Ritual ? 'ANGEL' : (this.nightmare ? 'NIGHTMARE' : this.isDevMode ? 'DEVELOPER' : (this.bossRush ? 'BOSS RUSH' : (this.frontline ? 'NORTHERN FRONT' : 'DUNGEON')));
+    document.getElementById('resultMode').textContent = this.arms4Ritual ? 'ANGEL' : (this.nightmare ? 'NIGHTMARE' : this.isDevMode ? 'DEVELOPER' : (this.vsHero ? 'VS HERO' : this.bossRush ? 'BOSS RUSH' : (this.frontline ? 'NORTHERN FRONT' : 'DUNGEON')));
     document.getElementById('resultStats').innerHTML = rows.map(r =>
       '<div class="resultRow"><span>' + escapeHtml(r[0]) + '</span><b>' + escapeHtml(r[1]) + '</b></div>').join('');
     const weapons = Object.entries(this.weaponLevels).map(([key, lv]) => {
@@ -27878,7 +28272,7 @@ class GameScene extends Phaser.Scene {
     }
     if (this.bossRush) {
       // 今回の挑戦で倒したボス数を記録して、条件を満たした装飾品（炎・ブラックホール）を入手済みにする（デベロッパーモードは対象外）
-      if (!this.isDevMode) {
+      if (!this.isDevMode && !this.vsHero) {
         const added = recordBossRushBest(this.runStats.bosses);
         if (added.length) this.announceAccessories(added);
       }
@@ -30077,6 +30471,7 @@ function startGame(mode, extra) {
     devWeaponLevel: devMode ? Math.max(1, parseInt(document.getElementById('devWeaponLevelInput').value, 10) || 5) : null,
     devMode, // リザルト画面の表示（DEVELOPER）切り替え用
     bossRush: !!(extra && extra.bossRush),
+    vsHero: !!(extra && extra.vsHero), // ⚔ パーティールームの「vs主人公」：ボス部屋で主人公と戦う（ソロ。装飾品なし）
     arms4Ritual: !!(extra && extra.arms4Ritual), // 【期間限定】四つ腕の調伏の儀：始まったらすぐ調伏の儀に入る
     endingRitual: !!(extra && extra.endingRitual), // エンディング演出の調伏の儀：装飾品はシリアルキラー＋悪魔の装飾3つ、天使は動かず、翼が大きくなる
     pvp: !!(extra && extra.pvp), // PvPモード
@@ -30164,7 +30559,7 @@ async function waitWithMessage(waitFn) {
   return false;
 }
 async function enterPartyRoom() { // 🎉 パーティールームへ：固定のルーム（PARTYLIVE）に入る。同時に入った人は、全員同じ部屋にいる（エンディングを見た人だけ）
-  try { if (!loadSave().endingDone) return; } catch (e) { return; }
+  try { if (!PARTY_OPEN_TO_ALL && !loadSave().endingDone) return; } catch (e) { return; } // PARTY_OPEN_TO_ALL（テスト用）が true なら、エンディング未視聴でも入れる
   partyOpen = true;
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   setLobbyBusy(true); setLobbyStatus('パーティールームに入室中...');
@@ -30187,7 +30582,7 @@ document.getElementById('soloBtn').addEventListener('click', async () => {
   try {
     if (!(await waitWithMessage(waitPartyNumber))) return; // 合言葉を読めなかった：始めずに、もう一度押してもらう
     let endingSeen = false; try { endingSeen = !!loadSave().endingDone; } catch (e) { /* 読めなければ、見ていない扱い */ }
-    const party = endingSeen && !PARTY_NOFB && PARTY_NUM != null && PARTY_NUM !== '' && PARTY_NUM === raw; // エンディングを見た（endingDone）人だけが入れる。見ていない人が合言葉を入れても、ふつうのダンジョン番号として扱う
+    const party = (endingSeen || PARTY_OPEN_TO_ALL) && !PARTY_NOFB && PARTY_NUM != null && PARTY_NUM !== '' && PARTY_NUM === raw; // エンディングを見た（endingDone）人だけが入れる。見ていない人が合言葉を入れても、ふつうのダンジョン番号として扱う
     discardPartyNumber(); // 読んだ番号は、確認が終わったらすぐ捨てる（どこにも保存しない）
     if (party) { document.getElementById('soloSeedInput').value = ''; enterPartyRoom(); return; } // 合言葉は入力欄にも残さない
     if (!(await waitWithMessage(waitGodFloor))) return; // 白い扉などの判定に使う雪原のフロアの番号も、読み終えてから始める
@@ -30917,6 +31312,12 @@ if (DEBUG_URL.test) ['pvpTestBtn', 'hutWarpBtn', 'endingTestBtn', 'endingFullTes
     if (ok) { clearSuspend(); ov.remove(); } // 削除したら、ふつうにロビーで別のことができる
     busy = false;
   });
+})();
+// ⚔ パーティールームの「vs主人公」から来た：ロビーを出て、すぐボス部屋へ（ソロ。装飾品は付けない）
+(function () {
+  let go = false; try { go = sessionStorage.getItem('zk_vs_hero') === '1'; sessionStorage.removeItem('zk_vs_hero'); } catch (e) {}
+  if (!go) return;
+  setTimeout(() => { try { startGame('solo', { vsHero: true, weaponKey: 'sword' }); } catch (err) { console.error('vs主人公を始められませんでした:', err); } }, 0);
 })();
 </script>
 </body>
