@@ -2096,7 +2096,7 @@ const PARTY_BALLOONS = [[90, 150], [550, 170], [120, 300], [520, 320], [240, 120
 const PARTY_OPEN_TO_ALL = true; // 🧪 テスト用：true の間は、エンディングを見ていない人（endingDone でない人）も、合言葉を入れればパーティールームに入れる。公開する前に false に戻す
 const PARTY_MEMOS_READABLE = true; // 📋 true の間は、パーティールームのメモをプレイヤーが読める（近づいて調べられる）。false にすると読めなくなる
 const PARTY_PORTAL = { i: -2, portal: true, x: 320, y: 118 }; // 🌿 草原への入口（メモと同じ要領で、近づいて E／タップ）
-const VS_HERO = { // ⚔ vs主人公の調整値
+const VS_HERO = { // ⚔ 斬り合いの調整値
   duelTiles: 9,        // 自分と敵の間のマス数
   moveSpeed: 1.0,      // 自由に動く速さ（ふつうの移動速度の何倍か）
   stepDead: 0.2,       // 移動スティックのデッドゾーン（これ未満は動かない）
@@ -2165,7 +2165,7 @@ const VS_HERO = { // ⚔ vs主人公の調整値
   faceBarLen: 14,          // 敵の「向きを示す白い棒」の長さ（px）。自分のものと同じ
   faceBarGap: 8            // 敵の体の縁から、白い棒の中心までの距離（px）
 };
-const PARTY_PORTAL_HERO = { i: -4, portal: true, hero: true, x: 220, y: 118 }; // ⚔ vs主人公への入口（入るとボス部屋へ飛ぶ。装飾品は全部持っていけない）
+const PARTY_PORTAL_HERO = { i: -4, portal: true, hero: true, x: 220, y: 118 }; // ⚔ 斬り合いへの入口（入るとボス部屋へ飛ぶ。装飾品は全部持っていけない）
 const PARTY_PORTAL_SOCIAL = { i: -3, portal: true, social: true, x: 420, y: 118 }; // 🎙 みんなの広場（洋室）への入口（同じ部屋の人と一緒に入って、歩き回りながらボイスチャット）
 function generatePartyMap() {
   const width = 20, height = 15; // 640×480（部屋は640×448。いちばん下の1行は扉の裏）
@@ -4643,7 +4643,7 @@ class GameScene extends Phaser.Scene {
     this.titleKey = playerTitleByKey(app.title) ? app.title : null; // 🏷 付けている称号のkey
     this.playerColor = (typeof app.color === 'number') ? app.color : 0x5bd1ff;
     this._bh = null; // ブラックホールのビームの状態（毎回作り直す）
-    this.vsHero = !this.mp && !!app.vsHero; // ⚔ vs主人公（ボス部屋。装飾品は全部持っていけない）
+    this.vsHero = !this.mp && !!app.vsHero; // ⚔ 斬り合い（ボス部屋。装飾品は全部持っていけない）
     this.accKey = (!this.vsHero && (!app.arms4Ritual || app.endingRitual) && accessoryByKey(app.acc)) ? app.acc : ''; // 付けている装飾品のkey（無ければ''）。四つ腕の調伏の儀は装飾品なし
     this._usedAccKeys = this.accKey ? [this.accKey] : []; // リザルト用：このゲーム中に付けた装飾品のkey（最初から付けていたものも含む。付けた順）
     this._skFx = []; this._skG = null; this._skT = 0; // 🔪 シリアルキラーの斬撃線
@@ -4697,7 +4697,7 @@ class GameScene extends Phaser.Scene {
     if (this._rlEffect === 'purple') { this._rlBarFn = () => this._rlPurpleBars(); this.events.on('postupdate', this._rlBarFn); this.events.once('shutdown', () => this.events.off('postupdate', this._rlBarFn)); } // 🎰 紫：実際のHPは半分だが、HPバーは「通常の最大HPに対する割合」で見せる（最大値そのものは変えない＝回復する敵などの処理に影響しない）
     this._dsFn = () => this._demonSensor(); this.events.on('postupdate', this._dsFn); const _dsOff = () => { this.events.off('postupdate', this._dsFn); const c = document.getElementById('demonSensor'); if (c) c.remove(); this._dsCv = null; }; this.events.once('shutdown', _dsOff); this.events.once('destroy', _dsOff); // 🔴 悪魔センサー（残りの敵が少ない時、画面の端が赤く光る）
     this._ghostFloorOn = !this.mp && !!app.ghostFloor; this._gf = null; // 👻 ロビーの番号が library/ghostfloor と同じなら、1階に隠しゴースト（ソロ専用）
-    this.bossRush = !this.mp && (!!app.bossRush || this.vsHero); // vs主人公は、ボスラッシュと同じボス部屋を使う // ボスラッシュ（ソロ専用）
+    this.bossRush = !this.mp && (!!app.bossRush || this.vsHero); // 斬り合いは、ボスラッシュと同じボス部屋を使う // ボスラッシュ（ソロ専用）
     this.nightmare = !this.mp && !!app.nightmare; // ナイトメア（ソロ専用）：通常のダンジョンに「壁の裏が見えない」視界をつける
     this.pvp = !!app.pvp && this.mp; // PvPモード（協力ルーム専用）
     this.party = !!app.party && this.mp; // 🎉 パーティールーム（協力ルーム専用。敵も宝箱もない、おまけの部屋）
@@ -6340,7 +6340,7 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  // ⚔ vs主人公：ボス部屋に、エンディングの主人公と同じ見た目（青い体＋シリアルキラーの赤い目）の敵が1体立っている。
+  // ⚔ 斬り合い：ボス部屋に、エンディングの主人公と同じ見た目（青い体＋シリアルキラーの赤い目）の敵が1体立っている。
   //   ★まだ動かない・攻撃しない（動きは今後ここに足す）。HPバーとボス名だけ出る。
   spawnVsHero() {
     const sl = ENEMY_TYPES.find(t => t.key === 'slime');
@@ -7013,7 +7013,7 @@ class GameScene extends Phaser.Scene {
       else this._demonEnding();
     });
   }
-  hasSpecial(key) { if (this.mp && specialAccByKey(key)) return false; if (this.vsHero && specialAccByKey(key)) return false; /* vs主人公：悪魔の装飾品も使えない */ /* 通信プレイ（協力・PvPなど）では、悪魔の装飾品は全部使えない */ if (this.arms4Ritual && !this._endingRun && specialAccByKey(key)) return false; /* ホームの天使・調伏の儀（通常）：悪魔の装飾品は使えない（エンディング演出の調伏の儀だけは使う） */ if (this._godAccGone && specialAccByKey(key)) return false; /* 宇宙が割れて聖域に戻ったあと：悪魔の装飾は外れている */ if (ENDING_STATE.run && specialAccByKey(key)) return true; /* エンディング演出中：悪魔の装飾は全部オン */ const sv = loadSave(); return !!((sv.specialAccs[key] && sv.specialOn[key]) || (this._tmpSpecial || {})[key]); } // その特別な装飾品を、いま付けているか（デベロッパーモードでもらった分は、このゲームの間だけ）
+  hasSpecial(key) { if (this.mp && specialAccByKey(key)) return false; if (this.vsHero && specialAccByKey(key)) return false; /* 斬り合い：悪魔の装飾品も使えない */ /* 通信プレイ（協力・PvPなど）では、悪魔の装飾品は全部使えない */ if (this.arms4Ritual && !this._endingRun && specialAccByKey(key)) return false; /* ホームの天使・調伏の儀（通常）：悪魔の装飾品は使えない（エンディング演出の調伏の儀だけは使う） */ if (this._godAccGone && specialAccByKey(key)) return false; /* 宇宙が割れて聖域に戻ったあと：悪魔の装飾は外れている */ if (ENDING_STATE.run && specialAccByKey(key)) return true; /* エンディング演出中：悪魔の装飾は全部オン */ const sv = loadSave(); return !!((sv.specialAccs[key] && sv.specialOn[key]) || (this._tmpSpecial || {})[key]); } // その特別な装飾品を、いま付けているか（デベロッパーモードでもらった分は、このゲームの間だけ）
   _giveSpecialAcc(sp) { // 台本の item が特別な装飾品の key だった時：入手済みにして、付けた状態にする（ホーム画面に出る）。限定武器なら、その武器に持ち替えて固定する
     { // デベロッパーモードでも、通常と同じように記録に残す（ホーム画面にも出る）
       const sv = loadSave(); sv.specialAccs[sp.key] = true; sv.specialOn[sp.key] = true;
@@ -12550,7 +12550,7 @@ class GameScene extends Phaser.Scene {
   // angleOverride: スマホの右ジョイスティックを離した瞬間の角度。
   // 省略時（PCのクリック）はマウス/ポインタの向きを使う。
   tryAttack(angleOverride) {
-    if (this.vsHero) return; // vs主人公：ふつうの武器は使わない（斬撃は _vhTick が出す）
+    if (this.vsHero) return; // 斬り合い：ふつうの武器は使わない（斬撃は _vhTick が出す）
     if (this.attackCooldown > 0 || this.transitioning || this.isDowned || this._autoWalk) return; // 自動で歩いている間（エンディングの続き）は攻撃できない
     if (this.wwNoAttack()) return; // 人狼ゲーム中の人狼以外、または夜以外の人狼：攻撃しない
     // マジックボム（chargeBomb）は「押し続けて溜め、離すと発射」専用の武器で、
@@ -24494,7 +24494,7 @@ class GameScene extends Phaser.Scene {
       dx *= 0.7071; dy *= 0.7071;
     }
     if (this._autoWalk) { const aw = this._autoWalkDir(); dx = aw.x; dy = aw.y; } // エンディングの続き：自動で歩く（操作は効かない）
-    if (this.vsHero) { this._vhStep(dx, dy, dt * (this._vhTs == null ? 1 : this._vhTs)); dx = 0; dy = 0; } // ⚔ vs主人公：画面の中なら、自由に動ける
+    if (this.vsHero) { this._vhStep(dx, dy, dt * (this._vhTs == null ? 1 : this._vhTs)); dx = 0; dy = 0; } // ⚔ 斬り合い：画面の中なら、自由に動ける
 
     const r = this.player.radius;
     // マジックボムを溜めている間は、溜めた時間に応じて移動速度がどんどん落ちていく
@@ -25181,7 +25181,7 @@ class GameScene extends Phaser.Scene {
   // 最高到達階層・ボス撃破数・クリア回数は、ダンジョン／最北戦線だけ。PvP・デベロッパーは何も足さない。
   // 今回新しく入手した装飾品の配列を返す。同じ挑戦で二度足さないよう、runStatsの同一性で判定する。
   commitRunStats() {
-    if (this.pvp || this.isDevMode || this.vsHero) return []; // vs主人公は、どの記録にも足さない
+    if (this.pvp || this.isDevMode || this.vsHero) return []; // 斬り合いは、どの記録にも足さない
     if (this._committedStats === this.runStats) return [];
     this._committedStats = this.runStats;
     // 協力プレイでは、倒した数は自分の分（mpStats）を使う（runStats.kills/bosses はソロ専用の集計のため）
@@ -25659,7 +25659,7 @@ class GameScene extends Phaser.Scene {
     this._partyTitle = tx(320, 30, '🎉 PARTY ROOM 🎉', 18, '#ffffff', { c: '#9c4f6a', w: 4 });
     tx(320, 432, '⭐', 14, '#ffffff'); tx(320, 151, 'ホラー', 11, '#ffffff', { c: '#2f7a49', w: 3 });
     tx(PARTY_PORTAL_SOCIAL.x, 119, '🎙', 14, '#ffffff'); tx(PARTY_PORTAL_SOCIAL.x, 151, '交流ルーム', 11, '#ffffff', { c: '#2f5f9a', w: 3 });
-    tx(PARTY_PORTAL_HERO.x, 119, '⚔', 14, '#ffffff'); tx(PARTY_PORTAL_HERO.x, 151, 'vs主人公', 11, '#ffffff', { c: '#9a2f2f', w: 3 });
+    tx(PARTY_PORTAL_HERO.x, 119, '⚔', 14, '#ffffff'); tx(PARTY_PORTAL_HERO.x, 151, '斬り合い', 11, '#ffffff', { c: '#9a2f2f', w: 3 });
     this.player.x += (Math.random() - 0.5) * 80; // 同時に入った人と重ならないように
     this._partyLoadMemos();
     this.events.once('shutdown', () => { const pb = document.getElementById('partyPrompt'); if (pb) pb.remove(); });
@@ -25680,7 +25680,7 @@ class GameScene extends Phaser.Scene {
       const y = by + Math.sin(t * 1.5 + i) * 6; g.lineStyle(1, 0x999999, 1); g.lineBetween(bx, y + 14, bx + Math.sin(t + i) * 3, y + 40);
       g.fillStyle(hsl(i * 67 + 10, 0.45, 0.66), 1); g.fillEllipse(bx, y, 22, 28); g.fillStyle(0xffffff, 0.5); g.fillEllipse(bx - 4, y - 5, 5, 8);
     });
-    for (const PP of [PARTY_PORTAL, PARTY_PORTAL_SOCIAL, PARTY_PORTAL_HERO]) { // 🌿 草原（緑）／🎙 みんなの広場（水色）／⚔ vs主人公（赤）への入口：光る扉
+    for (const PP of [PARTY_PORTAL, PARTY_PORTAL_SOCIAL, PARTY_PORTAL_HERO]) { // 🌿 草原（緑）／🎙 みんなの広場（水色）／⚔ 斬り合い（赤）への入口：光る扉
       const hero = !!PP.hero, soc = !!PP.social, px = PP.x, py = PP.y, gl = 0.55 + 0.25 * Math.sin(t * 3);
       g.fillStyle(hero ? 0xff8a8a : soc ? 0x78b8ff : 0x78dc8c, 0.28 * gl); g.fillCircle(px, py, 27); g.fillStyle(hero ? 0xce4a4a : soc ? 0x4f86ce : 0x4fae6a, 1); g.fillEllipse(px, py, 30, 40); g.fillStyle(hero ? 0xffd0d0 : soc ? 0xc9e2ff : 0xc9f2cf, 1); g.fillEllipse(px, py, 20, 30);
       for (let k = 0; k < 5; k++) { const a = t * 1.6 + k * 1.26; g.fillStyle(0xffffff, 0.85); g.fillRect(px + Math.cos(a) * 21 - 1.5, py + Math.sin(a) * 25 - 1.5, 3, 3); }
@@ -25734,7 +25734,7 @@ class GameScene extends Phaser.Scene {
   _partyAct() {
     const tg = this._partyTarget; if (!tg || this._hutReading || this._partyLeaving) return;
     const pb = document.getElementById('partyPrompt'); if (pb) pb.style.display = 'none';
-    if (tg.hero) { this._partyLeave(true); return; } // ⚔ vs主人公：部屋を出て、ボス部屋へ
+    if (tg.hero) { this._partyLeave(true); return; } // ⚔ 斬り合い：部屋を出て、ボス部屋へ
     if (tg.portal) { // 🌿 草原（3D）へ。入っている間は、この画面を止める（小屋の本を読んでいる間と同じ）
       this._hutReading = true;
       try { const back = () => { this._hutReading = false; }; if (tg.social) openPartyHall(back, { net: this.net, scene: this }); else openGrassland(back, { net: this.net, scene: this }); } catch (err) { console.error('草原を開けませんでした:', err); this._hutReading = false; }
@@ -30471,7 +30471,7 @@ function startGame(mode, extra) {
     devWeaponLevel: devMode ? Math.max(1, parseInt(document.getElementById('devWeaponLevelInput').value, 10) || 5) : null,
     devMode, // リザルト画面の表示（DEVELOPER）切り替え用
     bossRush: !!(extra && extra.bossRush),
-    vsHero: !!(extra && extra.vsHero), // ⚔ パーティールームの「vs主人公」：ボス部屋で主人公と戦う（ソロ。装飾品なし）
+    vsHero: !!(extra && extra.vsHero), // ⚔ パーティールームの「斬り合い」：ボス部屋で主人公と戦う（ソロ。装飾品なし）
     arms4Ritual: !!(extra && extra.arms4Ritual), // 【期間限定】四つ腕の調伏の儀：始まったらすぐ調伏の儀に入る
     endingRitual: !!(extra && extra.endingRitual), // エンディング演出の調伏の儀：装飾品はシリアルキラー＋悪魔の装飾3つ、天使は動かず、翼が大きくなる
     pvp: !!(extra && extra.pvp), // PvPモード
@@ -31313,11 +31313,11 @@ if (DEBUG_URL.test) ['pvpTestBtn', 'hutWarpBtn', 'endingTestBtn', 'endingFullTes
     busy = false;
   });
 })();
-// ⚔ パーティールームの「vs主人公」から来た：ロビーを出て、すぐボス部屋へ（ソロ。装飾品は付けない）
+// ⚔ パーティールームの「斬り合い」から来た：ロビーを出て、すぐボス部屋へ（ソロ。装飾品は付けない）
 (function () {
   let go = false; try { go = sessionStorage.getItem('zk_vs_hero') === '1'; sessionStorage.removeItem('zk_vs_hero'); } catch (e) {}
   if (!go) return;
-  setTimeout(() => { try { startGame('solo', { vsHero: true, weaponKey: 'sword' }); } catch (err) { console.error('vs主人公を始められませんでした:', err); } }, 0);
+  setTimeout(() => { try { startGame('solo', { vsHero: true, weaponKey: 'sword' }); } catch (err) { console.error('斬り合いを始められませんでした:', err); } }, 0);
 })();
 </script>
 </body>
