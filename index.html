@@ -2179,6 +2179,10 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   // --- 操作の気持ちよさ（当たった時の手応えと、動きのなめらかさ） ---
   hitStop: 0.06,           // 自分の斬撃が敵に当たった時、動きが一瞬止まる秒数（ヒットストップ。0で無し）
   hitStopHurt: 0.1,        // 敵の斬撃が自分に当たった時の、止まる秒数（少し長め）
+  clashStop: 0.07,         // 斬撃どうしがぶつかった時の、止まる秒数（ヒットストップ。0で無し）
+  clashShake: 0.004,       // ぶつかった時の、画面の揺れの強さ（0で無し）
+  clashShakeMs: 90,        // 　その揺れの長さ（ミリ秒）
+  clashSparks: 28,         // ぶつかった時に散る火花の量（以前は16）
   hitStopScale: 0.03,      // 止まっている間の速さ（0＝完全に止まる。少し動かすと、固まった感じが出にくい）
   hitFlash: 0.1,           // 敵に当たった時、敵の体が白く光る秒数（止まっている間は数えない）
   shakeHit: 0.003,         // 自分の斬撃が当たった時の、画面の揺れの強さ（0で無し）
@@ -6615,7 +6619,10 @@ class GameScene extends Phaser.Scene {
         if (!sa && !sb) sa = sb = (Math.random() < 0.5 ? 1 : -1); else if (!sa) sa = -sb; else if (!sb) sb = -sa;
         a.a = Phaser.Math.Angle.Wrap(a.a + sa * V.clashDeflect); b.a = Phaser.Math.Angle.Wrap(b.a + sb * V.clashDeflect);
         a.cd = b.cd = V.clashCooldown; a.lock = b.lock = V.clashLock;
-        this._vhBurst((a.x + b.x) / 2, (a.y + b.y) / 2, 0xffffff, 16); break;
+        this._vhBurst((a.x + b.x) / 2, (a.y + b.y) / 2, 0xffffff, V.clashSparks);
+        this._vhStopT = Math.max(this._vhStopT || 0, V.clashStop); // ぶつかった手応え：一瞬止まって、画面が揺れる
+        if (V.clashShake > 0) { try { this.cameras.main.shake(V.clashShakeMs, V.clashShake); } catch (e) {} }
+        break;
       }
     }
     this._vhSlashes = this._vhSlashes.filter(q => !q.dead);
