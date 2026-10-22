@@ -357,7 +357,7 @@
   #libBookTitle { font-size: 17px; font-weight: bold; color: #f1dfb8; }
   #libPick { display: none; flex-wrap: wrap; justify-content: center; gap: 6px; }
   #libPick button { padding: 5px 10px; font-size: 12px; background: #3a2c1e; color: #e8d9bd; border: 1px solid #6a5238; border-radius: 3px; cursor: pointer; }
-  #libBookText { width: min(92vw, 480px); max-height: 52vh; overflow-y: auto; white-space: pre-wrap; line-height: 1.7; font-size: 14px; color: #e8d9bd; background: #20170f; border: 2px solid #5a4330; border-radius: 4px; padding: 14px; box-sizing: border-box; text-align: left; }
+  #libBookText { width: min(92vw, 480px); max-height: 52vh; overflow-y: auto; touch-action: pan-y; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; white-space: pre-wrap; line-height: 1.7; font-size: 14px; color: #e8d9bd; background: #20170f; border: 2px solid #5a4330; border-radius: 4px; padding: 14px; box-sizing: border-box; text-align: left; }
   /* 装飾品の選択欄（旧：色の選択）。先頭は一覧を開くアイコン。未入手は灰色 */
   #accPicker { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; }
   /* 称号：ホーム画面のプレイヤー名の上。押すと称号の選択画面が開く。未装備の時は「プレイヤー名」の灰色の文字 */
@@ -760,7 +760,7 @@ const IS_TOUCH_DEVICE = ('ontouchstart' in window) || navigator.maxTouchPoints >
   let lastTouchEnd = 0;
   function blockIfDoubleTap(e) {
     const t = e.target;
-    if (t && t.closest && t.closest('button, input, .lobbyBox, #wwGuideBox')) return;
+    if (t && t.closest && t.closest('button, input, .lobbyBox, #wwGuideBox, #libReader, #hutBookOverlay')) return;
     const now = Date.now();
     if (now - lastTouchEnd <= 400) {
       e.preventDefault();
@@ -1299,6 +1299,12 @@ function openLibrary(onClose, playerColor, accIcon, visits, countReach) { // cou
     const k = (ev.key || '').toLowerCase();
     if (k === 'escape') { ev.preventDefault(); if (readerOpen) closeReader(); else finish(); return; }
     if (k === 'e' || k === ' ' || k === 'enter') { ev.preventDefault(); if (readerOpen) closeReader(); else if (target) openShelf(target); return; }
+    if (readerOpen) { // 本を開いている間は、歩かずに本文をスクロールする（押しっぱなしでも連続で動く）
+      const bt = document.getElementById('libBookText'), pg = bt.clientHeight * 0.85;
+      const d = ({ arrowup: -40, w: -40, arrowdown: 40, s: 40, pageup: -pg, pagedown: pg })[k];
+      if (d !== undefined) { ev.preventDefault(); bt.scrollTop += d; } else if (k === 'home') { ev.preventDefault(); bt.scrollTop = 0; } else if (k === 'end') { ev.preventDefault(); bt.scrollTop = bt.scrollHeight; }
+      return;
+    }
     if (ctl(k)) { ev.preventDefault(); keys[ctl(k)] = true; }
   };
   const onKeyUp = ev => { const c = ctl((ev.key || '').toLowerCase()); if (c) keys[c] = false; };
@@ -25784,14 +25790,18 @@ class GameScene extends Phaser.Scene {
     const ov = document.createElement('div'); ov.id = 'hutBookOverlay'; // #hutBookOverlay は「ポーズを出さない画面」の目印にもなっている
     ov.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.84);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;box-sizing:border-box;font-family:sans-serif;touch-action:manipulation;';
     const ti = document.createElement('div'); ti.style.cssText = 'font-size:17px;font-weight:bold;color:#ffd6e6;'; ti.textContent = title;
-    const bx = document.createElement('div'); bx.style.cssText = 'width:min(92vw,480px);max-height:52vh;overflow-y:auto;white-space:pre-wrap;line-height:1.7;font-size:14px;color:#fff3f8;background:#2a1a24;border:2px solid #9c4f6a;border-radius:4px;padding:14px;box-sizing:border-box;text-align:left;'; bx.textContent = text;
+    const bx = document.createElement('div'); bx.style.cssText = 'width:min(92vw,480px);max-height:52vh;overflow-y:auto;touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;white-space:pre-wrap;line-height:1.7;font-size:14px;color:#fff3f8;background:#2a1a24;border:2px solid #9c4f6a;border-radius:4px;padding:14px;box-sizing:border-box;text-align:left;'; bx.textContent = text;
     const hint = document.createElement('div'); hint.style.cssText = 'font-size:12px;color:#c9a2b4;'; hint.textContent = IS_TOUCH_DEVICE ? 'タップして閉じる' : 'E・Esc・クリックで閉じる';
     ov.append(ti, bx, hint); document.body.appendChild(ov);
     const t0 = performance.now(); let closed = false;
     const close = () => { if (closed) return; closed = true; document.removeEventListener('keydown', onKey, true); ov.remove(); this._hutReading = false; };
-    const onKey = ev => { const k = (ev.key || '').toLowerCase(); if (k === 'e' || k === ' ' || k === 'enter' || k === 'escape') { ev.preventDefault(); ev.stopPropagation(); if (!ev.repeat && performance.now() - t0 > 250) close(); } };
+    const onKey = ev => { const k = (ev.key || '').toLowerCase(); if (k === 'e' || k === ' ' || k === 'enter' || k === 'escape') { ev.preventDefault(); ev.stopPropagation(); if (!ev.repeat && performance.now() - t0 > 250) close(); return; }
+      const pg = bx.clientHeight * 0.85, d = ({ arrowup: -40, w: -40, arrowdown: 40, s: 40, pageup: -pg, pagedown: pg })[k]; // ↑↓・W/S・PageUp/Down で本文をスクロール（押しっぱなしでも連続で動く）
+      if (d !== undefined) { ev.preventDefault(); ev.stopPropagation(); bx.scrollTop += d; } else if (k === 'home') { ev.preventDefault(); ev.stopPropagation(); bx.scrollTop = 0; } else if (k === 'end') { ev.preventDefault(); ev.stopPropagation(); bx.scrollTop = bx.scrollHeight; } };
     document.addEventListener('keydown', onKey, true);
-    ov.addEventListener('click', () => { if (performance.now() - t0 > 250) close(); });
+    let dn = null; // 押した位置：ドラッグ（スクロール）したあとの指・マウスの離しで、閉じてしまわないようにする
+    ov.addEventListener('pointerdown', ev => { dn = { x: ev.clientX, y: ev.clientY, inBox: bx.contains(ev.target) }; });
+    ov.addEventListener('click', ev => { const m = dn && Math.hypot(ev.clientX - dn.x, ev.clientY - dn.y) > 8; if (m || (dn && dn.inBox && ev.target === ov)) return; if (performance.now() - t0 > 250) close(); });
     this.events.once('shutdown', close);
   }
   async _partyLeave(toHero) { // 下の扉：部屋から出てロビーへ（退出ボタンと同じ処理。Firebaseからの削除が終わるのを待ってから、読み込み直す）
