@@ -374,6 +374,10 @@
   .titleRow .tDesc { flex: 1; font-size: 11px; color: #a0a0b0; }
   .titleRow .tState { font-size: 11px; color: #8fe3a0; white-space: nowrap; }
   .titleEmpty { padding: 18px 6px; font-size: 13px; color: #a0a0b0; }
+  .titleRow.locked { cursor: default; background: rgba(255,255,255,0.03); } /* 未入手：押せない。名前と解放条件だけ、暗く見せる */
+  .titleRow.locked .tName { color: #777789; }
+  .titleRow.locked .tDesc { color: #8a8a9c; }
+  .titleRow.locked .tState { color: #777789; }
   #titleToast { position: fixed; top: 6vh; left: 50%; transform: translateX(-50%); z-index: 140; text-align: center; font-weight: bold; font-size: 18px; pointer-events: none; text-shadow: 0 0 8px rgba(0,0,0,0.9); white-space: pre-line; }
   .accItem {
     width: 28px; height: 28px; box-sizing: border-box; border-radius: 50%; cursor: pointer;
@@ -4151,8 +4155,8 @@ const PLAYER_TITLES = [
   { key: 'demonslayer',  name: '悪魔狩り',   color: '#000000', outline: '#a855ff', desc: '悪魔を倒す' }, // outline＝ふち（縁取り・光）の色。あれば、字は color（ここでは黒）のまま、ふちだけがこの色になる。無ければ、これまで通り（ゲーム中は黒いふち、ホームなどは color で光る）
   { key: 'angelhunter',  name: '天使狩り',   color: '#ffe27a', desc: 'ホームのボタンから天使を調伏する' },
   { key: 'killervessel', name: '殺戮者の器', color: '#c2185b', desc: 'エンディングを見る' },
-  { key: 'soulwing',     name: '魂の翼',     color: '#6fe3ff', desc: '翼を2段階目に強化する（雑魚敵を累計20000体倒す）' }, // 翼の段階：1＝悪魔の腕輪／2＝1回目の進化(WING_EVOLVE_KILLS)／3＝2回目の進化(WING_FULLGLOW_KILLS)
-  { key: 'fallenwing',   name: '堕翼',       color: '#a24dff', desc: '翼を3段階目に強化する（雑魚敵を累計40000体倒す）' },
+  { key: 'soulwing',     name: '魂の翼',     color: '#6fe3ff', desc: '翼を2段階目に強化する（敵を累計20000体倒す）' }, // 翼の段階：1＝悪魔の腕輪／2＝1回目の進化(WING_EVOLVE_KILLS)／3＝2回目の進化(WING_FULLGLOW_KILLS)
+  { key: 'fallenwing',   name: '堕翼',       color: '#a24dff', desc: '翼を3段階目に強化する（敵を累計40000体倒す）' },
   { key: 'deadline',     name: '死線',       color: '#e03c3c', desc: 'ルーレット：赤でダンジョンをクリアする' },
   { key: 'judge',        name: '審判者',     color: '#e8e8ff', desc: 'ボスを累計1000体倒す' },
   { key: 'end',          name: '終焉',       color: '#ff7a1a', desc: '敵を累計10万体倒す' },
@@ -4178,11 +4182,11 @@ function checkStateTitles(save) {
   const give = k => { if (save.titles[k] !== true) { save.titles[k] = true; added.push(playerTitleByKey(k)); } };
   if (TEST_UNLOCK_ALL_TITLES) PLAYER_TITLES.forEach(t => give(t.key));
   if (save.endingDone) give('killervessel');
-  const kills = Number(save.soloTotalKills) || 0; // 翼の強化は、雑魚敵の累計撃破数で決まる
+  const kills = allKillCount(save); // 翼の強化は、倒した敵すべて（雑魚敵＋ボス）の累計撃破数で決まる
   if (kills >= WING_EVOLVE_KILLS) give('soulwing');
   if (kills >= WING_FULLGLOW_KILLS) give('fallenwing');
   if ((Number(save.totalBossKills) || 0) >= 1000) give('judge'); // ボスの累計撃破数（totalBossKills：全モード）
-  if (kills + (Number(save.totalBossKills) || 0) >= 100000) give('end'); // 敵の累計撃破数（雑魚敵＋ボス）
+  if (kills >= 100000) give('end'); // 敵の累計撃破数（雑魚敵＋ボス）
   return added;
 }
 function currentTitleKey() { // 付けている称号のkey（入手済みのものだけ。エンディング演出中は付けない）
@@ -4190,7 +4194,9 @@ function currentTitleKey() { // 付けている称号のkey（入手済みのも
   const s = loadSave(); return (playerTitleByKey(s.titleEquipped) && s.titles[s.titleEquipped] === true) ? s.titleEquipped : '';
 }
 const ACC_DEMONWINGS = { count: 9, range: 300, dmg: 7, tick: 0.2, stabSpeed: 1100, pullTime: 1.5, holdDist: 110, spread: 1.5, retake: 0.35, ghostVanish: 10, calm: 1 }; // 悪魔の腕輪：付けている間、背中に悪魔の翼（根）が出る。count＝本数／range＝刺しにいける距離(px)／dmg＝1回のダメージ／tick＝何秒ごとにダメージ／stabSpeed＝刺しにいく速さ(px/秒)／pullTime＝刺してから背中側へ戻る秒数／holdDist＝刺した敵をぶら下げる、背中からの距離(px。翼が大きくなっている時は、根の長さと同じ割合で遠くなる)／spread＝背中側の根が左右に開く角度(ラジアン。1.57＝真横まで＝身体の後ろ半分全体)／retake＝放した根が次を刺せるまでの秒数／ghostVanish＝ゴーストを掴んでから、何秒でパッと消えるか／calm＝刺しにいく時以外の、ゆらゆらの速さ（1＝ふつう、小さいほどゆっくり）
-// 😈 悪魔の翼の進化：雑魚敵の累計撃破数（soloTotalKills）がこの数に届くと、翼の見た目がエンディングの主人公の翼のように強化される（大きく・太く・とげ付き・縁が光る）。さらに、根のダメージが2倍（WING_EVOLVE_DMG_MULT）になり、壁越しの敵も掴めるようになる（根の本数や射程は変わらない）。
+// 😈 悪魔の翼の進化：倒した敵すべての累計撃破数（雑魚敵 soloTotalKills ＋ ボス totalBossKills）がこの数に届くと、翼の見た目がエンディングの主人公の翼のように強化される（大きく・太く・とげ付き・縁が光る）。さらに、根のダメージが2倍（WING_EVOLVE_DMG_MULT）になり、壁越しの敵も掴めるようになる（根の本数や射程は変わらない）。
+// 🗡 翼の強化に数える「倒した敵の累計」：雑魚敵（soloTotalKills）＋ボス（totalBossKills）。すべての倒した敵の合計
+function allKillCount(sv) { return Math.max(0, Math.floor(Number(sv && sv.soloTotalKills) || 0)) + Math.max(0, Math.floor(Number(sv && sv.totalBossKills) || 0)); }
 const WING_EVOLVE_KILLS = 20000;
 const WING_EVOLVE_DMG_MULT = 2; // 😈 1回目の進化（累計20000体）：根が敵に与えるダメージの倍率
 const WING_EVOLVE2_DMG_MULT = 2; // 🌟 2回目の進化（累計40000体）：さらに掛かる倍率（1回目と合わせて、元の4倍）
@@ -4752,9 +4758,9 @@ class GameScene extends Phaser.Scene {
     this._autoWalk = this._endingNext ? { pts: [], i: 0, speed: 0.55 } : null; this._autoFace = null; this._endHudHidden = undefined; this._endLocked = undefined; // エンディングの続き：雪原のフロアのダンジョンに入った時から、エンディングが終わるまで、ずっと操作を受けつけない（目的地が空のあいだは、その場で止まって待つ。根が全部の敵を掴むので、動かなくても進む）
     this._hellDoorDone = false; this._hellDoorT = 0; // エンディングの続き：1階を全滅させたあと、右の部屋に地獄の扉を開けたか
     this._wingDouble = this._endingNext; // 翼（根）の本数が二倍になっているか（調伏の儀では、翼が大きくなる時に二倍になる）
-    this._wingEvolved = false; try { this._wingEvolved = (Number(loadSave().soloTotalKills) || 0) >= WING_EVOLVE_KILLS; } catch (e) {} // 😈 悪魔の翼が進化しているか（雑魚敵を累計20000体倒した）
+    this._wingEvolved = false; try { this._wingEvolved = allKillCount(loadSave()) >= WING_EVOLVE_KILLS; } catch (e) {} // 😈 悪魔の翼が進化しているか（敵を累計20000体倒した：雑魚敵＋ボス）
     this._soulCols = null; this._soulColsHue = null;
-    this._wingMaxed = false; try { this._wingMaxed = (Number(loadSave().soloTotalKills) || 0) >= WING_FULLGLOW_KILLS; } catch (e) {} // 🌟 雑魚敵を累計40000体倒した：翼の全体が光る
+    this._wingMaxed = false; try { this._wingMaxed = allKillCount(loadSave()) >= WING_FULLGLOW_KILLS; } catch (e) {} // 🌟 敵を累計40000体倒した（雑魚敵＋ボス）：翼の全体が光る
     try { getSoulHue(); } catch (e) {} // 🎨 魂の色は、最初にゲームを始めた時に決めて保存する（進化の前から、引き継ぎの対象にするため）
     this.arms4Ritual = !this.mp && !!app.arms4Ritual; this._endingRun = this.arms4Ritual && !!app.endingRitual; this._endingT = 0; this._wingBigT = -1; this._ritualWon = false; // 【期間限定】四つ腕の調伏の儀
     this.devWeaponLevel = this.arms4Ritual ? ((Object.values(SUMMON2.skills).find(k => k && k.key === 'arms4') || {}).minLevel || 8) : (app.devWeaponLevel || null); // デベロッパーモードで指定した開始時の武器レベル（create()で使う）。四つ腕の調伏の儀は、挑めるLvで始める
@@ -25744,9 +25750,9 @@ class GameScene extends Phaser.Scene {
   }
   _partyReadNote(title, text) { // メモを読む画面（小屋の本と同じ作り）。E・Esc・クリック／タップで閉じる
     if (this._hutReading) return;
-    // メモの中の {untilfirstevole}（{untilfirstevolve} も同じ）＝今まで倒した雑魚敵数／20000、{untilsecondevolve}（{untilsecondevole} も同じ）＝今まで倒した雑魚敵数／40000 に置き換える（ソロ・協力プレイの累計。目標を超えたら目標の数で止める）
+    // メモの中の {untilfirstevole}（{untilfirstevolve} も同じ）＝今まで倒した敵の数（雑魚敵＋ボス）／20000、{untilsecondevolve}（{untilsecondevole} も同じ）＝今まで倒した敵の数（雑魚敵＋ボス）／40000 に置き換える（ソロ・協力プレイの累計。目標を超えたら目標の数で止める）
     try {
-      const kills = Math.max(0, Math.floor(Number(loadSave().soloTotalKills) || 0));
+      const kills = allKillCount(loadSave()); // 倒した敵すべて（雑魚敵＋ボス）
       const prog = (goal) => Math.min(kills, goal) + '／' + goal;
       text = String(text).replace(/\{untilfirstevol[ev]+\}/g, prog(20000)).replace(/\{untilsecondevol[ev]+\}/g, prog(40000));
     } catch (e) { /* セーブが読めない時は、そのまま表示する */ }
@@ -30344,13 +30350,18 @@ function renderTitlePickBtn() {
 }
 function openTitleModal() {
   const s = loadSave(), list = document.getElementById('titleModalList');
-  const owned = PLAYER_TITLES.filter(t => s.titles[t.key] === true); // 入手していない称号は、見せない
   const cur = currentTitleKey();
-  list.innerHTML = owned.length ? owned.map(t => '<div class="titleRow' + (cur === t.key ? ' sel' : '') + '" data-key="' + escapeHtml(t.key) + '">'
-    + '<div class="tName" style="color:' + t.color + ';text-shadow:' + titleGlowCss(t, 8) + '">' + escapeHtml(t.name) + '</div>'
-    + '<div class="tDesc">' + escapeHtml(t.desc) + '</div>'
-    + '<div class="tState">' + (cur === t.key ? '✔ 装備中' : 'タップで装備') + '</div></div>').join('')
-    : '<div class="titleEmpty">まだ称号を持っていません</div>';
+  // 入手済みの称号を先に、未入手のものを後ろに並べる（それぞれ、定義の順）。未入手も、名前と解放条件を見せる（灰色・押せない）
+  const has = t => s.titles[t.key] === true, ordered = PLAYER_TITLES.filter(has).concat(PLAYER_TITLES.filter(t => !has(t)));
+  list.innerHTML = ordered.map(t => has(t)
+    ? '<div class="titleRow' + (cur === t.key ? ' sel' : '') + '" data-key="' + escapeHtml(t.key) + '">'
+      + '<div class="tName" style="color:' + t.color + ';text-shadow:' + titleGlowCss(t, 8) + '">' + escapeHtml(t.name) + '</div>'
+      + '<div class="tDesc">' + escapeHtml(t.desc) + '</div>'
+      + '<div class="tState">' + (cur === t.key ? '✔ 装備中' : 'タップで装備') + '</div></div>'
+    : '<div class="titleRow locked" data-key="' + escapeHtml(t.key) + '">'
+      + '<div class="tName">' + escapeHtml(t.name) + '</div>'
+      + '<div class="tDesc">解放条件：' + escapeHtml(t.desc) + '</div>'
+      + '<div class="tState">🔒 未入手</div></div>').join('');
   list.querySelectorAll('.titleRow').forEach(row => row.addEventListener('click', () => {
     const k = row.getAttribute('data-key'), s2 = loadSave();
     if (!playerTitleByKey(k) || s2.titles[k] !== true) return;
