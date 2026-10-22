@@ -2169,7 +2169,17 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   bloodColor: 0xb3141a,    // 血の色（明るい方）
   bloodDark: 0x7d0d12,     // 血の色（暗い方。粒ごとに、この2色のどちらかがランダムに混ざる）
   faceBarLen: 14,          // 敵の「向きを示す白い棒」の長さ（px）。自分のものと同じ
-  faceBarGap: 8            // 敵の体の縁から、白い棒の中心までの距離（px）
+  faceBarGap: 8,           // 敵の体の縁から、白い棒の中心までの距離（px）
+  // --- 操作の気持ちよさ（当たった時の手応えと、動きのなめらかさ） ---
+  hitStop: 0.06,           // 自分の斬撃が敵に当たった時、動きが一瞬止まる秒数（ヒットストップ。0で無し）
+  hitStopHurt: 0.1,        // 敵の斬撃が自分に当たった時の、止まる秒数（少し長め）
+  hitStopScale: 0.03,      // 止まっている間の速さ（0＝完全に止まる。少し動かすと、固まった感じが出にくい）
+  hitFlash: 0.1,           // 敵に当たった時、敵の体が白く光る秒数（止まっている間は数えない）
+  shakeHit: 0.003,         // 自分の斬撃が当たった時の、画面の揺れの強さ（0で無し）
+  shakeHitMs: 80,          // 　その揺れの長さ（ミリ秒）
+  shakeHurt: 0.008,        // 自分が斬撃を受けた時の、画面の揺れの強さ
+  shakeHurtMs: 160,        // 　その揺れの長さ（ミリ秒）
+  moveSmooth: 0.05         // 動き出し・止まりのなめらかさ（秒。0＝すぐ最高速／止まる。大きいほどぬるっと動く）
 };
 const PARTY_PORTAL_HERO = { i: -4, portal: true, hero: true, x: 220, y: 118 }; // ⚔ 斬り合いへの入口（入るとボス部屋へ飛ぶ。装飾品は全部持っていけない）
 const PARTY_PORTAL_SOCIAL = { i: -3, portal: true, social: true, x: 420, y: 118 }; // 🎙 みんなの広場（洋室）への入口（同じ部屋の人と一緒に入って、歩き回りながらボイスチャット）
@@ -6368,7 +6378,7 @@ class GameScene extends Phaser.Scene {
     // ⚔ 位置は固定：敵は bx,by、自分はそこから duelTiles マス手前の同じ高さ。ここが開始位置（画面の中なら自由に動ける）
     this._vhEnemyHome = { x: bx, y: by };
     this._vhHome = { x: bx - VS_HERO.duelTiles * TILE, y: by };
-    this._vhRoam = null; this._vhCell = { x: 0, y: 0 }; this._vhSlashes = []; this._vhParts = []; this._vhTris = []; this._vhSparks = []; this._vhScars = []; this._vhGhosts = []; this._vhBloods = [];
+    this._vhRoam = null; this._vhCell = { x: 0, y: 0 }; this._vhSlashes = []; this._vhParts = []; this._vhTris = []; this._vhSparks = []; this._vhScars = []; this._vhGhosts = []; this._vhBloods = []; this._vhStopT = 0; this._vhFlash = 0; this._vhVel = null; this._vhTs = 1; this._vhTsEff = 1;
     this._vhWasHeld = false; this._vhCd = 0;
     this._vhEn = { cd: VS_HERO.enemyFirstDelay, tele: 0, ang: 0, tx: 0, ty: 0 }; // 敵の攻撃の状態
     this.player.x = this._vhHome.x; this.player.y = this._vhHome.y;
@@ -6388,7 +6398,9 @@ class GameScene extends Phaser.Scene {
     if (this.player && this._vhSlashes) for (const q of this._vhSlashes) if (!q.dead && q.owner === 'e') near = Math.min(near, Math.hypot(q.x - this.player.x, q.y - this.player.y));
     const want = near >= V.slowRange ? 1 : (near <= V.slowFull ? V.slowMin : V.slowMin + (1 - V.slowMin) * (near - V.slowFull) / (V.slowRange - V.slowFull));
     const k = Math.min(1, V.slowEase * dt); this._vhTs = (this._vhTs == null ? 1 : this._vhTs) + (want - (this._vhTs == null ? 1 : this._vhTs)) * k;
-    dt *= this._vhTs; // 以降の動きは、遅くなった時間で進む
+    let ts = this._vhTs; // ヒットストップ：当たった一瞬、全体を（ほぼ）止める。止まっている秒数は、実際の時間で数える
+    if (this._vhStopT > 0) { this._vhStopT -= dt; ts = V.hitStopScale; }
+    this._vhTsEff = ts; dt *= ts; // 以降の動きは、遅くなった時間で進む
     this._vhTick(t, dt);
     const e = this.enemies && this.enemies.find(x => x.type && x.type.key === 'vshero');
     if (!e || !e.gfx || !e.gfx.scene || !this.player) return;
@@ -6404,15 +6416,17 @@ class GameScene extends Phaser.Scene {
   _vhStep(dx, dy, dt) {
     if (!this.player) return;
     const V = VS_HERO, cam = this.cameras.main, r = this.player.radius;
-    const m = Math.hypot(dx, dy);
-    if (m > V.stepDead && !this.isGhost && !this.isDowned) {
-      const sp = (this.speed || PLAYER_BASE_SPEED) * V.moveSpeed * Math.min(1, m);
-      const ux = dx / m, uy = dy / m;
+    const m = Math.hypot(dx, dy), vel = this._vhVel || (this._vhVel = { x: 0, y: 0 });
+    let tx = 0, ty = 0; // 目標の速さ（スティック／WASDの向きと強さ）
+    if (m > V.stepDead && !this.isGhost && !this.isDowned) { const sp = (this.speed || PLAYER_BASE_SPEED) * V.moveSpeed * Math.min(1, m); tx = dx / m * sp; ty = dy / m * sp; }
+    if (V.moveSmooth > 0) { const k = 1 - Math.exp(-dt / V.moveSmooth); vel.x += (tx - vel.x) * k; vel.y += (ty - vel.y) * k; } // 動き出しと止まりを、すっとなめらかにする
+    else { vel.x = tx; vel.y = ty; }
+    if (Math.hypot(vel.x, vel.y) > 20) {
       this._vhGhostT = (this._vhGhostT || 0) - dt;
       if (this._vhGhostT <= 0) { this._vhGhosts.push({ x: this.player.x, y: this.player.y, t: 0.22 }); this._vhGhostT = 0.04; } // 動いている間は、残像を残す
-      const nx = this.player.x + ux * sp * dt, ny = this.player.y + uy * sp * dt;
-      if (!this.circleHitsWall(nx, this.player.y, r)) this.player.x = nx; // 壁にそって、すべる
-      if (!this.circleHitsWall(this.player.x, ny, r)) this.player.y = ny;
+      const nx = this.player.x + vel.x * dt, ny = this.player.y + vel.y * dt;
+      if (!this.circleHitsWall(nx, this.player.y, r)) this.player.x = nx; else vel.x = 0; // 壁にそって、すべる
+      if (!this.circleHitsWall(this.player.x, ny, r)) this.player.y = ny; else vel.y = 0;
     }
     const wv = cam.worldView; // いま見えている範囲の外には出られない
     if (wv) {
@@ -6496,6 +6510,13 @@ class GameScene extends Phaser.Scene {
     const h = Math.cos(a), v = Math.sin(a), side = (Math.random() - 0.5) * 300, back = -230 + Math.random() * 270;
     this._vhSpark(x + (Math.random() - 0.5) * 4, y + (Math.random() - 0.5) * 4, h * back - v * side, v * back + h * side, 70 + Math.random() * 200, col, 0.22 + Math.random() * 0.38);
   }
+  _vhHitFeel(hurt) { // 当たった時の手応え：一瞬止まる／画面が揺れる／（敵に当たった時は）敵が白く光る
+    const V = VS_HERO;
+    this._vhStopT = Math.max(this._vhStopT || 0, hurt ? V.hitStopHurt : V.hitStop);
+    if (!hurt) this._vhFlash = V.hitFlash;
+    const pw = hurt ? V.shakeHurt : V.shakeHit;
+    if (pw > 0) { try { this.cameras.main.shake(hurt ? V.shakeHurtMs : V.shakeHitMs, pw); } catch (e) {} }
+  }
   _vhBlood(x, y, a, n) { // 🩸 血しぶき：当たった向き（a）へ多めに、少しだけ手前にも散る。地面に落ちて、血だまりのように残る
     const V = VS_HERO, B = this._vhBloods; n = n || V.bloodCount;
     for (let i = 0; i < n; i++) {
@@ -6570,10 +6591,10 @@ class GameScene extends Phaser.Scene {
       while (s.sp >= 1) { s.sp -= 1; this._vhWheelSpark(s.x, s.y, s.a, s.col); } // 斬撃の位置＝見えない車輪が地面に触れている所。そこから火花が次々と散る
       let dead = s.age > V.slashLife || this.circleHitsWall(s.x, s.y, 5) || (s.owner === 'p' && !aim.held); // 自分の斬撃は、スティック（クリック・スペース）から手を離した時点で消える
       if (!dead && s.owner === 'p' && e && Math.hypot(s.x - e.gfx.x, s.y - e.gfx.y) < e.type.radius + V.slashRadius) {
-        this.damageEnemy(e, V.slashDamage, s.a, 0); this._vhBurst(s.x, s.y, s.col, 18); this._vhBlood(s.x, s.y, s.a); dead = true;
+        this.damageEnemy(e, V.slashDamage, s.a, 0); this._vhBurst(s.x, s.y, s.col, 18); this._vhBlood(s.x, s.y, s.a); this._vhHitFeel(false); dead = true;
       }
       if (!dead && s.owner === 'e' && !this.isGhost && Math.hypot(s.x - this.player.x, s.y - this.player.y) < this.player.radius + V.enemySlashRadius && this.playerInvuln <= 0) {
-        this._vhHurt(V.enemySlashDamage); this._vhBurst(s.x, s.y, s.col, 18); this._vhBlood(s.x, s.y, s.a); dead = true; // 無敵の間は、すり抜ける
+        this._vhHurt(V.enemySlashDamage); this._vhBurst(s.x, s.y, s.col, 18); this._vhBlood(s.x, s.y, s.a); this._vhHitFeel(true); dead = true; // 無敵の間は、すり抜ける
       }
       if (dead) { if (s.age <= V.slashLife && !s.hitDone) this._vhBurst(s.x, s.y, s.col, 10); s.dead = true; }
     }
@@ -6613,7 +6634,8 @@ class GameScene extends Phaser.Scene {
         this._vhFace.setPosition(e.gfx.x + Math.cos(fa) * fd, e.gfx.y + Math.sin(fa) * fd).setRotation(fa).setVisible(true).setAlpha(e.gfx.alpha);
       } else this._vhFace.setVisible(false);
     }
-    if (e && e.gfx && e.gfx.scene) e.gfx.setFillStyle(V.telegraphBlink && en && en.tele > 0 && Math.floor(t * 20) % 2 ? 0xff9a9a : e.type.color); // 予告中は体が赤く点滅
+    if (e && e.gfx && e.gfx.scene) e.gfx.setFillStyle(this._vhFlash > 0 ? 0xffffff : (V.telegraphBlink && en && en.tele > 0 && Math.floor(t * 20) % 2 ? 0xff9a9a : e.type.color));
+    if (this._vhFlash > 0) this._vhFlash -= dt; // 白く光る時間は、止まっている間は進まない（dt が小さいため） // 予告中は体が赤く点滅
     for (let i = this._vhGhosts.length - 1; i >= 0; i--) { // 残像
       const o = this._vhGhosts[i]; o.t -= dt; if (o.t <= 0) { this._vhGhosts.splice(i, 1); continue; }
       g.fillStyle(this.playerColor, 0.45 * (o.t / 0.22)); g.fillCircle(o.x, o.y, this.player.radius);
@@ -24502,7 +24524,7 @@ class GameScene extends Phaser.Scene {
       dx *= 0.7071; dy *= 0.7071;
     }
     if (this._autoWalk) { const aw = this._autoWalkDir(); dx = aw.x; dy = aw.y; } // エンディングの続き：自動で歩く（操作は効かない）
-    if (this.vsHero) { this._vhStep(dx, dy, dt * (this._vhTs == null ? 1 : this._vhTs)); dx = 0; dy = 0; } // ⚔ 斬り合い：画面の中なら、自由に動ける
+    if (this.vsHero) { this._vhStep(dx, dy, dt * (this._vhTsEff == null ? 1 : this._vhTsEff)); dx = 0; dy = 0; } // ⚔ 斬り合い：画面の中なら、自由に動ける
 
     const r = this.player.radius;
     // マジックボムを溜めている間は、溜めた時間に応じて移動速度がどんどん落ちていく
