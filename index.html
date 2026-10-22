@@ -2132,6 +2132,8 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   enemyIntervalMax: 0.3,   // 同、最長
   enemyAimLock: 0.12,       // 撃つ何秒前に、向きを固定するか（予告の間は自分を追って向きを変え、ここから先は変えない）
   enemyTelegraph: 0.3,     // 撃つ前の予告の秒数（狙うマスが赤く光り、線が出る）
+  telegraphLine: false,    // 敵が構えている間、撃つ向きを示す予告線を出すか（true＝出す、false＝出さない）。敵の白い棒は、この値に関係なく出る
+  telegraphBlink: false,   // 敵が構えている間、体を点滅させるか（true＝させる、false＝させない）
   enemySlashSpeed: 1280,    // 敵の斬撃の速さ（px/秒）
   enemySlashTurn: 2.0,     // 敵の斬撃が、撃ったあとも、ずっと自分の方へ向きを変え続ける速さ（ラジアン/秒。大きいほど追ってくる。予告線の向きには縛られない）
   flankChance: 0.35,       // 敵の攻撃のうち、大きく回り込んで上や下から来る斬撃になる割合（0〜1）
@@ -6592,7 +6594,7 @@ class GameScene extends Phaser.Scene {
     this._vhSlashes = this._vhSlashes.filter(q => !q.dead);
     // ===== 描画 =====
     g.clear(); gg.clear();
-    if (en && en.tele > 0 && e && hh0) { // 予告：敵から、斬撃を放つ向きへ線が伸びる。敵の体も点滅する
+    if (V.telegraphLine && en && en.tele > 0 && e && hh0) { // 予告：敵から、斬撃を放つ向きへ線が伸びる。敵の体も点滅する
       const pu = 0.5 + 0.5 * Math.sin(t * 40), tx = en.tx, ty = en.ty;
       g.lineStyle(2, V.enemySlashColor, 0.25 + 0.4 * pu);
       if (en.flank) { // 回り込む斬撃：曲がっていく道すじを予告する
@@ -6611,7 +6613,7 @@ class GameScene extends Phaser.Scene {
         this._vhFace.setPosition(e.gfx.x + Math.cos(fa) * fd, e.gfx.y + Math.sin(fa) * fd).setRotation(fa).setVisible(true).setAlpha(e.gfx.alpha);
       } else this._vhFace.setVisible(false);
     }
-    if (e && e.gfx && e.gfx.scene) e.gfx.setFillStyle(en && en.tele > 0 && Math.floor(t * 20) % 2 ? 0xff9a9a : e.type.color); // 予告中は体が赤く点滅
+    if (e && e.gfx && e.gfx.scene) e.gfx.setFillStyle(V.telegraphBlink && en && en.tele > 0 && Math.floor(t * 20) % 2 ? 0xff9a9a : e.type.color); // 予告中は体が赤く点滅
     for (let i = this._vhGhosts.length - 1; i >= 0; i--) { // 残像
       const o = this._vhGhosts[i]; o.t -= dt; if (o.t <= 0) { this._vhGhosts.splice(i, 1); continue; }
       g.fillStyle(this.playerColor, 0.45 * (o.t / 0.22)); g.fillCircle(o.x, o.y, this.player.radius);
