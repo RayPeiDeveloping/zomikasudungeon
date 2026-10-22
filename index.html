@@ -2087,10 +2087,12 @@ function openStairs(onClose, opt) {
   let toastTm = 0;
   const stairToast = (text, ms) => { toastEl.textContent = text; toastEl.style.opacity = '1'; clearTimeout(toastTm); toastTm = setTimeout(() => { toastEl.style.opacity = '0'; }, ms || 3000); };
   // ----- 🏃 イベント用の「毎フレーム処理」と、走る速さ（スプリント） -----
-  const stairTickers = []; let camShake = 0, scareLock = false; let sprintBoost = false; // camShake＝画面の揺れの強さ（毎フレーム弱まる）／scareLock＝true の間は、捕まって動けない // sprintBoost＝true の間は、Shift なし（スマホでも）で走る速さになる
+  const stairTickers = []; let stEvOut = null, stClockOff = 0, stClockAsked = false; const stSeenEv = new Set(); // 🤝 みんなで同じイベントを見るための状態：stEvOut＝自分が起こしたイベントの印（ほかの人に配る）／stClockOff＝サーバー時計とのずれ(ミリ秒)／stSeenEv＝もう始めた他人のイベント
+  const stNow = () => Date.now() + stClockOff; // サーバー時計に合わせた「いま」（人によって時計がずれていても、同じ時刻で動かすため）
+  let camShake = 0, scareLock = false; let sprintBoost = false; // camShake＝画面の揺れの強さ（毎フレーム弱まる）／scareLock＝true の間は、捕まって動けない // sprintBoost＝true の間は、Shift なし（スマホでも）で走る速さになる
   const stairEvAbort = () => { while (stairTickers.length) { const k = stairTickers.pop(); try { if (k.cleanup) k.cleanup(false); } catch (e) { console.error(e); } } sprintBoost = false; }; // やり直し・出る時に、イベントを全部片づける
   const stairTickersRun = (dt, t) => { for (let i = stairTickers.length - 1; i >= 0; i--) { const k = stairTickers[i]; let fin = false; try { fin = k.tick(dt, t); } catch (err) { console.error('階段イベントのエラー:', err); fin = true; } if (fin) { stairTickers.splice(i, 1); try { if (k.cleanup) k.cleanup(true); } catch (e) { console.error(e); } } } };
-  const stairGrowl = () => { if (!ac || !master) return; try { const t0 = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(), lp = ac.createBiquadFilter(); o.type = 'sawtooth'; o.frequency.setValueAtTime(70, t0); o.frequency.exponentialRampToValueAtTime(38, t0 + 1.6); lp.type = 'lowpass'; lp.frequency.value = 260; g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(0.35, t0 + 0.15); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.7); o.connect(lp); lp.connect(g); g.connect(master); if (rev) g.connect(rev); o.start(t0); o.stop(t0 + 1.8); } catch (e) { /* 何もしない */ } };
+  const stairGrowl = (k = 1) => { if (!ac || !master) return; try { const t0 = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(), lp = ac.createBiquadFilter(); o.type = 'sawtooth'; o.frequency.setValueAtTime(70 * k, t0); o.frequency.exponentialRampToValueAtTime(38 * k, t0 + 1.6); lp.type = 'lowpass'; lp.frequency.value = 260 * k; g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(0.35, t0 + 0.15); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.7); o.connect(lp); lp.connect(g); g.connect(master); if (rev) g.connect(rev); o.start(t0); o.stop(t0 + 1.8); } catch (e) { /* 何もしない */ } };
   const stairThud = v => { if (!ac || !master || v <= 0.01) return; try { const t0 = ac.currentTime; burst(t0, 0.035, 2300, 4, Math.min(1.6, v * 1.1)); burst(t0 + 0.004, 0.06, 1300, 3, Math.min(1.4, v * 0.8)); burst(t0, 0.1, 180, 0.8, v * 0.5, 'lowpass'); const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(90, t0); o.frequency.exponentialRampToValueAtTime(45, t0 + 0.08); g.gain.setValueAtTime(Math.min(0.9, v * 0.5), t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.1); o.connect(g); g.connect(master); if (rev) g.connect(rev); o.start(t0); o.stop(t0 + 0.12); } catch (e) { /* 何もしない */ } }; // 化け物の足音：硬い「コツッ」（高い短い音）に、低い響きを少し足す。v＝大きさ（近いほど大きい）
   const stairScream = () => { if (!ac || !master) return; try { // 😱 捕まった時の、でかい悲鳴＋爆音（コードで作る）
     const t0 = ac.currentTime, g = ac.createGain(), bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1600; bp.Q.value = 0.8;
@@ -2101,32 +2103,37 @@ function openStairs(onClose, opt) {
     burst(t0, 0.5, 900, 0.6, 1.0); burst(t0 + 0.02, 0.9, 200, 0.5, 1.0, 'lowpass');
     const b = ac.createOscillator(), bg = ac.createGain(); b.type = 'sine'; b.frequency.setValueAtTime(90, t0); b.frequency.exponentialRampToValueAtTime(30, t0 + 0.5); bg.gain.setValueAtTime(0.9, t0); bg.gain.exponentialRampToValueAtTime(0.001, t0 + 0.6); b.connect(bg); bg.connect(master); b.start(t0); b.stop(t0 + 0.65);
   } catch (e) { /* 何もしない */ } };
-  const STAIR_EVENTS = [
-    { id: 'sprint', weight: 1, run: ctx => { // 🏃 スプリント：前の階の扉が開いて化け物が出てきて、追ってくる。3階分にげると、化け物はそこの扉に入って終わり。追いつかれると即死
-      if (stairTickers.length) return; // もう何か動いている時は起こさない
-      const j0 = ctx.floor - 2, jEnd = ctx.floor + 2, DELAY = 1.3, CATCH_H = 1.6, CATCH_V = 1.8; // j0＝出てくる扉の階（いまの1つ下）／jEnd＝入っていく扉の階（いまの3つ上）
-      let SPD = 4.2; // SPD＝化け物の速さ（m/秒）。このあと、道のりと自分の位置から計算し直す
+  const stChaseSpeed = (at, total, sp0, DELAY, REACT) => { // 🏃 化け物の速さ：「いまの踊り場(sp0)から、REACT秒あとに走り出して、化け物と同じ向きへ走り続ければ」化け物が扉に入るまで、ずっと約3m以上はなれている（＝ギリギリ捕まらない）速さを、道のりから計算する
+    const VP = 2.8 * 1.8, GAP = 3.0; // VP＝走る速さ(水平)／GAP＝いちばん近づいた時の、化け物との道のりの差(m)
+    const runner = []; let u = sp0; for (let n = 0; n < 3000; n++) { runner.push(u); if (n * 0.02 >= REACT) { const q = at(u), h = Math.hypot(q.dx, q.dz), len = Math.hypot(q.dx, q.dy, q.dz); u += VP * 0.02 * (u < total && h > 1e-6 ? len / h : 1.1); } } // 0.02秒ごとの、走る自分の位置（斜めの階段は、その分だけ道のりが長い。扉の先も走り続ける）
+    const ok = v => { for (let n = 0; n < runner.length; n++) { const t = n * 0.02, m = Math.min(total, Math.max(0, v * (t - DELAY))); if (runner[n] - m < GAP) return false; if (m >= total) return true; } return true; };
+    let lo = 4.2, hi = 40; if (!ok(lo)) return lo; for (let t = 0; t < 30; t++) { const mid = (lo + hi) / 2; if (ok(mid)) lo = mid; else hi = mid; } return lo; // 速さの上限は設けない
+  };
+  const stRunChase = (ctx, o) => { // 🏃 化け物が扉から出てきて、追ってくる（スプリント・ハイアンドロー共通）。o＝{ id, dir（1＝下から上へ／-1＝上から下へ）, DELAY（扉が開いてから走り出すまで）, REACT（プレイヤーが気づいて・判断して走り出すまでの時間）, showAtDoor, growl（うなり声の高さ）, msg }。3階分にげると、化け物はそこの扉に入って終わり。追いつかれると即死
+      if (stairTickers.length) return false; // もう何か動いている時は起こさない
+      const rm = ctx.remote || null; // rm＝ほかの人が起こしたイベントを、こちらでも同じように見せる時の情報 { el＝起きてからの経過秒 }
+      if (!rm) stEvOut = { id: o.id, d: o.dir, f: ctx.floor, k: Math.random().toString(36).slice(2, 10), t: Math.round(stNow()) }; // 自分が起こした：「どの階で・いつ」をほかの人に配る（階段も化け物の動きも式だけで決まるので、これだけで全員に同じものが見える）
+      const dn = ctx.floor - 1, up = o.dir >= 0, DELAY = o.DELAY, CATCH_H = 1.6, CATCH_V = 1.8; // dn＝自分のいる踊り場の番号／up＝下から上へ向かう化け物か（false なら、上から下へ）
+      const jLow = up ? dn - 1 : dn - 3, jHigh = up ? dn + 3 : dn + 1, j0 = up ? jLow : jHigh, jEnd = up ? jHigh : jLow, yLo = jLow * R - 3, yHi = jHigh * R + 3; // j0＝化け物が出てくる扉の階／jEnd＝入っていく扉の階（自分のいる階から、進む向きに3つ先）／yLo〜yHi＝通り道の高さの範囲
+      // // j0＝出てくる扉の階（いまの1つ下）／jEnd＝入っていく扉の階（いまの3つ上）
+      let SPD = 4.2; // SPD＝化け物の速さ（m/秒）。このあと、道のりと「自分のいる踊り場」の位置から計算し直す
       const inward = j => (j % 2 === 0 ? 0.5 : -0.5);
-      const pts = [[doorX(j0) + inward(j0), j0 * R, WD / 2]]; // 化け物の通り道：扉 → 階段 → 踊り場 → 階段 …（階段の列の真ん中をたどる）
-      for (let j = j0; j < jEnd; j++) {
+      let pts = [[doorX(jLow) + inward(jLow), jLow * R, WD / 2]]; // 化け物の通り道：扉 → 階段 → 踊り場 → 階段 …（階段の列の真ん中をたどる）
+      for (let j = jLow; j < jHigh; j++) {
         const even = j % 2 === 0, z = even ? LANE : WD - LANE;
         pts.push([even ? 0 : L, j * R, z]); pts.push([even ? L : 0, (j + 1) * R, z]);
-        if (j < jEnd - 1) pts.push([even ? L + 1.2 : -1.2, (j + 1) * R, MID]);
+        if (j < jHigh - 1) pts.push([even ? L + 1.2 : -1.2, (j + 1) * R, MID]);
       }
-      pts.push([doorX(jEnd) + inward(jEnd), jEnd * R, WD / 2]); pts.push([doorX(jEnd), jEnd * R, WD / 2]);
+      pts.push([doorX(jHigh) + inward(jHigh), jHigh * R, WD / 2]); pts.push([doorX(jHigh), jHigh * R, WD / 2]);
+      if (!up) { pts = pts.reverse().slice(1); pts.push([doorX(jLow), jLow * R, WD / 2]); } // 上から下へ向かう時は、通り道を逆向きにする（出てくるのは、上の扉の少し手前）
       const cum = [0]; for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1], pts[k][2] - pts[k - 1][2]));
       const total = cum[cum.length - 1], endOpenAt = total - 6; // 入る扉まで6mになったら、扉が開く
       const at = s => { let k = 1; while (k < cum.length - 1 && cum[k] < s) k++; const f = Math.max(0, Math.min(1, (s - cum[k - 1]) / ((cum[k] - cum[k - 1]) || 1))), a = pts[k - 1], b = pts[k]; return { x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f, z: a[2] + (b[2] - a[2]) * f, dx: b[0] - a[0], dy: b[1] - a[1], dz: b[2] - a[2] }; };
-      SPD = (() => { // 🏃 化け物の速さ：「自分の階の真ん中あたりでイベントが起きて、すぐ走り出し、前へ走り続ければ」最後までギリギリ捕まらない速さ。自分の位置は測らず、一般的な位置（通り道の真ん中）で計算する（立ちどまる・遅れるほど追いつかれる）
-        const VP = 2.8 * 1.8, GAP = 3.0, REACT = 0.5, sp0 = total / 2; // VP＝走る速さ(水平)／GAP＝いちばん近づいた時の、化け物との道のりの差(m)／REACT＝気づいて走り出すまでの時間(秒)／sp0＝イベントが起きる時の、自分の位置（通り道の真ん中）
-        const runner = []; let u = sp0; for (let n = 0; n < 2000; n++) { runner.push(u); if (n * 0.02 >= REACT) { const q = at(u), h = Math.hypot(q.dx, q.dz), len = Math.hypot(q.dx, q.dy, q.dz); u += VP * 0.02 * (u < total && h > 1e-6 ? len / h : 1.1); } } // 0.02秒ごとの、走る自分の位置（斜めの階段は、その分だけ道のりが長い。扉の先も走り続ける）
-        const ok = v => { for (let n = 0; n < runner.length; n++) { const t = n * 0.02, m = Math.min(total, Math.max(0, v * (t - DELAY))); if (runner[n] - m < GAP) return false; if (m >= total) return true; } return true; }; // 化け物が扉に入るまで、ずっと GAP 以上はなれているか
-        let lo = 4.2, hi = 40; if (!ok(lo)) return lo; for (let t = 0; t < 30; t++) { const mid = (lo + hi) / 2; if (ok(mid)) lo = mid; else hi = mid; } return lo; // 速さの上限は設けない（ギリギリまで上げる）
-      })();
+      { const lr = [landX0(dn) + LW / 2, dn * R, MID]; let sp0 = 0, best = 1e9; for (let u = 0; u <= total; u += 0.25) { const q = at(u), d = Math.hypot(lr[0] - q.x, lr[2] - q.z) + 2 * Math.abs(lr[1] - q.y); if (d < best) { best = d; sp0 = u; } } SPD = stChaseSpeed(at, total, sp0, DELAY, o.REACT); } // sp0＝自分が立っている踊り場の、通り道の上の位置（イベントが起きるのは、踊り場に着いた時）。自分の今の位置は測らない
       // 見た目：四つん這いで走る、大きな人形（青白い肌・黒い服と髪・関節の球・首をかしげた顔・赤く光る目）
       const geos2 = [], mats2 = [];
       const mk = c => { const m = new THREE.MeshLambertMaterial({ color: c }); mats2.push(m); return m; };
-      const skinMat = mk(0xcfc8c0), dressMat = mk(0x14080c), hairMat = mk(0x040404), darkMat = mk(0x050505), mouthMat = mk(0x5a0a0a), eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2020, fog: false }); mats2.push(eyeMat);
+      const skinMat = mk(0xcfc8c0), dressMat = mk(0x14080c), hairMat = mk(0x040404), darkMat = mk(0x050505), eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2020, fog: false }); mats2.push(eyeMat);
       const part = (geo, mat, x, y, z) => { geos2.push(geo); const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); return m; };
       const mon = new THREE.Group(); mon.rotation.order = 'YXZ'; // 向き(y)→坂の傾き(x)の順
       const doll = new THREE.Group(); mon.add(doll); const BY = 1.1; // BY＝手足のつけ根の高さ（これで床に届く）
@@ -2140,7 +2147,6 @@ function openStairs(onClose, opt) {
         head.add(part(new THREE.SphereGeometry(0.06, 8, 6), eyeMat, sd * 0.19, 0.06, 0.52)); // 赤く光る目
         const lock = part(new THREE.CylinderGeometry(0.05, 0.02, 1.1, 6), hairMat, sd * 0.3, -0.45, -0.1); lock.rotation.x = 0.15; head.add(lock); // 垂れ下がる髪の房
       });
-      const mouth = part(new THREE.BoxGeometry(0.3, 0.05, 0.04), mouthMat, 0, -0.2, 0.46); head.add(mouth); // 口（捕まえた時に大きく開く）
       const legs = [];
       const mkLeg = (sx, z, off) => { // 手足：つけ根 → 上の棒 → 関節の球 → 下の棒 → 手のひらの球
         const up = new THREE.Group(); up.position.set(sx * 0.42, BY, z); doll.add(up);
@@ -2156,22 +2162,27 @@ function openStairs(onClose, opt) {
         doll.position.y = Math.abs(Math.sin(g)) * 0.1; head.rotation.z = 0.3 + Math.sin(g * 0.5) * 0.14; head.rotation.x = Math.sin(g) * 0.07;
       };
       const glow = new THREE.PointLight(0xff2020, 0.8, 7, 1.6); glow.position.set(0, 1.7, 1.6); mon.add(glow); mon.visible = false; scene.add(mon);
+      { const q0 = at(0); mon.position.set(q0.x, q0.y, q0.z); mon.rotation.y = Math.atan2(q0.dx, q0.dz); mon.visible = !!o.showAtDoor; } // はじめは、出てくる扉の前に立つ（showAtDoor の時だけ、待っている間も見える）
       // 扉：開く＝ドアの板を消して、まっくらな入り口を見せる
       const opened = [], openDoor = j => { const lv = levels.get(j); if (!lv || !lv.panel || !lv.panel.parent) return; const dg = lv.panel.parent, geo = new THREE.PlaneGeometry(1.0, 2.1), mat = new THREE.MeshBasicMaterial({ color: 0x000000 }), dark = new THREE.Mesh(geo, mat); dark.position.set(0, 1.05, 0.075); lv.panel.visible = false; dg.add(dark); opened.push({ lv, dark, geo, mat }); rattleSnd(); };
       const closeAll = () => { opened.forEach(o => { o.lv.panel.visible = true; if (o.dark.parent) o.dark.parent.remove(o.dark); o.geo.dispose(); o.mat.dispose(); }); opened.length = 0; };
       let scareT = 0, catchAng = 0, scareFx = null; // 捕まった時の演出用（経過秒／化け物のいる向き／画面の光）
       let phase = 0, tm = 0, s = 0, stepT = 0, endOpened = false, ended = false; // phase 0＝扉が開いて、うなる／1＝追ってくる／2＝扉に入った（余韻）／3＝捕まった（恐怖演出）／4＝演出おわり（ゲームオーバー）
-      sprintBoost = true; openDoor(j0); stairGrowl(); ctx.toast('下の階の扉が開いた…！　にげろ！', 3200);
+      let doorT = 0; const ensureOpen = j => { if (!opened.some(o => o.lv === levels.get(j))) openDoor(j); }; // 階がまだ作られていなくて開けられなかった扉は、あとでもう一度開ける
+      if (!rm) { sprintBoost = true; openDoor(j0); stairGrowl(o.growl); ctx.toast(o.msg, 3600); }
+      else { openDoor(j0); if (rm.el < 1) stairGrowl(o.growl); tm = rm.el; if (tm >= DELAY) { phase = 1; mon.visible = true; s = Math.min(total, SPD * (tm - DELAY)); } } // 他人のイベント：経過時間ぶん進めた所から始める
       stairTickers.push({
         tick: (dt, t) => {
           tm += dt;
-          if (phase === 0) { if (tm >= DELAY) { phase = 1; mon.visible = true; } return false; }
+          if (phase <= 1) { doorT += dt; if (doorT > 0.5) { doorT = 0; ensureOpen(j0); if (endOpened) ensureOpen(jEnd); } }
+          if (rm && phase <= 1) sprintBoost = P.y > yLo && P.y < yHi; // 他人のイベント：化け物の通り道の高さにいる時だけ、ダッシュできる
+          if (phase === 0) { if (o.showAtDoor) { eyeMat.color.setRGB(1, 0.1 + 0.1 * Math.sin(t * 9), 0.1); animDoll(t * 2); } if (tm >= DELAY) { phase = 1; mon.visible = true; } return false; }
           if (phase === 3) { // 😱 捕まった時：化け物のほうへ首がぐいっと向き、化け物が目の前に飛びこみ、画面が白く光って赤くちらつき、カメラが激しく揺れる
             scareT += dt; const st = scareT;
             let dy = catchAng - P.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); P.yaw += dy * Math.min(1, dt * 12); P.pitch += (0.12 - P.pitch) * Math.min(1, dt * 8);
             const want = 3.0 - 1.1 * Math.min(1, st / 0.22), fx = -Math.sin(catchAng), fz = -Math.cos(catchAng);
             mon.position.set(P.x + fx * want, P.y, P.z + fz * want); mon.rotation.y = Math.atan2(-fx, -fz); mon.rotation.x = 0;
-            gait += dt * 30; animDoll(gait); head.rotation.z = 0.3 + Math.sin(st * 40) * 0.25; mouth.scale.set(1.6, 3 + 4 * Math.min(1, st / 0.3) + Math.sin(st * 30) * 1.5, 1);
+            gait += dt * 30; animDoll(gait); head.rotation.z = 0.3 + Math.sin(st * 40) * 0.25;
             eyeMat.color.setRGB(1, Math.random() * 0.3, 0.1); camShake = 3;
             if (st < 0.12) { scareFx.style.background = '#fff'; } else { scareFx.style.background = Math.floor(st / 0.06) % 2 === 0 ? 'radial-gradient(circle, rgba(200,0,0,0.5), rgba(60,0,0,0.9))' : 'rgba(0,0,0,0.75)'; }
             if (st > 1.7) { scareLock = false; phase = 4; stairDamage(STAIR_MAX_HP * 10); } // 演出がおわったら、ゲームオーバー
@@ -2187,8 +2198,15 @@ function openStairs(onClose, opt) {
           if (s >= total) { phase = 2; tm = 0; mon.visible = false; rattleSnd(); sprintBoost = false; ctx.toast('化け物は扉の中へ消えた…', 3000); }
           return false;
         },
-        cleanup: () => { if (scareFx && scareFx.parentNode) scareFx.parentNode.removeChild(scareFx); scareLock = false; camShake = 0; scene.remove(mon); geos2.forEach(g => g.dispose()); mats2.forEach(m => m.dispose()); closeAll(); sprintBoost = false; }
+        cleanup: () => { if (scareFx && scareFx.parentNode) scareFx.parentNode.removeChild(scareFx); scareLock = false; camShake = 0; scene.remove(mon); geos2.forEach(g => g.dispose()); mats2.forEach(m => m.dispose()); closeAll(); sprintBoost = false; if (!rm) stEvOut = null; }
       });
+      return true; // 始まった
+  };
+  const STAIR_EVENTS = [
+    { id: 'sprint', weight: 1, run: ctx => stRunChase(ctx, { id: 'sprint', dir: 1, DELAY: 1.3, REACT: 0.5, showAtDoor: false, growl: 1, msg: '下の階の扉が開いた…！　にげろ！' }) }, // 🏃 スプリント：前の階の扉が開いて化け物が出てきて、上へ追ってくる
+    { id: 'highlow', weight: 1, run: ctx => { // 🎲 ハイアンドロー：前の階か次の階の、どちらかの扉から化け物が出てくる。上から出たら下へ、下から出たら上へ追ってくる。うなり声が、高ければ上から・低ければ下から（どちらか聞き分けて、化け物と同じ向きへにげる。逆へ行くと正面からぶつかる）
+      const dn = ctx.floor - 1, rm = ctx.remote || null, down = rm ? (rm.d === -1 && dn >= 3) : (dn >= 3 && Math.random() < 0.5); // 下へ向かう化け物は、3階より上でだけ（下に3つぶんの階が要るため）
+      return stRunChase(ctx, { id: 'highlow', dir: down ? -1 : 1, DELAY: 2.0, REACT: 1.5, showAtDoor: true, growl: down ? 4 : 1, msg: 'ハイ＆ロー！　高い声は上から、低い声は下から…！　どっちだ？' }); // REACT 1.5秒＝気づく＋どちらか判断する＋向きを変える時間
     } },
   ];
   let stairMaxFloor = 0; // いままでに着いた一番高い踊り場の番号（1階＝0）
@@ -2308,7 +2326,7 @@ function openStairs(onClose, opt) {
   };
   const glVS = { x: 0, z: 0, yaw: 0, pitch: 0, env: 'stairs', revBase: 0.6, revRatio: 2.2, key: 'gl', d: 1, sd: 'stairs', radius: (typeof VOICE !== 'undefined' && VOICE.space3dDungeonRadius) || 9, wall: stWall, path: stPath }; // 🎙 声：コンクリートの階段室の響き（長く明るく、ブンブンと往復する反響つき）。revBase＝近くの声にもつく響きの量／revRatio＝響きが声（直接音）の何倍まで大きくなれるか（既定は1倍。階段室は硬いので、遠い声は響きの方が大きいくらいにする）。壁越し（仕切り・床）と階段をたどる回り込みは、上の stWall / stPath が階段の形から計算する
   const r2 = v => Math.round(v * 100) / 100;
-  const glPublish = clear => { if (!glNet) return; try { glNet.updateOwnState({ gl: clear ? null : { x: r2(P.x), z: r2(P.z + VZ * P.y), y: r2(P.y), r: r2(P.yaw), p: r2(P.pitch), d: 1, sd: 'stairs' } }); } catch (e) { /* 何もしない */ } };
+  const glPublish = clear => { if (!glNet) return; if (stEvOut && stNow() - stEvOut.t > 15000) stEvOut = null; try { glNet.updateOwnState({ gl: clear ? null : { x: r2(P.x), z: r2(P.z + VZ * P.y), y: r2(P.y), r: r2(P.yaw), p: r2(P.pitch), d: 1, sd: 'stairs', ...(stEvOut ? { ev: stEvOut } : {}) } }); } catch (e) { /* 何もしない */ } }; // ev＝自分が起こしたイベントの印（{ id, f＝階, k＝見分ける印, t＝サーバー時刻 }）。終わる（または15秒たつ）と外れる
   const glMake = (uid, p) => {
     let col; try { col = new THREE.Color(p.color == null ? 0xffffff : p.color); } catch (e) { col = new THREE.Color(0xffffff); }
     const grp = new THREE.Group(), mat = new THREE.MeshLambertMaterial({ color: col }), noseM = new THREE.MeshLambertMaterial({ color: 0xffffff }), nose = new THREE.Group(); nose.position.y = 1.42; nose.add(new THREE.Mesh(glNoseGeo, noseM));
@@ -2321,14 +2339,24 @@ function openStairs(onClose, opt) {
     const r = { grp, mat, noseM, nose, tex, label, tx: 0, ty: 0, tz: 0, tr: 0, tp: 0, by: 0, init: false }; glRem.set(uid, r); return r;
   };
   const glRemove = uid => { const r = glRem.get(uid); if (!r) return; scene.remove(r.grp); r.mat.dispose(); r.noseM.dispose(); r.tex.dispose(); r.label.material.dispose(); glRem.delete(uid); };
+  const stRemoteEv = (uid, e) => { // 🤝 ほかの人が起こしたイベントを、こちらでも同じ階・同じ時刻から動かす（イベント側は ctx.remote を見て、経過ぶん進めた所から始める）
+    if (!e || typeof e.id !== 'string' || typeof e.k !== 'string' || e.k.length > 24 || !Number.isFinite(e.f) || !Number.isFinite(e.t) || Math.abs(e.f) > 9999) return; // 変な値は無視
+    const key = uid + ':' + e.k; if (stSeenEv.has(key)) return;
+    const el = (stNow() - e.t) / 1000; if (el > 12) { stSeenEv.add(key); return; } if (el < -3) return; // 古すぎるものは始めない／時計が大きく先走っているものは、少し待つ
+    const ev = STAIR_EVENTS.find(x => x.id === e.id); if (!ev) { stSeenEv.add(key); return; }
+    let started = false; try { started = ev.run({ floor: e.f, toast: stairToast, damage: stairDamage, heal: stairHeal, root, P, R, remote: { el: Math.max(0, el), d: e.d === -1 ? -1 : 1 } }) === true; } catch (err) { console.error('階段イベント（他の人）のエラー:', err); stSeenEv.add(key); return; }
+    if (started) { stSeenEv.add(key); if (stSeenEv.size > 300) stSeenEv.clear(); } // 自分のイベントが動いている間は始められないので、終わるまで毎フレーム試す
+  };
   const glFrame = (dt, t) => {
     if (!glNet) return;
+    if (!stClockAsked) { stClockAsked = true; try { if (glNet.db) glNet.db.ref('.info/serverTimeOffset').once('value').then(sn => { const v = Number(sn.val()); if (Number.isFinite(v)) stClockOff = v; }).catch(() => { /* 何もしない */ }); } catch (e) { /* 何もしない */ } } // サーバー時計とのずれを一度だけ聞く
     glAcc += dt; if (glAcc >= 0.06) { glAcc = 0; glPublish(false); }
     { const v = glNet._voice; if (v && !v.stopped) { glVS.x = P.x; glVS.z = P.z + VZ * P.y; glVS.yaw = P.yaw; glVS.pitch = P.pitch; v.space3d = glVS; } } // 声：自分の位置と向きを渡す（毎回渡して、繋ぎ直されても外れないようにする）
     const players = (glSc && glSc.latestPlayers) || {}, want = new Set();
     for (const uid in players) {
       if (uid === glNet.uid) continue;
       const g = players[uid] && players[uid].gl; if (!g || !g.d || g.sd !== 'stairs') continue; // 階段にいる人だけ
+      if (g.ev) stRemoteEv(uid, g.ev); // その人がイベントを起こしていたら、こちらでも同じように始める
       want.add(uid);
       let r = glRem.get(uid); if (!r) r = glMake(uid, players[uid]);
       r.tx = g.x || 0; r.ty = g.y || 0; r.tz = (g.z || 0) - VZ * r.ty; r.tr = g.r || 0; r.tp = g.p || 0;
@@ -2343,7 +2371,7 @@ function openStairs(onClose, opt) {
     });
   };
   const glStop = () => {
-    if (!glNet) return; { const v = glNet._voice; if (v && v.space3d === glVS) v.space3d = null; } Array.from(glRem.keys()).forEach(glRemove);
+    stEvOut = null; if (!glNet) return; { const v = glNet._voice; if (v && v.space3d === glVS) v.space3d = null; } Array.from(glRem.keys()).forEach(glRemove);
     glPublish(true); setTimeout(() => glPublish(true), 300); setTimeout(() => glPublish(true), 1200); // 取りこぼしても消えるように、数回送る
   };
   glPublish(false);
