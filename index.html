@@ -1443,10 +1443,13 @@ function openGrassland(onClose, opt) {
   let renderer;
   try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: !touch }); } catch (err) { console.error('3Dの草原を作れませんでした:', err); root.remove(); if (onClose) onClose(); return; }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, touch ? 1.25 : 1.75));
-  const hh = (x, z) => 1.6 * Math.sin(x * 0.045) * Math.cos(z * 0.04) + 0.9 * Math.sin(x * 0.11 + 1.3) * Math.sin(z * 0.09); // 丘の高さ（GLSLの hh と同じ式）
+  // ⛰ 交流ルームの「草原」（opt.noHorror）だけ：ところどころに、高さ約12mの高い丘がある。場所は式だけで決まる（乱数なし）ので、全員が同じ場所に同じ丘を見る。出発地点(0,0)のまわり約90mは平ら。最初の丘は約180m先
+  const TALL = !!opt.noHorror;
+  const tallHill = (x, z) => { const t = 0.5 * Math.sin(x * 0.013 + 1.959) * Math.sin(z * 0.011 + 4.351) + 0.5 * Math.sin(x * 0.007 - z * 0.009 + 5.334), v = Math.min(1, Math.max(0, (t - 0.45) / 0.55)); return 12 * v * v; };
+  const hh = (x, z) => 1.6 * Math.sin(x * 0.045) * Math.cos(z * 0.04) + 0.9 * Math.sin(x * 0.11 + 1.3) * Math.sin(z * 0.09) + (TALL ? tallHill(x, z) : 0); // 丘の高さ（GLSLの hh と同じ式）
   const HORIZON = new THREE.Color(0xcfeaf7), TOP = new THREE.Color(0x4f9be0);
   const FOG_ORIG = THREE.ShaderChunk.fog_vertex; THREE.ShaderChunk.fog_vertex = FOG_ORIG.replace(/-\s*mvPosition\.z/, 'length(mvPosition.xyz)'); // 霧の濃さを、画面の奥行きではなく「自分からの直線距離」で決める（奥行きだと、同じ距離でも画面の端のほうが霧が薄くなり、端だけ遠くのものがはっきり見えていた）。草原を出る時に元に戻す
-  const scene = new THREE.Scene(); scene.fog = new THREE.Fog(HORIZON, 14, 75);
+  const scene = new THREE.Scene(); scene.fog = TALL ? new THREE.Fog(HORIZON, 30, 160) : new THREE.Fog(HORIZON, 14, 75); // 💬 交流ルームの草原（TALL）だけ、霧を薄くして、高い丘の上から遠くまで見えるようにする（見える距離 75m → 160m）
   const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 400); camera.rotation.order = 'YXZ';
   scene.add(new THREE.HemisphereLight(0xdff2ff, 0x5a7a3a, 0.95));
   const sunDir = new THREE.Vector3(0.5, 0.55, -0.7).normalize();
@@ -1468,7 +1471,9 @@ function openGrassland(onClose, opt) {
 
   // ----- 地面（丘）：平らな板を足元に置き、高さ・色・法線は頂点シェーダーで世界の座標から計算する。板は4mごとの格子にそろえて自分についてくるので、どこまで歩いても地面が続く -----
   const U = { uTime: { value: 0 }, uCam: { value: new THREE.Vector2() }, uGC: { value: new THREE.Vector2() } };
-  const HHF = 'float hh(vec2 p){ return 1.6*sin(p.x*0.045)*cos(p.y*0.04) + 0.9*sin(p.x*0.11+1.3)*sin(p.y*0.09); }\n';
+  const HHF = TALL
+    ? 'float hh(vec2 p){ float t = 0.5*sin(p.x*0.013+1.959)*sin(p.y*0.011+4.351) + 0.5*sin(p.x*0.007-p.y*0.009+5.334); float v = clamp((t-0.45)/0.55, 0.0, 1.0); return 1.6*sin(p.x*0.045)*cos(p.y*0.04) + 0.9*sin(p.x*0.11+1.3)*sin(p.y*0.09) + 12.0*v*v; }\n' // 高い丘つき（JSの hh と同じ式）
+    : 'float hh(vec2 p){ return 1.6*sin(p.x*0.045)*cos(p.y*0.04) + 0.9*sin(p.x*0.11+1.3)*sin(p.y*0.09); }\n';
   const GS = 4, gGeo = new THREE.PlaneGeometry(400, 400, 100, 100); gGeo.rotateX(-Math.PI / 2);
   const groundMat = new THREE.MeshLambertMaterial();
   groundMat.onBeforeCompile = sh => {
@@ -1497,7 +1502,8 @@ function openGrassland(onClose, opt) {
   flowers.frustumCulled = false; scene.add(flowers);
 
   // ----- 木：40m四方のマスごとに、場所と大きさが「マスの番号」から必ず同じに決まる（何も保存しなくても、同じ場所に同じ木が出る）。自分の周り±3マス（約120m）のマスだけ木を作り、離れたマスの木は消す -----
-  const CELL = 40, TR = 3, trees = new Map(); let tcx = NaN, tcz = NaN;
+  const CELL = 40, TR = TALL ? 4 : 3, trees = new Map(); // 交流ルームの草原は、霧が遠くまで薄いので、木も遠く（±4マス＝160m以上）まで作る
+  let tcx = NaN, tcz = NaN;
   const trunkGeo = new THREE.CylinderGeometry(0.25, 0.38, 2.6, 6), leafGeo = new THREE.IcosahedronGeometry(1.8, 0), trunkMat = new THREE.MeshLambertMaterial({ color: 0x7a5230 }), leafMat = new THREE.MeshLambertMaterial({ color: 0x3f9a4a });
   const h2 = (a, b, k) => { const v = Math.sin(a * 127.1 + b * 311.7 + k * 74.7) * 43758.5453; return v - Math.floor(v); };
   const makeTrees = (cx, cz) => { // そのマスの木（0〜2本）
@@ -1636,7 +1642,7 @@ function openGrassland(onClose, opt) {
 
   // ----- 🕳 暗いダンジョン：三回目の影に追いつかれると、ここへワープする。迷路の中を化物が歩き回っていて、見つかると追ってくる。緑の光の出口に入るか、化物に捕まると、草原を出て部屋に戻る -----
   const DG = { N: 21, TS: 3, H: 3.2, MONSTERS: 5, WALK: 1.8, CHASE: 3.4, SIGHT: 11, CATCH: 1.0, SPAWN_MIN: 9 }; // N＝迷路の大きさ(マス・奇数)／TS＝1マスの大きさ(m)／H＝天井の高さ／MONSTERS＝化物の数／WALK＝徘徊の速さ／CHASE＝追ってくる速さ(自分の歩き4.2より遅いので、走れば逃げられる)／SIGHT＝見つけられる距離(m)／CATCH＝捕まる距離(m)／SPAWN_MIN＝スタートからこのマス数以上はなれた所に化物が出る
-  let dSeed = 0, inDungeon = false, dScene = null, dMaze = null, dMons = [], dExitPos = null, dLight = null, dDead = false, hbAc = null, hbGain = null, hbT = 0;
+  let dSeed = 0, inDungeon = false, dScene = null, dMaze = null, dMons = [], dExitPos = null, dLight = null, dDead = false, dCatch = null, dFlash = null, hbAc = null, hbGain = null, hbT = 0;
   const dSolid = (i, j) => i < 0 || j < 0 || i >= DG.N || j >= DG.N || dMaze[i][j] === 1;
   const dWallAt = (x, z, r) => { for (const ox of [-r, r]) for (const oz of [-r, r]) if (dSolid(Math.round((x + ox) / DG.TS), Math.round((z + oz) / DG.TS))) return true; return false; };
   const dMove = (o, dx, dz, r) => { if (!dWallAt(o.x + dx, o.z, r)) o.x += dx; if (!dWallAt(o.x, o.z + dz, r)) o.z += dz; }; // 壁にぶつかったら、その向きだけ止まる（壁にそってすべる）
@@ -1664,7 +1670,8 @@ function openGrassland(onClose, opt) {
     let tgt = nodes.length >= 2 ? nodes[nodes.length - 2] : idx;
     for (let i = 0; i < nodes.length - 1; i++) { const c = nodes[i]; if (dLos(P.x, P.z, ((c / N) | 0) * DG.TS, (c % N) * DG.TS)) { tgt = c; break; } }
     const cx = ((tgt / N) | 0) * DG.TS, cz = (tgt % N) * DG.TS;
-    return { len: B.dist[idx] * DG.TS * VOICE.pathStretch, dx: cx - P.x, dz: cz - P.z, dist: Math.hypot(cx - P.x, cz - P.z) };
+    let turns = 0, pdi = 0, pdj = 0; for (let t = 0; t + 1 < nodes.length; t++) { const a = nodes[t], b = nodes[t + 1], di = ((b / N) | 0) - ((a / N) | 0), dj = (b % N) - (a % N); if (t > 0 && (di !== pdi || dj !== pdj)) turns++; pdi = di; pdj = dj; } // 経路の曲がり角の数（音は角を曲がるたびに弱まる）
+    return { len: B.dist[idx] * DG.TS * VOICE.pathStretch, dx: cx - P.x, dz: cz - P.z, dist: Math.hypot(cx - P.x, cz - P.z), turns };
   };
   const buildDungeon = (seed, si, sj) => { // seed＝迷路と出口の扉の決まり方（同じ番号なら全員が同じ迷路）／si,sj＝自分がワープしてきたマス（化物はここから離れた所に出す）
     const R = (a => () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; })(seed | 0);
@@ -1737,19 +1744,58 @@ function openGrassland(onClose, opt) {
     buildDungeon(dSeed, si, sj); if (dSolid(si, sj)) { si = 1; sj = 1; spawnYaw = null; }
     startHeart(); inDungeon = true; // 草原の草・木・空はもう描かないので、先に片づける（グラフィックのメモリをあける）
     scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); [trunkGeo, leafGeo, trunkMat, leafMat, shTex].forEach(o => o.dispose()); while (scene.children.length) scene.remove(scene.children[0]);
-    dDead = false; shadow.visible = false;
+    dDead = false; dCatch = null; if (dFlash) dFlash.style.opacity = '0'; camera.fov = 70; camera.updateProjectionMatrix(); shadow.visible = false;
     P.x = si * DG.TS; P.z = sj * DG.TS; P.pitch = 0; P.yaw = spawnYaw != null ? spawnYaw : (dMaze[2][1] === 0 ? -Math.PI / 2 : Math.PI); // 開いている方を向いて始まる（先にいる人の近くなら、その人と同じ向き）
     renderer.setClearColor(0x000000, 1);
     blk.style.transition = 'opacity 2.4s'; blk.style.opacity = '0'; // 暗闇からゆっくり見えてくる
     hint.textContent = '暗い…どこかで何かが歩いている。壁のどこかに、明るい扉があるはずだ'; hint.style.transition = 'opacity 1.5s'; hint.style.opacity = '1'; setTimeout(() => { hint.style.opacity = '0'; }, 8000);
   };
   const dEnd = ms => { dDead = true; blk.style.transition = 'opacity 0.3s'; blk.style.opacity = '1'; setTimeout(exit, ms); }; // 画面を暗くして、草原を出る
+  // 😱 捕まった時の恐怖演出：化物がぐわっと顔の前に迫り、画面が白く光って赤くちらつき、カメラが激しく揺れる。同時に、ブラウザで作ったでかい悲鳴＋爆音が鳴る
+  const dScream = () => { // 驚かし音：ノイズの爆発＋ひずんだ金切り声＋腹に響く重低音（音声ファイルは使わない）。最後に圧縮して音割れ寸前の大音量にする
+    try {
+      if (!hbAc) startHeart(); if (!hbAc) return; if (hbAc.state === 'suspended' && hbAc.resume) hbAc.resume().catch(() => {});
+      const c = hbAc, t0 = c.currentTime, comp = c.createDynamicsCompressor(), out = c.createGain();
+      comp.threshold.value = -4; comp.knee.value = 0; comp.ratio.value = 20; comp.attack.value = 0.001; comp.release.value = 0.15; out.gain.value = 0.8; out.connect(comp); comp.connect(c.destination);
+      const curve = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(x * 6); }
+      const ws = c.createWaveShaper(); ws.curve = curve; ws.oversample = '2x'; ws.connect(out);
+      const nl = Math.floor(c.sampleRate * 1.8), nb = c.createBuffer(1, nl, c.sampleRate), nd = nb.getChannelData(0); for (let i = 0; i < nl; i++) nd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / nl, 1.3);
+      const ns = c.createBufferSource(), bp = c.createBiquadFilter(), ng = c.createGain(); ns.buffer = nb; bp.type = 'bandpass'; bp.frequency.value = 2200; bp.Q.value = 0.6; ng.gain.setValueAtTime(1.2, t0); ng.gain.exponentialRampToValueAtTime(0.001, t0 + 1.7); ns.connect(bp); bp.connect(ng); ng.connect(ws); ns.start(t0);
+      [[880, 1760], [1175, 2350], [1397, 1100], [660, 1500]].forEach((f, i) => { // 不協和な金切り声：のこぎり波が急にかけ上がり、ふるえる
+        const o = c.createOscillator(), g = c.createGain(), lfo = c.createOscillator(), lg = c.createGain(); o.type = 'sawtooth';
+        o.frequency.setValueAtTime(f[0], t0); o.frequency.exponentialRampToValueAtTime(f[1], t0 + 0.25); o.frequency.exponentialRampToValueAtTime(f[0] * 0.8, t0 + 1.5);
+        lfo.frequency.value = 22 + i * 5; lg.gain.value = 40; lfo.connect(lg); lg.connect(o.frequency);
+        g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(0.5, t0 + 0.01); g.gain.setValueAtTime(0.5, t0 + 0.9); g.gain.exponentialRampToValueAtTime(0.001, t0 + 1.7);
+        o.connect(g); g.connect(ws); o.start(t0); lfo.start(t0); o.stop(t0 + 1.8); lfo.stop(t0 + 1.8);
+      });
+      const b = c.createOscillator(), bg = c.createGain(); b.type = 'sine'; b.frequency.setValueAtTime(110, t0); b.frequency.exponentialRampToValueAtTime(28, t0 + 0.5); bg.gain.setValueAtTime(1.4, t0); bg.gain.exponentialRampToValueAtTime(0.001, t0 + 0.9); b.connect(bg); bg.connect(out); b.start(t0); b.stop(t0 + 1);
+    } catch (e) { /* 何もしない */ }
+  };
+  const dCaught = m => { // 捕まった：演出をはじめて、1.5秒後に真っ暗、2.6秒後に草原を出る
+    dDead = true; dCatch = { t: 0, m }; hint.style.opacity = '0';
+    if (!dFlash) { dFlash = document.createElement('div'); dFlash.style.cssText = 'position:absolute;inset:0;pointer-events:none;opacity:0;'; root.insertBefore(dFlash, blk); }
+    if (dLight) dLight.color.set(0xff2a10);
+    dScream(); try { if (navigator.vibrate) navigator.vibrate([250, 60, 350]); } catch (e) { /* 何もしない */ }
+    setTimeout(() => { blk.style.transition = 'opacity 0.12s'; blk.style.opacity = '1'; }, 1500); setTimeout(exit, 2600);
+  };
+  const dCatchStep = dt => { // 毎フレーム：化物のほうへ首がぐいっと向き、化物が目の前に飛びこみ、画面がちかちかする
+    const c = dCatch, m = c.m; c.t += dt;
+    const dx = m.x - P.x, dz = m.z - P.z, dist = Math.hypot(dx, dz) || 0.01, k = Math.min(1, dt * 18);
+    let dy = Math.atan2(-dx, -dz) - P.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); P.yaw += dy * k; P.pitch += (0.55 - P.pitch) * k; // 見上げさせられる
+    const want = Math.max(1.2, dist - 16 * dt); m.x = P.x + dx / dist * want; m.z = P.z + dz / dist * want; // 化物がぐわっと迫る
+    m.g.position.set(m.x, 0, m.z); m.g.rotation.y = Math.atan2(-dx, -dz); m.g.scale.setScalar(1 + 0.15 * Math.min(1, c.t / 0.2));
+    camera.fov = 70 + 28 * Math.min(1, c.t / 0.15); camera.updateProjectionMatrix(); // 画角がぐっと広がって、ゆがむ
+    if (dFlash) { if (c.t < 0.08) { dFlash.style.background = '#fff'; dFlash.style.opacity = '1'; } else { dFlash.style.background = 'radial-gradient(ellipse at center, rgba(255,0,0,0) 20%, rgba(150,0,0,0.95) 100%)'; dFlash.style.opacity = String(c.t < 1.4 ? 0.55 + 0.45 * Math.random() : 1); } }
+  };
   const dungeonFrame = (dt, t, mf, mr, sp2, sy, cy) => {
+    if (dCatch) dCatchStep(dt);
     if (!dDead) dMove(P, (-sy * mf + cy * mr) * sp2, (-cy * mf - sy * mr) * sp2, 0.4);
     camera.position.set(P.x, 1.6, P.z); camera.rotation.set(P.pitch, P.yaw, 0); camera.updateMatrixWorld();
     dLight.position.copy(camera.position); dLight.intensity = 1.25 + 0.1 * Math.sin(t * 11) * Math.sin(t * 3.1); // 明かりが、かすかにゆれる
+    if (dCatch) { const k = Math.max(0, 1 - dCatch.t / 1.6) * 0.09 + 0.02; camera.position.x += (Math.random() - 0.5) * k; camera.position.y += (Math.random() - 0.5) * k; camera.rotation.z = (Math.random() - 0.5) * k * 2.5; dLight.intensity = 2 + 3 * Math.random(); } // 捕まった間は、画面が激しく揺れ、明かりが赤くちらつく
     const TS = DG.TS; let found = false, nearD = 99;
     dMons.forEach(m => {
+      if (dCatch && dCatch.m === m) { m.blobs.forEach(b => b.mesh.scale.setScalar(b.r * (1 + 0.25 * Math.sin(t * 25 + b.ph)))); return; } // 捕まえた化物は、その場で激しくうごめく
       const seeing = !dDead && Math.hypot(P.x - m.x, P.z - m.z) < DG.SIGHT && dLos(m.x, m.z, P.x, P.z);
       if (seeing) { m.alert = 3; m.tx = P.x; m.tz = P.z; } else if (m.alert > 0) m.alert -= dt;
       if (m.alert > 0) { found = true; nearD = Math.min(nearD, Math.hypot(P.x - m.x, P.z - m.z)); } // 見つかっている（見失っても3秒はつづく）
@@ -1766,10 +1812,10 @@ function openGrassland(onClose, opt) {
       const dx = gx - m.x, dz = gz - m.z, d = Math.hypot(dx, dz);
       if (d > 0.3) { const k = Math.min(d, sp * dt) / d; dMove(m, dx * k, dz * k, 0.4); m.g.rotation.y = Math.atan2(dx, dz); }
       m.g.position.set(m.x, 0, m.z); m.blobs.forEach(b => b.mesh.scale.setScalar(b.r * (1 + 0.13 * Math.sin(t * 3.2 + b.ph)))); // 球がそれぞれ、ぶくぶくとふくらんだり縮んだりする
-      if (!dDead && Math.hypot(P.x - m.x, P.z - m.z) < DG.CATCH) dEnd(2200); // 捕まった：暗転して、草原を出る
+      if (!dDead && Math.hypot(P.x - m.x, P.z - m.z) < DG.CATCH) dCaught(m); // 捕まった：恐怖演出＋大音量の悲鳴、そのあと暗転して草原を出る
     });
     // 💓 化物に見つかっている間は、心臓の音がする（近いほど大きく、はやくなる）
-    if (hbGain) { if (found) { const near = 1 - Math.min(nearD, DG.SIGHT) / DG.SIGHT; hbT -= dt; if (hbT <= 0) { const v = 0.55 + 0.55 * near; hbThump(v, 62, 0.16); setTimeout(() => hbThump(v * 0.7, 50, 0.2), 150 - 40 * near); hbT = 0.95 - 0.5 * near; } } else hbT = 0; }
+    if (hbGain && !dCatch) { if (found) { const near = 1 - Math.min(nearD, DG.SIGHT) / DG.SIGHT; hbT -= dt; if (hbT <= 0) { const v = 0.55 + 0.55 * near; hbThump(v, 62, 0.16); setTimeout(() => hbThump(v * 0.7, 50, 0.2), 150 - 40 * near); hbT = 0.95 - 0.5 * near; } } else hbT = 0; }
     if (!dDead && Math.hypot(P.x - dExitPos.x, P.z - dExitPos.z) < 1.2) dEnd(900); // 扉に入った：明るく…ではなく暗転して、草原を出る
     renderer.render(dScene, camera);
   };
@@ -1796,7 +1842,7 @@ function openGrassland(onClose, opt) {
   const glFrame = (dt, t) => {
     if (!glNet) return;
     glAcc += dt; if (glAcc >= 0.06) { glAcc = 0; glPublish(false); }
-    { const v = glNet._voice; if (v && !v.stopped) { glVS.x = P.x; glVS.z = P.z; glVS.yaw = P.yaw; glVS.pitch = P.pitch; glVS.env = inDungeon ? 'corridor' : 'open'; glVS.radius = inDungeon ? VOICE.space3dDungeonRadius : 0; glVS.wall = inDungeon ? dWallTiles : null; glVS.path = inDungeon ? dVoicePath : null; glVS.d = inDungeon ? 1 : 0; glVS.sd = inDungeon ? dSeed : 0; v.space3d = glVS; } }
+    { const v = glNet._voice; if (v && !v.stopped) { glVS.x = P.x; glVS.z = P.z; glVS.yaw = P.yaw; glVS.pitch = P.pitch; glVS.env = inDungeon ? 'maze' : 'open'; glVS.radius = inDungeon ? VOICE.space3dDungeonRadius : 0; glVS.wall = inDungeon ? dWallTiles : null; glVS.path = inDungeon ? dVoicePath : null; glVS.d = inDungeon ? 1 : 0; glVS.sd = inDungeon ? dSeed : 0; v.space3d = glVS; } }
     const players = (glSc && glSc.latestPlayers) || {}, sc = inDungeon ? dScene : scene; if (!sc) return;
     const want = new Set();
     for (const uid in players) {
@@ -1835,11 +1881,449 @@ function openGrassland(onClose, opt) {
     if (inDungeon) { dungeonFrame(dt, t, mf, mr, sp2, sy, cy); raf = requestAnimationFrame(frame); return; } // 🕳 ダンジョンの間は、草原は止めておく
     P.x += (-sy * mf + cy * mr) * sp2; P.z += (-cy * mf - sy * mr) * sp2;
     syncTrees(); ground.position.set(Math.round(P.x / GS) * GS, 0, Math.round(P.z / GS) * GS); U.uGC.value.set(ground.position.x, ground.position.z); // 歩ける範囲に制限はない（木と地面は自分についてくる）
-    camera.position.set(P.x, hh(P.x, P.z) + 1.65, P.z); camera.rotation.set(P.pitch, P.yaw, 0); camera.updateMatrixWorld(); updateShadow(dt, t); // 👁 黒い影
+    camera.position.set(P.x, hh(P.x, P.z) + 1.65, P.z); camera.rotation.set(P.pitch, P.yaw, 0); camera.updateMatrixWorld(); if (!opt.noHorror) updateShadow(dt, t); // 👁 黒い影（opt.noHorror＝交流ルームの「草原」：影は出ず、何も起こらない）
     sky.position.copy(camera.position); clouds.rotation.y += dt * 0.004;
     U.uTime.value = t; U.uCam.value.set(P.x, P.z);
     renderer.render(scene, camera); raf = requestAnimationFrame(frame);
   };
+  if (opt.dungeonOnly) { blk.style.transition = 'none'; blk.style.opacity = '1'; void blk.offsetWidth; warpToDungeon(); } // 🕳 交流ルームの「ダンジョン」：草原は歩かず、影に追いつかれてワープした直後（暗いダンジョン）から始まる
+  raf = requestAnimationFrame(frame);
+}
+
+// 🪜 階段（3D）：交流ルームの「階段」の入口から入る。無限に続く暗い階段（U字に折り返す非常階段）を上っていく。
+// 踊り場ごとに「階数の数字」が壁に書かれ、ドアがある（いまは鍵がかかっていて開かない）。階段は歩く場所の周りだけ作って、通りすぎたものは捨てる（どこまで上っても重くならない）。
+// 操作：WASD／矢印（↑↓＝前後・←→＝向き）・Shift＝走る・ドラッグ＝見回す・E／ボタン＝ドアを調べる・Esc／右上の「もどる」＝出る。スマホは左のスティックで移動、右のスティックで見回す。
+function openStairs(onClose, opt) {
+  opt = opt || {};
+  if (typeof THREE === 'undefined') { if (onClose) onClose(); return; }
+  const touch = (typeof IS_TOUCH_DEVICE !== 'undefined' && IS_TOUCH_DEVICE);
+  const root = document.createElement('div'); root.id = 'stairsOverlay';
+  root.style.cssText = 'position:fixed;inset:0;z-index:400;background:#000;touch-action:none;user-select:none;-webkit-user-select:none;font-family:sans-serif;';
+  const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;';
+  root.appendChild(cv); document.body.appendChild(root);
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: !touch }); } catch (err) { console.error('3Dの階段を作れませんでした:', err); root.remove(); if (onClose) onClose(); return; }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, touch ? 1.25 : 1.75)); renderer.setClearColor(0x000000, 1);
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x000000); scene.fog = new THREE.Fog(0x000000, 3, 17);
+  const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 60); camera.rotation.order = 'YXZ';
+  scene.add(new THREE.AmbientLight(0x262a32, 0.9));
+  const myLight = new THREE.PointLight(0xffe2b0, 1.15, 14, 1.6); scene.add(myLight); // 自分が持っている明かり
+  const lampLights = [new THREE.PointLight(0xd6f5dc, 0.9, 10, 1.5), new THREE.PointLight(0xd6f5dc, 0.9, 10, 1.5)]; lampLights.forEach(l => scene.add(l)); // 近くの踊り場の蛍光灯
+
+  // ----- 階段の寸法と当たり判定（three.js を使わない部分） -----
+  // 形：U字に折り返す階段。まっすぐな階段(長さ L)が2本ならんでいて（まん中に仕切りの壁）、両はしに踊り場(幅 LW)がある。階段 j は 踊り場 j から 踊り場 j+1 へ上る（j が偶数＝手前の列を +x へ、奇数＝奥の列を -x へ）。踊り場 j の高さは j×R。
+  // <<PURE
+  const R = 4.0, NS = 16, TREAD = 0.54, L = NS * TREAD, LW = 2.8, WD = 4.8, MID = WD / 2, DIVT = 0.075, RAD = 0.22, EYE = 1.65; // R＝踊り場から次の踊り場までの高さ(m)／NS＝1本の階段の段数／TREAD＝1段の奥行き／L＝階段の長さ／LW＝踊り場の奥行き／WD＝階段室の幅／DIVT＝まん中の仕切りの厚さの半分／RAD＝自分の体の半径
+  const P = { x: -LW / 2, z: MID / 2, y: 0, gy: 0, yaw: -Math.PI / 2, pitch: -0.05 }; // y＝目の高さの元（なめらかに動く）／gy＝いま立っている床の高さ（段ごとにとびとび）。+x を向いて、階数1の踊り場から始まる
+  const landX0 = j => (j % 2 === 0 ? -LW : L); // 踊り場 j の x の左はし
+  const doorX = j => (j % 2 === 0 ? -LW : L + LW); // 踊り場 j のドアがある奥の壁の x
+  const surfY = (x, z, j) => { // 階層 j（踊り場 j と、そこから上る階段 j）の床の高さ。そこに床がなければ null
+    if (j < 0) return null;
+    const x0 = landX0(j); if (x >= x0 && x <= x0 + LW && z >= 0 && z <= WD) return j * R;
+    if (x >= 0 && x <= L) { const even = j % 2 === 0; if (even ? z < MID - DIVT : z > MID + DIVT) { const t = even ? x / L : (L - x) / L; return j * R + R * Math.min(NS, Math.floor(t * NS) + 1) / NS; } }
+    return null;
+  };
+  const groundAt = (x, z, py) => { let best = null; const jc = Math.floor(py / R); for (let j = jc - 2; j <= jc + 2; j++) { const y = surfY(x, z, j); if (y !== null && y <= py + 0.45 && (best === null || y > best)) best = y; } return best; }; // いま立っている高さ(py)から、1段ぶんまで上れる床のうち、いちばん高いもの
+  const okMove = (nx, nz, ox, oz, py) => { // (nx,nz) に動けるか（動けるなら、その床の高さ）。壁・仕切りの壁・床がない所（いちばん下の外）には動けない
+    if (nx < -LW + RAD || nx > L + LW - RAD || nz < RAD || nz > WD - RAD) return null;
+    if (nx > 0 && nx < L) { const side = (ox > 0 && ox < L ? oz : nz) < MID ? 0 : 1; if (side === 0 ? nz > MID - DIVT - RAD : nz < MID + DIVT + RAD) return null; } // 階段の途中では、まん中の仕切りの壁をこえられない
+    return groundAt(nx, nz, py);
+  };
+  const movePlayer = (dx, dz) => { // 1フレームぶん動く。すりぬけないように、0.1mずつ進める。ぶつかったら、壁にそってすべる
+    const n = Math.max(1, Math.ceil(Math.hypot(dx, dz) / 0.1)), sx = dx / n, sz = dz / n;
+    for (let i = 0; i < n; i++) {
+      let g = okMove(P.x + sx, P.z + sz, P.x, P.z, P.gy); if (g !== null) { P.x += sx; P.z += sz; P.gy = g; continue; }
+      g = okMove(P.x + sx, P.z, P.x, P.z, P.gy); if (g !== null) { P.x += sx; P.gy = g; continue; }
+      g = okMove(P.x, P.z + sz, P.x, P.z, P.gy); if (g !== null) { P.z += sz; P.gy = g; }
+    }
+  };
+  // PURE>>
+
+  // ----- 材料（作ったものは、出る時にまとめて捨てる） -----
+  const geos = [], mats = [], texs = [];
+  const G = g => { geos.push(g); return g; }, M = m => { mats.push(m); return m; }, T = t => { texs.push(t); return t; };
+  const mkWallTex = () => { // くすんだ壁：上は古い灰色のペンキ、下半分は緑の壁帯。タイルの高さ＝踊り場の間隔(R)なので、どの階も同じ見た目でつながる
+    const S = 256, c = document.createElement('canvas'); c.width = S; c.height = S; const x = c.getContext('2d');
+    x.fillStyle = '#7d8079'; x.fillRect(0, 0, S, S); x.fillStyle = '#35493e'; x.fillRect(0, S * 0.45, S, S * 0.55); x.fillStyle = '#1b2820'; x.fillRect(0, S * 0.45 - 2, S, 4);
+    for (let i = 0; i < 2200; i++) { x.fillStyle = Math.random() < 0.6 ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.04)'; x.fillRect(Math.random() * S, Math.random() * S, 1 + Math.random() * 3, 1 + Math.random() * 6); }
+    for (let i = 0; i < 9; i++) { const gx = Math.random() * S, gr = x.createLinearGradient(0, 0, 0, S * 0.5); gr.addColorStop(0, 'rgba(20,18,10,0.22)'); gr.addColorStop(1, 'rgba(20,18,10,0)'); x.fillStyle = gr; x.fillRect(gx, 0, 2 + Math.random() * 4, S * 0.5); } // 上からの汚れのすじ
+    x.fillStyle = 'rgba(0,0,0,0.25)'; x.fillRect(0, 0, 2, S);
+    const tx = T(new THREE.CanvasTexture(c)); tx.wrapS = tx.wrapT = THREE.RepeatWrapping; return tx;
+  };
+  const wallTex = mkWallTex();
+  const WH = 44; // 壁の高さ（Rの整数倍）。壁は、自分の高さにあわせて R ずつ動かす（タイルの周期と同じなので、動いても見た目は変わらない）
+  const walls = new THREE.Group(); scene.add(walls);
+  const mkWall = (w, d, x, z, rx) => { const tx = wallTex.clone(); tx.needsUpdate = true; tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(rx, WH / R); texs.push(tx); const m = new THREE.Mesh(G(new THREE.BoxGeometry(w, WH, d)), M(new THREE.MeshLambertMaterial({ map: tx }))); m.position.set(x, 0, z); walls.add(m); };
+  mkWall(L + 2 * LW + 0.6, 0.3, L / 2, -0.15, (L + 2 * LW) / 2); mkWall(L + 2 * LW + 0.6, 0.3, L / 2, WD + 0.15, (L + 2 * LW) / 2); // 手前と奥の壁
+  mkWall(0.3, WD + 0.6, -LW - 0.15, WD / 2, WD / 2); mkWall(0.3, WD + 0.6, L + LW + 0.15, WD / 2, WD / 2); // 両はしの壁
+  mkWall(L, 2 * DIVT, L / 2, MID, L / 2); // まん中の仕切りの壁（階段の部分だけ）
+  { const b = new THREE.Mesh(G(new THREE.BoxGeometry(0.3, 2 * R, WD - MID - DIVT)), M(new THREE.MeshLambertMaterial({ color: 0x15171a }))); b.position.set(0.15, R - 0.3, MID + DIVT + (WD - MID - DIVT) / 2); scene.add(b); } // いちばん下の階段は、ふさがれている（これより下へはおりられない）
+
+  const stepW = MID - DIVT - 0.04, STEP_T = 0.45, STEP_H = R / NS + 0.05; // STEP_T＝階段の下の斜めの板の厚み（真下に測る）／STEP_H＝1段ぶんのかたまりの高さ（段の高さ＋少し。下は斜めの板に埋まる）
+  const stepGeo = G(new THREE.BoxGeometry(TREAD, STEP_H, stepW)), landGeo = G(new THREE.BoxGeometry(LW, 0.3, WD)), lampGeo = G(new THREE.BoxGeometry(0.9, 0.1, 0.14));
+  const frameGeo = G(new THREE.BoxGeometry(1.22, 2.26, 0.06)), doorGeo = G(new THREE.BoxGeometry(1.0, 2.1, 0.08)), knobGeo = G(new THREE.BoxGeometry(0.07, 0.07, 0.1)), plaqueGeo = G(new THREE.PlaneGeometry(1.2, 0.6));
+  const mkSlab = even => { // 階段の下の、斜めの板（ななめに切った断面を押し出す）。下の面が、下の階から見上げる「斜めの天井」になる。even＝+x へ上る階段
+    const sh = new THREE.Shape(); if (even) { sh.moveTo(0, 0); sh.lineTo(L, R); sh.lineTo(L, R - STEP_T); sh.lineTo(0, -STEP_T); } else { sh.moveTo(L, 0); sh.lineTo(0, R); sh.lineTo(0, R - STEP_T); sh.lineTo(L, -STEP_T); }
+    sh.closePath(); return G(new THREE.ExtrudeGeometry(sh, { depth: stepW - 0.02, bevelEnabled: false }));
+  };
+  const slabGeoE = mkSlab(true), slabGeoO = mkSlab(false);
+  const stepMat = M(new THREE.MeshLambertMaterial({ color: 0x6a6b6e })), landMat = M(new THREE.MeshLambertMaterial({ color: 0x4d4d52 })), frameMat = M(new THREE.MeshLambertMaterial({ color: 0x1e1e22 })), doorMat = M(new THREE.MeshLambertMaterial({ color: 0x5a4a3a })), knobMat = M(new THREE.MeshLambertMaterial({ color: 0xa89868 }));
+  const lampMat = M(new THREE.MeshBasicMaterial({ color: 0xe8ffe8, fog: true }));
+  const mkNumTex = n => { // 壁に書かれた階数の数字
+    const c = document.createElement('canvas'); c.width = 256; c.height = 128; const x = c.getContext('2d'), s = String(n); x.font = 'bold ' + Math.min(104, Math.floor(236 / (s.length * 0.62))) + 'px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillStyle = 'rgba(90,10,10,0.55)'; x.fillText(s, 131, 73); x.fillStyle = '#d9d3b8'; x.fillText(s, 128, 70); // 少しずれた赤黒いかげ＋くすんだ白い数字
+    return new THREE.CanvasTexture(c);
+  };
+
+  // ----- 階層（踊り場＋階段）を作る・捨てる -----
+  const levels = new Map(); let lastCur = null;
+  const buildLevel = j => {
+    const g = new THREE.Group(), even = j % 2 === 0, base = j * R, x0 = landX0(j), cx = x0 + LW / 2, lv = { g, j, panel: null, rattle: 0, tex: null, mat: null };
+    const land = new THREE.Mesh(landGeo, landMat); land.position.set(cx, base - 0.15, WD / 2); g.add(land); // 踊り場
+    const zc = even ? stepW / 2 + 0.02 : WD - stepW / 2 - 0.02; // 階段（j → j+1）：手前の列か奥の列
+    const slab = new THREE.Mesh(even ? slabGeoE : slabGeoO, landMat); slab.position.set(0, base, zc - stepW / 2 + 0.01); g.add(slab); // 階段の下の斜めの板（天井は斜面）
+    for (let i = 0; i < NS; i++) { const m = new THREE.Mesh(stepGeo, stepMat); m.position.set(even ? (i + 0.5) * TREAD : L - (i + 0.5) * TREAD, base + (i + 1) * R / NS - STEP_H / 2, zc); g.add(m); }
+    const lamp = new THREE.Mesh(lampGeo, lampMat); lamp.position.set(cx, base + 3.1, 0.08); g.add(lamp); // 壁の蛍光灯
+    const tex = mkNumTex(j + 1), mat = new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false }); lv.tex = tex; lv.mat = mat;
+    const p1 = new THREE.Mesh(plaqueGeo, mat); p1.position.set(cx, base + 1.55, 0.02); g.add(p1); // 手前の壁の階数
+    const p2 = new THREE.Mesh(plaqueGeo, mat); p2.position.set(cx, base + 1.55, WD - 0.02); p2.rotation.y = Math.PI; g.add(p2); // 奥の壁の階数
+    const dg = new THREE.Group(); dg.position.set(doorX(j), base, WD / 2); dg.rotation.y = even ? Math.PI / 2 : -Math.PI / 2; g.add(dg); // 奥の壁のドア（部屋の中を向く）
+    const fr = new THREE.Mesh(frameGeo, frameMat); fr.position.set(0, 1.13, 0.03); dg.add(fr);
+    const panel = new THREE.Mesh(doorGeo, doorMat); panel.position.set(0, 1.05, 0.08); dg.add(panel); lv.panel = panel;
+    const kn = new THREE.Mesh(knobGeo, knobMat); kn.position.set(0.38, 1.02, 0.16); dg.add(kn);
+    const p3 = new THREE.Mesh(plaqueGeo, mat); p3.position.set(0, 2.78, 0.02); dg.add(p3); // ドアの上の階数
+    scene.add(g); levels.set(j, lv);
+  };
+  const dropLevel = j => { const lv = levels.get(j); if (!lv) return; scene.remove(lv.g); lv.tex.dispose(); lv.mat.dispose(); levels.delete(j); };
+  const syncLevels = cur => { const a = Math.max(0, cur - 2), b = cur + 5; for (let j = a; j <= b; j++) if (!levels.has(j)) buildLevel(j); Array.from(levels.keys()).forEach(j => { if (j < a || j > b) dropLevel(j); }); lastCur = cur; };
+
+  // ----- 音：音声ファイルは使わず、ブラウザで作る（空気の低いうなり・足音・ドアのガチャガチャ） -----
+  let ac = null, master = null, rev = null, ambNodes = [], noiseBuf = null, stepAcc = 0; // rev＝階段室の響きへの入口（足音・ドアの音を、ここへも送る）
+  const initAudio = () => {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      ac = new AC(); if (ac.resume) ac.resume().catch(() => {});
+      const comp = ac.createDynamicsCompressor(); master = ac.createGain(); master.gain.value = 0.8; master.connect(comp); comp.connect(ac.destination);
+      noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate); const nd = noiseBuf.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+      { // 🪜 階段室の響き：コンクリートで硬いので、約3.6秒、明るいまま長く響く。壁のあいだを約0.11秒ごとに往復する「ブンブン」というくり返し（フラッターエコー）も入れる。波形はコードで作る
+        const sr = ac.sampleRate, len = Math.floor(sr * 3.6), pre = Math.floor(sr * 0.02), ir = ac.createBuffer(2, len, sr), conv = ac.createConvolver(), wet = ac.createGain();
+        for (let ch = 0; ch < 2; ch++) {
+          const d = ir.getChannelData(ch); let lpv = 0;
+          for (let i = pre; i < len; i++) { const t = (i - pre) / (len - pre), fc = 8000 * Math.pow(2200 / 8000, t); lpv += ((Math.random() * 2 - 1) - lpv) * (1 - Math.exp(-2 * Math.PI * fc / sr)); d[i] = lpv * Math.pow(1 - t, 1.9); }
+          for (let k = 1; ; k++) { const at = pre + Math.floor(sr * (0.11 * k + (Math.random() - 0.5) * 0.004)); if (at >= len - 64) break; const amp = (ch ? 0.9 : 1) * 0.6 * Math.pow(0.82, k) * Math.pow(1 - at / len, 1.2); for (let j = 0; j < 48; j++) d[at + j] += (Math.random() * 2 - 1) * amp * (1 - j / 48); }
+        }
+        conv.buffer = ir; wet.gain.value = 1.1; rev = ac.createGain(); rev.gain.value = 1; rev.connect(conv); conv.connect(wet); wet.connect(master);
+      }
+      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 160; lp.connect(master);
+      [[44, 0.07], [46.4, 0.07]].forEach(a => { const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.value = a[0]; g.gain.value = a[1]; o.connect(g); g.connect(lp); o.start(); ambNodes.push(o); });
+      const ns = ac.createBufferSource(), bp = ac.createBiquadFilter(), ng = ac.createGain(); ns.buffer = noiseBuf; ns.loop = true; bp.type = 'bandpass'; bp.frequency.value = 500; bp.Q.value = 0.5; ng.gain.value = 0.012; ns.connect(bp); bp.connect(ng); ng.connect(master); ns.start(); ambNodes.push(ns);
+    } catch (e) { ac = null; master = null; }
+  };
+  const burst = (t0, len, f, q, v, type) => { // 短いノイズ（足音・ドアの金属音のもと）
+    const s = ac.createBufferSource(), bp = ac.createBiquadFilter(), g = ac.createGain(); s.buffer = noiseBuf; bp.type = type || 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
+    g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(v, t0 + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t0 + len); s.connect(bp); bp.connect(g); g.connect(master); if (rev) g.connect(rev); s.start(t0, Math.random() * 0.5); s.stop(t0 + len + 0.02);
+  };
+  const stepSnd = () => { if (!ac || !master) return; try { const t0 = ac.currentTime; burst(t0, 0.09, 420, 0.7, 0.28, 'lowpass'); const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(95, t0); o.frequency.exponentialRampToValueAtTime(48, t0 + 0.08); g.gain.setValueAtTime(0.2, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.1); o.connect(g); g.connect(master); if (rev) g.connect(rev); o.start(t0); o.stop(t0 + 0.12); } catch (e) { /* 何もしない */ } };
+  const rattleSnd = () => { if (!ac || !master) return; try { const t0 = ac.currentTime; [0, 0.11, 0.25, 0.34].forEach((d, i) => { burst(t0 + d, 0.1, 1500 + i * 180, 4, 0.32); const o = ac.createOscillator(), g = ac.createGain(); o.type = 'square'; o.frequency.value = 210 + i * 25; g.gain.setValueAtTime(0.0001, t0 + d); g.gain.linearRampToValueAtTime(0.06, t0 + d + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.09); o.connect(g); g.connect(master); if (rev) g.connect(rev); o.start(t0 + d); o.stop(t0 + d + 0.1); }); } catch (e) { /* 何もしない */ } };
+  const stopAudio = () => { ambNodes.forEach(n => { try { n.stop(); } catch (e) { /* 何もしない */ } }); ambNodes = []; if (ac) { try { ac.close(); } catch (e) { /* 何もしない */ } ac = null; master = null; rev = null; } };
+
+  // ----- 操作・画面の部品 -----
+  const LOOK_SPEED = 0.75, STEP_LEN = 1.3; // STEP_LEN＝足音が鳴る歩幅(m)。大きいほど、足音がゆっくり（1歩ごとに頭も少し上下する）
+  const keys = {}; let sv = { x: 0, y: 0 }, sr = { x: 0, y: 0 }, closed = false, raf = 0, last = 0, nearJ = -1, lampT = 0, flick = 0, bobT = 0;
+  const ctl = k => ({ w: 'f', arrowup: 'f', s: 'b', arrowdown: 'b', a: 'l', d: 'r', arrowleft: 'tl', arrowright: 'tr' })[k];
+  const glBar = opt.net ? document.getElementById('voiceBar') : null, glBarZ = glBar ? glBar.style.zIndex : ''; if (glBar) glBar.style.zIndex = '450'; // この画面より手前に、マイクのボタンを出す
+  const exit = () => {
+    if (closed) return; closed = true; cancelAnimationFrame(raf);
+    document.removeEventListener('keydown', onKeyDown, true); document.removeEventListener('keyup', onKeyUp, true); window.removeEventListener('resize', resize); window.removeEventListener('blur', onBlur);
+    stairEvAbort(); Array.from(levels.keys()).forEach(dropLevel); glStop(); geos.forEach(o => o.dispose()); mats.forEach(o => o.dispose()); texs.forEach(o => o.dispose()); stopAudio();
+    if (glBar) glBar.style.zIndex = glBarZ || ''; renderer.dispose(); try { renderer.forceContextLoss(); } catch (e) { /* 何もしない */ }
+    root.remove(); if (onClose) onClose();
+  };
+  const hint = document.createElement('div'); hint.style.cssText = 'position:absolute;left:50%;bottom:4vh;transform:translateX(-50%);padding:8px 16px;font-size:15px;color:#fff;background:rgba(0,0,0,0.45);border-radius:999px;white-space:nowrap;transition:opacity 1.2s;pointer-events:none;'; root.appendChild(hint);
+  let hintTm = 0; const say = (txt, ms) => { hint.textContent = txt; hint.style.opacity = '1'; clearTimeout(hintTm); hintTm = setTimeout(() => { hint.style.opacity = '0'; }, ms); };
+  say(touch ? '🪜 左スティック：移動　右スティック：見回す' : '🪜 WASD・矢印：移動　Shift：走る　ドラッグ：見回す　E：ドアを調べる　Esc：もどる', 7000);
+  const hud = document.createElement('div'); hud.style.cssText = 'position:absolute;top:12px;left:14px;font-size:22px;font-weight:bold;color:#d9d3b8;text-shadow:0 0 6px #000;opacity:0.85;pointer-events:none;'; root.appendChild(hud); hud.style.display = 'none'; // 左上の階数表示は使わない（HPバーがその位置）
+  // ===== ❤ HP とゲームオーバー =====
+  // 左上に HP バー（文字・数字なし）を出す。HP が 0 になるとゲームオーバー（動けなくなり、「もう一度」か「階段を出る」を選ぶ）。
+  // イベントなどからは ctx.damage(数) / ctx.heal(数) で増減させる。HP の最大値は STAIR_MAX_HP。
+  const STAIR_MAX_HP = 100;
+  let hp = STAIR_MAX_HP, dead = false;
+  const hpWrap = document.createElement('div'); hpWrap.style.cssText = 'position:absolute;top:12px;left:14px;width:150px;pointer-events:none;font-family:sans-serif;';
+  const hpBarOut = document.createElement('div'); hpBarOut.style.cssText = 'height:14px;background:rgba(0,0,0,0.6);border:1px solid #6a6a6a;border-radius:7px;overflow:hidden;';
+  const hpBar = document.createElement('div'); hpBar.style.cssText = 'height:100%;width:100%;background:#2ecc40;transition:width 0.25s, background 0.25s;';
+  hpBarOut.appendChild(hpBar); hpWrap.appendChild(hpBarOut); root.appendChild(hpWrap);
+  const hitFx = document.createElement('div'); hitFx.style.cssText = 'position:absolute;inset:0;background:radial-gradient(ellipse at center, rgba(160,0,0,0) 40%, rgba(160,0,0,0.65) 100%);opacity:0;transition:opacity 0.5s;pointer-events:none;'; root.appendChild(hitFx);
+  let hitTm = 0;
+  const hpShow = () => { const r = hp / STAIR_MAX_HP; hpBar.style.width = (r * 100) + '%'; hpBar.style.background = 'hsl(' + Math.round(r * 120) + ',75%,45%)'; }; // 満タン＝緑(120°)→黄色(60°)→赤(0°)へ、HPに応じてなめらかに変わる
+  const goOver = document.createElement('div'); goOver.style.cssText = 'position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(0,0,0,0.88);color:#d9c8c8;text-align:center;z-index:5;';
+  const goTitle = document.createElement('div'); goTitle.style.cssText = 'font-size:40px;font-weight:bold;color:#b03030;letter-spacing:4px;text-shadow:0 0 12px #600;'; goTitle.textContent = 'GAME OVER';
+  const goInfo = document.createElement('div'); goInfo.style.cssText = 'font-size:18px;';
+  const mkBtn = (label, fn) => { const b = document.createElement('button'); b.textContent = label; b.style.cssText = 'font-size:18px;padding:10px 26px;min-width:220px;border:1px solid #7a5a5a;border-radius:8px;background:#2a1a1a;color:#e8d8d8;cursor:pointer;'; b.addEventListener('click', fn); return b; };
+  goOver.appendChild(goTitle); goOver.appendChild(goInfo);
+  goOver.appendChild(mkBtn('もう一度（1階から）', () => stairRetry())); goOver.appendChild(mkBtn('階段を出る', () => exit()));
+  root.appendChild(goOver);
+  const stairDamage = n => {
+    n = Math.max(0, Math.floor(Number(n) || 0)); if (dead || n <= 0) return;
+    hp = Math.max(0, hp - n); hpShow();
+    hitFx.style.transition = 'none'; hitFx.style.opacity = '1'; void hitFx.offsetWidth; hitFx.style.transition = 'opacity 0.5s'; clearTimeout(hitTm); hitTm = setTimeout(() => { hitFx.style.opacity = '0'; }, 80);
+    if (hp <= 0) {
+      dead = true; Object.keys(keys).forEach(k => { keys[k] = false; }); sv = { x: 0, y: 0 }; sr = { x: 0, y: 0 };
+      goInfo.textContent = '到達した階：' + (stairMaxFloor + 1) + '階'; goOver.style.display = 'flex';
+    }
+  };
+  const stairHeal = n => { n = Math.max(0, Math.floor(Number(n) || 0)); if (dead || n <= 0) return; hp = Math.min(STAIR_MAX_HP, hp + n); hpShow(); };
+  const stairRetry = () => { // 1階の踊り場から、HP 満タンでやり直す
+    stairEvAbort(); dead = false; hp = STAIR_MAX_HP; hpShow(); goOver.style.display = 'none'; stairMaxFloor = 0;
+    P.x = -LW / 2; P.z = MID / 2; P.y = 0; P.gy = 0; P.yaw = -Math.PI / 2; P.pitch = -0.05; syncLevels(0);
+  };
+  hpShow();
+
+  // ===== 🎲 階段のイベント =====
+  // 新しい階（今までで一番高い階）の踊り場に初めて着くたびに、STAIR_EVENT_CHANCE の確率で、下の STAIR_EVENTS からひとつ起こる。1階（スタート地点）では起こらない。
+  // イベントを足すには STAIR_EVENTS に { id, weight, run(ctx) } を1つ足すだけ（weight は出やすさ。大きいほど出やすい）。ctx＝{ floor(いまの階数), toast(文字, ミリ秒), damage(数), heal(数), root, P, R }
+  // テスト：URL に ?stairevent=1 を付けると、新しい階の踊り場で必ず何か起こる。?stairevent=イベントのid で、そのイベントだけが必ず起こる。
+  const STAIR_EVENT_CHANCE = 0.2;
+  const stairEvQ = new URLSearchParams(location.search).get('stairevent');
+  const stairEvChance = stairEvQ ? 1 : STAIR_EVENT_CHANCE;
+  const toastEl = document.createElement('div'); toastEl.style.cssText = 'position:absolute;left:50%;top:18%;transform:translateX(-50%);max-width:80%;padding:10px 18px;background:rgba(0,0,0,0.72);color:#e8e2c8;font-size:18px;text-align:center;border-radius:6px;text-shadow:0 0 6px #000;opacity:0;transition:opacity 0.4s;pointer-events:none;white-space:pre-line;'; root.appendChild(toastEl);
+  let toastTm = 0;
+  const stairToast = (text, ms) => { toastEl.textContent = text; toastEl.style.opacity = '1'; clearTimeout(toastTm); toastTm = setTimeout(() => { toastEl.style.opacity = '0'; }, ms || 3000); };
+  // ----- 🏃 イベント用の「毎フレーム処理」と、走る速さ（スプリント） -----
+  const stairTickers = []; let sprintBoost = false; // sprintBoost＝true の間は、Shift なし（スマホでも）で走る速さになる
+  const stairEvAbort = () => { while (stairTickers.length) { const k = stairTickers.pop(); try { if (k.cleanup) k.cleanup(false); } catch (e) { console.error(e); } } sprintBoost = false; }; // やり直し・出る時に、イベントを全部片づける
+  const stairTickersRun = (dt, t) => { for (let i = stairTickers.length - 1; i >= 0; i--) { const k = stairTickers[i]; let fin = false; try { fin = k.tick(dt, t); } catch (err) { console.error('階段イベントのエラー:', err); fin = true; } if (fin) { stairTickers.splice(i, 1); try { if (k.cleanup) k.cleanup(true); } catch (e) { console.error(e); } } } };
+  const stairGrowl = () => { if (!ac || !master) return; try { const t0 = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(), lp = ac.createBiquadFilter(); o.type = 'sawtooth'; o.frequency.setValueAtTime(70, t0); o.frequency.exponentialRampToValueAtTime(38, t0 + 1.6); lp.type = 'lowpass'; lp.frequency.value = 260; g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(0.35, t0 + 0.15); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.7); o.connect(lp); lp.connect(g); g.connect(master); if (rev) g.connect(rev); o.start(t0); o.stop(t0 + 1.8); } catch (e) { /* 何もしない */ } };
+  const stairThud = v => { if (!ac || !master || v <= 0.01) return; try { burst(ac.currentTime, 0.12, 160, 0.8, v, 'lowpass'); } catch (e) { /* 何もしない */ } };
+  const STAIR_EVENTS = [
+    { id: 'sprint', weight: 1, run: ctx => { // 🏃 スプリント：前の階の扉が開いて化け物が出てきて、追ってくる。3階分にげると、化け物はそこの扉に入って終わり。追いつかれると即死
+      if (stairTickers.length) return; // もう何か動いている時は起こさない
+      const j0 = ctx.floor - 2, jEnd = ctx.floor + 2, SPD = 4.2, DELAY = 1.3, CATCH_H = 1.1, CATCH_V = 1.8; // j0＝出てくる扉の階（いまの1つ下）／jEnd＝入っていく扉の階（いまの3つ上）／SPD＝化け物の速さ（走る5.04より遅い）
+      const inward = j => (j % 2 === 0 ? 0.5 : -0.5);
+      const pts = [[doorX(j0) + inward(j0), j0 * R, WD / 2]]; // 化け物の通り道：扉 → 階段 → 踊り場 → 階段 …（階段の列の真ん中をたどる）
+      for (let j = j0; j < jEnd; j++) {
+        const even = j % 2 === 0, z = even ? LANE : WD - LANE;
+        pts.push([even ? 0 : L, j * R, z]); pts.push([even ? L : 0, (j + 1) * R, z]);
+        if (j < jEnd - 1) pts.push([even ? L + 1.2 : -1.2, (j + 1) * R, MID]);
+      }
+      pts.push([doorX(jEnd) + inward(jEnd), jEnd * R, WD / 2]); pts.push([doorX(jEnd), jEnd * R, WD / 2]);
+      const cum = [0]; for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1], pts[k][2] - pts[k - 1][2]));
+      const total = cum[cum.length - 1], endOpenAt = total - 6; // 入る扉まで6mになったら、扉が開く
+      const at = s => { let k = 1; while (k < cum.length - 1 && cum[k] < s) k++; const f = Math.max(0, Math.min(1, (s - cum[k - 1]) / ((cum[k] - cum[k - 1]) || 1))), a = pts[k - 1], b = pts[k]; return { x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f, z: a[2] + (b[2] - a[2]) * f, dx: b[0] - a[0], dz: b[2] - a[2] }; };
+      // 見た目：黒い長い体・ぶらさがる長い腕・赤く光る目
+      const geos2 = [], mats2 = [], bodyMat = new THREE.MeshLambertMaterial({ color: 0x050505 }), eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2020, fog: false }); mats2.push(bodyMat, eyeMat);
+      const part = (geo, mat, x, y, z) => { geos2.push(geo); const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); return m; };
+      const mon = new THREE.Group();
+      mon.add(part(new THREE.CylinderGeometry(0.26, 0.42, 1.4, 10), bodyMat, 0, 0.95, 0)); mon.add(part(new THREE.SphereGeometry(0.3, 12, 10), bodyMat, 0, 1.9, 0.05));
+      [-1, 1].forEach(sd => { const arm = part(new THREE.CylinderGeometry(0.07, 0.05, 1.5, 6), bodyMat, sd * 0.42, 1.0, 0.25); arm.rotation.x = -0.5; mon.add(arm); mon.add(part(new THREE.SphereGeometry(0.05, 8, 6), eyeMat, sd * 0.12, 1.95, 0.32)); });
+      const glow = new THREE.PointLight(0xff2020, 0.7, 6, 1.6); glow.position.set(0, 1.9, 0.5); mon.add(glow); mon.visible = false; scene.add(mon);
+      // 扉：開く＝ドアの板を消して、まっくらな入り口を見せる
+      const opened = [], openDoor = j => { const lv = levels.get(j); if (!lv || !lv.panel || !lv.panel.parent) return; const dg = lv.panel.parent, geo = new THREE.PlaneGeometry(1.0, 2.1), mat = new THREE.MeshBasicMaterial({ color: 0x000000 }), dark = new THREE.Mesh(geo, mat); dark.position.set(0, 1.05, 0.075); lv.panel.visible = false; dg.add(dark); opened.push({ lv, dark, geo, mat }); rattleSnd(); };
+      const closeAll = () => { opened.forEach(o => { o.lv.panel.visible = true; if (o.dark.parent) o.dark.parent.remove(o.dark); o.geo.dispose(); o.mat.dispose(); }); opened.length = 0; };
+      let phase = 0, tm = 0, s = 0, stepT = 0, endOpened = false, ended = false; // phase 0＝扉が開いて、うなる／1＝追ってくる／2＝扉に入った（余韻）
+      sprintBoost = true; openDoor(j0); stairGrowl(); ctx.toast('下の階の扉が開いた…！　にげろ！', 3200);
+      stairTickers.push({
+        tick: (dt, t) => {
+          tm += dt;
+          if (phase === 0) { if (tm >= DELAY) { phase = 1; mon.visible = true; } return false; }
+          if (phase === 2) return tm > 0.8; // 入ったあと少しして、全部片づける
+          s = Math.min(total, s + SPD * dt); const q = at(s); mon.position.set(q.x, q.y, q.z); if (q.dx || q.dz) mon.rotation.y = Math.atan2(q.dx, q.dz);
+          eyeMat.color.setRGB(1, 0.1 + 0.1 * Math.sin(t * 9), 0.1);
+          stepT += dt; if (stepT > 0.36) { stepT = 0; stairThud(Math.max(0, 0.5 - Math.hypot(P.x - q.x, P.y - q.y, P.z - q.z) * 0.035)); }
+          if (!endOpened && s >= endOpenAt) { endOpened = true; openDoor(jEnd); }
+          if (Math.hypot(P.x - q.x, P.z - q.z) < CATCH_H && Math.abs(P.y - q.y) < CATCH_V) { ctx.toast('追いつかれた…', 2000); stairDamage(STAIR_MAX_HP * 10); return false; } // 追いつかれた：即死
+          if (s >= total) { phase = 2; tm = 0; mon.visible = false; rattleSnd(); sprintBoost = false; ctx.toast('化け物は扉の中へ消えた…', 3000); }
+          return false;
+        },
+        cleanup: () => { scene.remove(mon); geos2.forEach(g => g.dispose()); mats2.forEach(m => m.dispose()); closeAll(); sprintBoost = false; }
+      });
+    } },
+  ];
+  let stairMaxFloor = 0; // いままでに着いた一番高い踊り場の番号（1階＝0）
+  const stairEventCheck = dn => { // 毎フレーム呼ばれる。踊り場の床に立っていて、その階に初めて着いた時だけ抽選する
+    if (dn <= stairMaxFloor) return;
+    if (Math.abs(P.gy - dn * R) > 0.05 || P.x < landX0(dn) || P.x > landX0(dn) + LW) return;
+    stairMaxFloor = dn; // 階を飛ばしても（落ちる・ワープ等）、その階に着いた時に1回だけ抽選
+    if (Math.random() >= stairEvChance) return;
+    const pool = (stairEvQ && stairEvQ !== '1') ? STAIR_EVENTS.filter(e => e.id === stairEvQ) : STAIR_EVENTS;
+    const total = pool.reduce((a, e) => a + (e.weight || 1), 0); if (!total) return;
+    let r = Math.random() * total, ev = pool[pool.length - 1];
+    for (const e of pool) { r -= (e.weight || 1); if (r < 0) { ev = e; break; } }
+    try { ev.run({ floor: dn + 1, toast: stairToast, damage: stairDamage, heal: stairHeal, root, P, R }); } catch (err) { console.error('階段イベントのエラー:', err); }
+  };
+  const pr = document.createElement('div'); pr.textContent = '🚪 ドアを調べる' + (touch ? '' : '  [E]');
+  pr.style.cssText = 'position:absolute;left:50%;bottom:14vh;transform:translateX(-50%);display:none;padding:1.2vh 2.6vh;border-radius:999px;background:rgba(10,10,16,0.82);border:0.3vh solid #d9d3b8;color:#d9d3b8;font:bold 2.6vh sans-serif;cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent;touch-action:manipulation;'; root.appendChild(pr);
+  const LINES = ['ガチャガチャ…　鍵がかかっている', 'ドアは固く閉ざされている…', 'ドアの向こうで、何かが動いた気がする…', '押しても引いても、びくともしない']; let lineI = 0;
+  const act = () => { // ドアを調べる：いまは、開かない
+    if (nearJ < 0) return; const lv = levels.get(nearJ); if (lv) lv.rattle = 0.5; rattleSnd(); say(LINES[lineI++ % LINES.length], 2600);
+  };
+  pr.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); act(); };
+  const onKeyDown = ev => {
+    const k = (ev.key || '').toLowerCase(); keys.shift = ev.shiftKey;
+    if (k === 'escape') { ev.preventDefault(); ev.stopPropagation(); exit(); return; }
+    if (k === 'e') { ev.preventDefault(); ev.stopPropagation(); if (!ev.repeat) act(); return; }
+    if (ctl(k)) { ev.preventDefault(); ev.stopPropagation(); keys[ctl(k)] = true; }
+  };
+  const onKeyUp = ev => { const c = ctl((ev.key || '').toLowerCase()); keys.shift = ev.shiftKey; if (c) { keys[c] = false; ev.stopPropagation(); } };
+  const onBlur = () => { Object.keys(keys).forEach(k => { keys[k] = false; }); sv = { x: 0, y: 0 }; sr = { x: 0, y: 0 }; };
+  document.addEventListener('keydown', onKeyDown, true); document.addEventListener('keyup', onKeyUp, true); window.addEventListener('blur', onBlur);
+  root.addEventListener('pointerdown', () => { if (ac && ac.state === 'suspended' && ac.resume) ac.resume().catch(() => {}); }, true);
+  let lookId = null, lx = 0, ly = 0; // ドラッグで見回す（マウス・指）
+  cv.onpointerdown = ev => { if (lookId !== null || (touch && ev.pointerType !== 'mouse')) return; lookId = ev.pointerId; lx = ev.clientX; ly = ev.clientY; try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } };
+  cv.onpointermove = ev => { if (ev.pointerId !== lookId) return; P.yaw -= (ev.clientX - lx) * 0.0045 * LOOK_SPEED; P.pitch = Math.max(-1.3, Math.min(1.3, P.pitch - (ev.clientY - ly) * 0.0045 * LOOK_SPEED)); lx = ev.clientX; ly = ev.clientY; };
+  cv.onpointerup = cv.onpointercancel = ev => { if (ev.pointerId === lookId) lookId = null; };
+  const btn = document.createElement('div'); btn.textContent = '✕ もどる';
+  btn.style.cssText = 'position:absolute;top:12px;right:12px;padding:9px 14px;font-size:16px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.38);border:2px solid rgba(255,255,255,0.7);border-radius:10px;cursor:pointer;';
+  btn.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); exit(); }; root.appendChild(btn);
+  if (touch) { // スマホ：左＝移動、右＝視点（草原と同じ位置・大きさ）
+    const mkStick = (right, cb) => {
+      const base = document.createElement('div'), knob = document.createElement('div');
+      base.style.cssText = 'position:absolute;' + (right ? 'right' : 'left') + ':14.5vh;top:55.5vh;transform:translateY(-50%);width:27vh;height:27vh;border-radius:50%;background:rgba(255,255,255,0.08);border:0.5vh solid rgba(255,255,255,0.25);touch-action:none;';
+      knob.style.cssText = 'position:absolute;left:8.5vh;top:8.5vh;width:10vh;height:10vh;border-radius:50%;background:rgba(255,255,255,0.55);pointer-events:none;'; base.appendChild(knob); root.appendChild(base);
+      let id = null;
+      const apply = ev => { const r = base.getBoundingClientRect(), dx = ev.clientX - (r.left + r.width / 2), dy = ev.clientY - (r.top + r.height / 2), md = (r.width / 2) * 0.7778, raw = Math.hypot(dx, dy) || 1, d = Math.min(md, raw); knob.style.transform = 'translate(' + (dx / raw * d) + 'px,' + (dy / raw * d) + 'px)'; cb({ x: dx / raw * d / md, y: dy / raw * d / md }); };
+      base.onpointerdown = ev => { if (id !== null) return; ev.preventDefault(); id = ev.pointerId; try { base.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } apply(ev); };
+      base.onpointermove = ev => { if (ev.pointerId === id) apply(ev); };
+      base.onpointerup = base.onpointercancel = ev => { if (ev.pointerId === id) { id = null; knob.style.transform = ''; cb({ x: 0, y: 0 }); } };
+    };
+    mkStick(false, v => { sv = v; }); mkStick(true, v => { sr = v; });
+  }
+  const resize = () => { const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
+  window.addEventListener('resize', resize); resize();
+
+  // ----- 🎙 一緒にいる人の姿・声の同期（草原・ダンジョンと同じ仕組み）：自分の位置は updateOwnState({ gl: {...} }) で0.06秒ごとに配る。
+  //   gl = { x, z（声の計算用：高さ×VZ をたした値）, y（高さ）, r（向き）, p（上下の向き）, d: 1, sd: 'stairs' }。sd が文字 'stairs' なので、草原・ダンジョンの人とは、姿も声も混ざらない（迷路の番号は数字なので、絶対に一致しない）。
+  //   階段の形は式だけで決まる（乱数なし）ので、全員がまったく同じ階段を見る。いつ入っても、入った人はかならず1階の踊り場から始まる（先にいる人の所へは飛ばない）。同じ階段にいる人は、ほかの階の人も含めて、全員が見える範囲にいれば見える。
+  const VZ = 0.75; // 声の計算用：高さ1mを、水平の0.75mぶんとみなす（1階ぶん＝4m＝水平の3m。階の高さを2mから4mにした時、2階ぶん聞こえる範囲が変わらないように、1.5から半分にした）。階がちがう人は、真上・真下にいても、離れた所の声になる
+  const glNet = opt.net || null, glSc = opt.scene || null, glRem = new Map(); let glAcc = 0;
+  const glBodyGeo = G(new THREE.CylinderGeometry(0.27, 0.33, 1.05, 10)), glHeadGeo = G(new THREE.SphereGeometry(0.25, 12, 10)), glNoseGeo = G(new THREE.BoxGeometry(0.1, 0.1, 0.5));
+  glBodyGeo.translate(0, 0.62, 0); glHeadGeo.translate(0, 1.42, 0); glNoseGeo.translate(0, 0, -0.5);
+  // ----- 🎙 声の壁越し・回り込み：階段室の形そのものから計算する（草原のダンジョンの dWallTiles / dVoicePath と同じ役目） -----
+  // 階段室は「踊り場 → 階段 → 踊り場 → …」とつながる1本の通路。ほかの階とは、コンクリートの床（踊り場0.3m・段0.45mの厚み）とまん中の仕切りの壁でしか隔てられていない。
+  //   ①壁越し：2人を結ぶ線が、コンクリートを何回つらぬくか（厚いかたまりは2回ぶん）。仕切りの向こうの列・床の上下の階の声が、こもって小さく聞こえる
+  //   ②回り込み：階段・踊り場をたどって届く道。曲がり角ごとに弱まり、聞こえる方向は「道の最初の曲がり角」になる（ドアの外を回って聞こえる感じ）
+  const EAR = 1.5, LANE = (MID - DIVT) / 2; // EAR＝耳と口の高さ（床から）／LANE＝階段の列の真ん中（手前の列の z。奥の列は WD - LANE）
+  const stSolid = (x, y, z) => { // その点が、コンクリート（壁・仕切り・踊り場の床・段）の中か
+    if (y < 0 || x < -LW || x > L + LW || z < 0 || z > WD) return true;
+    if (x > 0 && x < L && Math.abs(z - MID) < DIVT) return true; // まん中の仕切りの壁
+    const jc = Math.floor(y / R);
+    for (let j = Math.max(0, jc - 1); j <= jc + 1; j++) {
+      const x0 = landX0(j); if (x >= x0 && x <= x0 + LW && y >= j * R - 0.3 && y <= j * R) return true; // 踊り場の床
+      if (x > 0 && x < L) { const even = j % 2 === 0; if (even ? z < MID - DIVT : z > MID + DIVT) { const t = even ? x / L : (L - x) / L, top = j * R + R * (Math.min(NS - 1, Math.floor(t * NS)) + 1) / NS; if (y <= top && y >= j * R + R * t - STEP_T) return true; } } // 階段の段
+    }
+    return false;
+  };
+  const stLos = (ax, ay, az, bx, by, bz) => { // 2点の間で、コンクリートをつらぬく回数。0＝見通せる
+    const dd = Math.hypot(bx - ax, by - ay, bz - az), n = Math.max(1, Math.ceil(dd / 0.08)), st = dd / n; let c = 0, run = 0;
+    for (let k = 1; k < n; k++) { const f = k / n; if (stSolid(ax + (bx - ax) * f, ay + (by - ay) * f, az + (bz - az) * f)) run++; else if (run) { c += run * st > 0.7 ? 2 : 1; run = 0; } }
+    return run ? c + (run * st > 0.7 ? 2 : 1) : c;
+  };
+  const stRemote = (x, zv) => { const pl = (glSc && glSc.latestPlayers) || {}; for (const uid in pl) { const g = pl[uid] && pl[uid].gl; if (g && g.sd === 'stairs' && g.x === x && g.z === zv) return g; } return null; }; // 声の計算に渡される位置（z は高さ入り）から、その人を探して、本当の高さを知る
+  const stWall = (ax, azv, bx, bzv) => { // 🎙 glVS.wall：自分と相手の間にあるコンクリートの数
+    const g = stRemote(bx, bzv); if (!g) return 0; const by = g.y || 0;
+    return stLos(P.x, P.y + EAR, P.z, bx, by + EAR, bzv - VZ * by);
+  };
+  const stSegOf = (x, z, y) => { // いる場所の番号：偶数＝踊り場 j（2j）／奇数＝階段 j（2j+1）。床がなければ -1
+    let best = -1, bd = 0.8; const jc = Math.floor(y / R);
+    for (let j = Math.max(0, jc - 1); j <= jc + 2; j++) { const s = surfY(x, z, j); if (s !== null && Math.abs(s - y) < bd) { bd = Math.abs(s - y); best = j; } }
+    if (best < 0) return -1; const x0 = landX0(best); return (x >= x0 && x <= x0 + LW) ? 2 * best : 2 * best + 1;
+  };
+  const stVert = m => { // 通路の曲がり角の目印（下から順に、階段j のはじめ・階段j のおわり・踊り場 j+1 の折り返し）
+    const j = Math.floor(m / 3), k = m % 3, even = j % 2 === 0;
+    if (k === 0) return [even ? 0 : L, j * R + EAR, even ? LANE : WD - LANE];
+    if (k === 1) return [even ? L : 0, (j + 1) * R + EAR, even ? LANE : WD - LANE];
+    return [even ? L + 0.25 : -0.25, (j + 1) * R + EAR, MID];
+  };
+  const stPath = (bx, bzv) => { // 🎙 glVS.path：階段をたどって相手まで届く道 {len＝道のり(m), dx/dz/dist＝聞こえる方向（道の最初の曲がり角）, turns＝大きな曲がり角の数}。遠すぎれば null
+    const g = stRemote(bx, bzv); if (!g) return null; const by = g.y || 0, bz = bzv - VZ * by;
+    const ka = stSegOf(P.x, P.z, P.y), kb = stSegOf(bx, bz, by); if (ka < 0 || kb < 0 || Math.abs(ka - kb) > 16) return null;
+    const A = [P.x, P.y + EAR, P.z], B = [bx, by + EAR, bz], pts = [A];
+    if (ka !== kb) {
+      const lo = Math.min(ka, kb), hi = Math.max(ka, kb), jl = lo >> 1, jh = hi >> 1, m0 = (lo & 1) ? 3 * jl + 1 : Math.max(0, 3 * jl - 1), m1 = (hi & 1) ? 3 * jh : 3 * jh - 1, vs = [];
+      for (let m = m0; m <= m1; m++) vs.push(stVert(m));
+      if (ka > kb) vs.reverse(); pts.push(...vs);
+    }
+    pts.push(B);
+    const o = [A]; let cur = 0; // ぴんと張ったひもの道すじ：見通せる一番遠い目印へ、とばして進む
+    while (cur < pts.length - 1) { let nx = cur + 1; for (let k = Math.min(pts.length - 1, cur + 4); k > cur + 1; k--) if (stLos(pts[cur][0], pts[cur][1], pts[cur][2], pts[k][0], pts[k][1], pts[k][2]) === 0) { nx = k; break; } o.push(pts[nx]); cur = nx; }
+    let len = 0, turns = 0;
+    for (let i = 0; i + 1 < o.length; i++) {
+      const a = o[i], b = o[i + 1]; len += Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+      if (i > 0) { const p = o[i - 1], u = [a[0] - p[0], a[1] - p[1], a[2] - p[2]], v = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], m = Math.hypot(...u) * Math.hypot(...v); if (m > 0 && (u[0] * v[0] + u[1] * v[1] + u[2] * v[2]) / m < 0.766) turns++; } // 向きが約40°以上かわる所だけ、曲がり角に数える（階段と踊り場のゆるい折れ目は数えない）
+    }
+    const f = o[1], dx = f[0] - A[0], dz = f[2] - A[2];
+    return { len, dx, dz, dist: Math.hypot(dx, dz), turns };
+  };
+  const glVS = { x: 0, z: 0, yaw: 0, pitch: 0, env: 'stairs', revBase: 0.6, revRatio: 2.2, key: 'gl', d: 1, sd: 'stairs', radius: (typeof VOICE !== 'undefined' && VOICE.space3dDungeonRadius) || 9, wall: stWall, path: stPath }; // 🎙 声：コンクリートの階段室の響き（長く明るく、ブンブンと往復する反響つき）。revBase＝近くの声にもつく響きの量／revRatio＝響きが声（直接音）の何倍まで大きくなれるか（既定は1倍。階段室は硬いので、遠い声は響きの方が大きいくらいにする）。壁越し（仕切り・床）と階段をたどる回り込みは、上の stWall / stPath が階段の形から計算する
+  const r2 = v => Math.round(v * 100) / 100;
+  const glPublish = clear => { if (!glNet) return; try { glNet.updateOwnState({ gl: clear ? null : { x: r2(P.x), z: r2(P.z + VZ * P.y), y: r2(P.y), r: r2(P.yaw), p: r2(P.pitch), d: 1, sd: 'stairs' } }); } catch (e) { /* 何もしない */ } };
+  const glMake = (uid, p) => {
+    let col; try { col = new THREE.Color(p.color == null ? 0xffffff : p.color); } catch (e) { col = new THREE.Color(0xffffff); }
+    const grp = new THREE.Group(), mat = new THREE.MeshLambertMaterial({ color: col }), noseM = new THREE.MeshLambertMaterial({ color: 0xffffff }), nose = new THREE.Group(); nose.position.y = 1.42; nose.add(new THREE.Mesh(glNoseGeo, noseM));
+    grp.add(new THREE.Mesh(glBodyGeo, mat), new THREE.Mesh(glHeadGeo, mat), nose);
+    const c = document.createElement('canvas'); c.width = 256; c.height = 64; const x = c.getContext('2d');
+    x.font = 'bold 30px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineWidth = 6; x.strokeStyle = 'rgba(0,0,0,0.7)'; x.fillStyle = '#fff';
+    let nm = String(p.name || '？'); if (x.measureText(nm).width > 240) { const ch = Array.from(nm); while (ch.length > 1 && x.measureText(ch.join('') + '…').width > 240) ch.pop(); nm = ch.join('') + '…'; }
+    x.strokeText(nm, 128, 34); x.fillText(nm, 128, 34);
+    const tex = new THREE.CanvasTexture(c), label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, fog: true })); label.scale.set(1.8, 0.45, 1); label.position.y = 2.0; grp.add(label); scene.add(grp); // 名前の札は、闇の中ではとおくで見えなくなる（霧の影響を受ける）
+    const r = { grp, mat, noseM, nose, tex, label, tx: 0, ty: 0, tz: 0, tr: 0, tp: 0, by: 0, init: false }; glRem.set(uid, r); return r;
+  };
+  const glRemove = uid => { const r = glRem.get(uid); if (!r) return; scene.remove(r.grp); r.mat.dispose(); r.noseM.dispose(); r.tex.dispose(); r.label.material.dispose(); glRem.delete(uid); };
+  const glFrame = (dt, t) => {
+    if (!glNet) return;
+    glAcc += dt; if (glAcc >= 0.06) { glAcc = 0; glPublish(false); }
+    { const v = glNet._voice; if (v && !v.stopped) { glVS.x = P.x; glVS.z = P.z + VZ * P.y; glVS.yaw = P.yaw; glVS.pitch = P.pitch; v.space3d = glVS; } } // 声：自分の位置と向きを渡す（毎回渡して、繋ぎ直されても外れないようにする）
+    const players = (glSc && glSc.latestPlayers) || {}, want = new Set();
+    for (const uid in players) {
+      if (uid === glNet.uid) continue;
+      const g = players[uid] && players[uid].gl; if (!g || !g.d || g.sd !== 'stairs') continue; // 階段にいる人だけ
+      want.add(uid);
+      let r = glRem.get(uid); if (!r) r = glMake(uid, players[uid]);
+      r.tx = g.x || 0; r.ty = g.y || 0; r.tz = (g.z || 0) - VZ * r.ty; r.tr = g.r || 0; r.tp = g.p || 0;
+      if (!r.init) { r.init = true; r.by = r.ty; r.grp.position.set(r.tx, r.ty, r.tz); r.grp.rotation.y = r.tr; r.nose.rotation.x = r.tp; }
+    }
+    for (const uid of Array.from(glRem.keys())) if (!want.has(uid)) glRemove(uid);
+    const k = 1 - Math.exp(-dt * 12);
+    glRem.forEach(r => {
+      const g = r.grp, ox = g.position.x, oz = g.position.z; g.position.x += (r.tx - ox) * k; g.position.z += (r.tz - oz) * k; r.by += (r.ty - r.by) * k;
+      let da = r.tr - g.rotation.y; da -= Math.round(da / 6.2832) * 6.2832; g.rotation.y += da * k; r.nose.rotation.x += (r.tp - r.nose.rotation.x) * k;
+      const mv = Math.min(1, Math.hypot(r.tx - ox, r.tz - oz) / Math.max(dt, 0.001) / 3); g.position.y = r.by + Math.abs(Math.sin(t * 9)) * 0.06 * mv; g.visible = Math.abs(r.by - P.y) < 14; // 上下にとても離れた人は、描かない
+    });
+  };
+  const glStop = () => {
+    if (!glNet) return; { const v = glNet._voice; if (v && v.space3d === glVS) v.space3d = null; } Array.from(glRem.keys()).forEach(glRemove);
+    glPublish(true); setTimeout(() => glPublish(true), 300); setTimeout(() => glPublish(true), 1200); // 取りこぼしても消えるように、数回送る
+  };
+  glPublish(false);
+
+  // ----- 毎フレーム -----
+  const frame = ms => {
+    if (closed) return;
+    const t = ms / 1000, dt = Math.min(0.05, last ? t - last : 0.016); last = t;
+    if (dead) { renderer.render(scene, camera); raf = requestAnimationFrame(frame); return; } // ゲームオーバー中は動かない
+    P.yaw += ((keys.tl ? 1 : 0) - (keys.tr ? 1 : 0)) * 1.8 * LOOK_SPEED * dt;
+    P.yaw -= sr.x * 2.2 * LOOK_SPEED * dt; P.pitch = Math.max(-1.3, Math.min(1.3, P.pitch - sr.y * 1.6 * LOOK_SPEED * dt));
+    let mf = (keys.f ? 1 : 0) - (keys.b ? 1 : 0) - sv.y, mr = (keys.r ? 1 : 0) - (keys.l ? 1 : 0) + sv.x; const mm = Math.hypot(mf, mr); if (mm > 1) { mf /= mm; mr /= mm; }
+    const sp2 = 2.8 * ((keys.shift || sprintBoost) ? 1.8 : 1) * dt, sy = Math.sin(P.yaw), cy = Math.cos(P.yaw), ox = P.x, oz = P.z;
+    movePlayer((-sy * mf + cy * mr) * sp2, (-cy * mf - sy * mr) * sp2);
+    const mvd = Math.hypot(P.x - ox, P.z - oz); stepAcc += mvd; bobT += mvd; if (stepAcc > STEP_LEN) { stepAcc = 0; stepSnd(); }
+    P.y += (P.gy - P.y) * Math.min(1, dt * 16);
+    const cur = Math.floor(P.gy / R + 1e-6); if (cur !== lastCur) syncLevels(cur);
+    walls.position.y = Math.round(P.gy / R) * R;
+    camera.position.set(P.x, P.y + EYE + Math.abs(Math.sin(bobT * Math.PI / STEP_LEN)) * 0.035 - 0.017, P.z); camera.rotation.set(P.pitch, P.yaw, 0); camera.updateMatrixWorld(); myLight.position.copy(camera.position);
+    // 蛍光灯：いちばん近い踊り場と、その1つ上の踊り場。ときどき、ちかちかと切れかかる
+    if (flick > 0) { flick -= dt; lampT = Math.random() < 0.5 ? 0.12 : 0.95; } else { lampT = 1; if (Math.random() < dt * 0.05) flick = 0.2 + Math.random() * 0.5; }
+    const n0 = Math.max(0, Math.round(P.gy / R)); [n0, n0 + 1].forEach((n, i) => { lampLights[i].position.set(landX0(n) + LW / 2, n * R + 2.5, MID); lampLights[i].intensity = 0.9 * lampT; });
+    lampMat.color.setRGB(0.9 * lampT, 1.0 * lampT, 0.9 * lampT);
+    // ドアのガチャガチャ
+    levels.forEach(lv => { if (lv.rattle > 0) { lv.rattle -= dt; lv.panel.position.x = (Math.random() - 0.5) * 0.03 * (lv.rattle > 0 ? 1 : 0); lv.panel.rotation.z = (Math.random() - 0.5) * 0.02 * (lv.rattle > 0 ? 1 : 0); } });
+    // 近くのドアと、いまの階数
+    const dn = Math.max(0, Math.round(P.gy / R)); nearJ = (Math.abs(P.gy - dn * R) < 0.35 && Math.hypot(P.x - doorX(dn), P.z - WD / 2) < 1.6) ? dn : -1; pr.style.display = nearJ >= 0 ? 'block' : 'none';
+        stairEventCheck(dn); // 🎲 踊り場に着いたらイベント抽選
+    stairTickersRun(dt, t); // 🏃 動いているイベント（スプリントの化け物など）
+    glFrame(dt, t); // 🎙 仲間の姿・声の同期
+    renderer.render(scene, camera); raf = requestAnimationFrame(frame);
+  };
+  initAudio(); syncLevels(0);
   raf = requestAnimationFrame(frame);
 }
 
@@ -2103,7 +2587,8 @@ function openPartyHall(onClose, opt) {
 //   部屋の中の座標は「ピクセル」で、PARTY_SLOTS などはその座標。マップは generatePartyMap()、飾りと調べる操作は GameScene の setupParty / _updateParty / _drawParty。
 const PARTY_SLOTS = [[60, 40], [130, 40], [200, 40], [440, 40], [510, 40], [580, 40], [16, 150], [16, 300], [624, 150], [624, 300], [110, 390], [530, 390], [16, 225], [16, 375], [624, 225], [624, 375], [60, 432], [190, 432], [450, 432], [580, 432]]; // メモを貼る場所（最大20枚。13枚目以降は左右の壁の間と下の壁に貼る）
 const PARTY_BALLOONS = [[90, 150], [550, 170], [120, 300], [520, 320], [240, 120], [60, 235]];
-const PARTY_OPEN_TO_ALL = true; // 🧪 テスト用：true の間は、エンディングを見ていない人（endingDone でない人）も、合言葉を入れればパーティールームに入れる。公開する前に false に戻す
+const LOUNGE_NUMBER = '1056194'; // 💬 ダンジョン番号の欄にこれを入れて「ダンジョン」を押すと、交流ルーム（パーティールームと同じ仕組みで、外観がシンプル・メモなし）に入れる。エンディングを見ていなくても、誰でも入れる
+const PARTY_OPEN_TO_ALL = false; // 🧪 テスト用：true の間は、エンディングを見ていない人（endingDone でない人）も、合言葉を入れればパーティールームに入れる。false ＝パーティールームはエンディングを見た人だけ（交流ルームは、これに関係なく誰でも入れる）
 const PARTY_MEMOS_READABLE = true; // 📋 true の間は、パーティールームのメモをプレイヤーが読める（近づいて調べられる）。false にすると読めなくなる
 const PARTY_PORTAL = { i: -2, portal: true, x: 320, y: 118 }; // 🌿 草原への入口（メモと同じ要領で、近づいて E／タップ）
 const VS_HERO = { // ⚔ 斬り合いの調整値
@@ -2192,15 +2677,18 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   moveSmooth: 0.05         // 動き出し・止まりのなめらかさ（秒。0＝すぐ最高速／止まる。大きいほどぬるっと動く）
 };
 const PARTY_PORTAL_HERO = { i: -4, portal: true, hero: true, x: 220, y: 118 }; // ⚔ 斬り合いへの入口（入るとボス部屋へ飛ぶ。装飾品は全部持っていけない）
+const PARTY_PORTAL_LGRASS = { i: -5, portal: true, lgrass: true, x: 260, y: 118 }; // 💬 交流ルーム：🌿 草原（ホラーの影が出ない。何も起こらない）
+const PARTY_PORTAL_LDUNGEON = { i: -6, portal: true, ldungeon: true, x: 340, y: 118 }; // 💬 交流ルーム：🕳 ダンジョン（ホラーで影に追いつかれてワープした直後から始まる）
+const PARTY_PORTAL_LSTAIRS = { i: -7, portal: true, lstairs: true, x: 220, y: 118 }; // 💬 交流ルーム：🪜 階段（無限に続く暗い階段を上っていく。踊り場ごとに階数の数字とドアがある）
 const PARTY_PORTAL_SOCIAL = { i: -3, portal: true, social: true, x: 420, y: 118 }; // 🎙 みんなの広場（洋室）への入口（同じ部屋の人と一緒に入って、歩き回りながらボイスチャット）
-function generatePartyMap() {
+function generatePartyMap(lounge) { // lounge＝true：交流ルーム（同じ形のまま、見た目だけシンプルにするための印をつける）
   const width = 20, height = 15; // 640×480（部屋は640×448。いちばん下の1行は扉の裏）
   const grid = Array.from({ length: height }, () => new Array(width).fill(0));
   for (let y = 2; y <= 12; y++) for (let x = 1; x <= 18; x++) grid[y][x] = 1; // 床（上の壁2行・左右の壁1列・下の壁1行を残す）
   for (let y = 6; y <= 7; y++) for (let x = 7; x <= 12; x++) grid[y][x] = 0; // 真ん中のテーブル（壁と同じ扱い）
   grid[13][9] = 1; grid[13][10] = 1; // 下の壁の真ん中の2マスが扉
   return {
-    grid, width, height, rooms: [{ x: 1, y: 2, w: 18, h: 11 }], exitPos: null, secretDoor: null, party: true,
+    grid, width, height, rooms: [{ x: 1, y: 2, w: 18, h: 11 }], exitPos: null, secretDoor: null, party: true, lounge: !!lounge,
     partyDoor: { x: 9, y: 13, w: 2 },
     playerStart: { x: 10, y: 11 },
     enemyBudget: 0,
@@ -4728,7 +5216,8 @@ class GameScene extends Phaser.Scene {
     this.bossRush = !this.mp && (!!app.bossRush || this.vsHero); // 斬り合いは、ボスラッシュと同じボス部屋を使う // ボスラッシュ（ソロ専用）
     this.nightmare = !this.mp && !!app.nightmare; // ナイトメア（ソロ専用）：通常のダンジョンに「壁の裏が見えない」視界をつける
     this.pvp = !!app.pvp && this.mp; // PvPモード（協力ルーム専用）
-    this.party = !!app.party && this.mp; // 🎉 パーティールーム（協力ルーム専用。敵も宝箱もない、おまけの部屋）
+    this.lounge = !!app.lounge && this.mp; // 💬 交流ルーム：パーティールームと全く同じ仕組みで、外観がシンプルで、メモがないだけ
+    this.party = (!!app.party || this.lounge) && this.mp; // 🎉 パーティールーム（協力ルーム専用。敵も宝箱もない、おまけの部屋）。交流ルームも、これが true になる
     this.pvpTest = this.pvp && !!(app.net && app.net.offline); // 一人・通信なしのテスト（開始人数・終了判定の人数条件を緩める）
     this.pv = null;
     this.frontline = !!app.frontline; // 最北戦線（ソロ／協力プレイ）
@@ -5355,7 +5844,7 @@ class GameScene extends Phaser.Scene {
       if (v && (v.stopped || v.roomId !== this.net.roomId)) { v.stop(); v = this.net._voice = null; }
       if (!v) { v = this.net._voice = new VoiceChat(this.net, this); v.start(); } else { v.attachScene(this); }
     }
-    document.getElementById('mpRoomCode').textContent = this.party ? 'パーティールーム' : this.net.roomId;
+    document.getElementById('mpRoomCode').textContent = this.lounge ? '交流ルーム' : this.party ? 'パーティールーム' : this.net.roomId;
     const btn = document.getElementById('copyRoomBtn');
     btn.style.display = this.party ? 'none' : ''; // パーティールームは誰でも入れる固定の部屋なので、コードのコピーは要らない
     btn.onclick = () => {
@@ -5919,7 +6408,7 @@ class GameScene extends Phaser.Scene {
     this.hideClearTime(); // 前の階のクリア時間表示を消す
     const seed = this.baseSeed + this.floor * 7919;
     this.bossFloor = !this.snowfield && !this.hell && !this.sanctuary && !this.bossRush && !this.frontline && !this.pvp && !this.party && this.isBossFloor(this.floor); // ダンジョンの5階ごと（10・15・20…）はボス階
-    const dungeon = this._snowRestore ? this._snowRestore.dungeon : this.sanctuary ? generateSanctuaryMap() : this.hell ? generateHellMap() : this.snowfield ? generateSnowfieldMap(this._godExiled) : (this.bossRush || this.bossFloor) ? generateBossArena() : (this.pvp ? generatePvpMap() : this.party ? generatePartyMap() : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor, { secretLibrary: !this.mp, whiteDoor: !this.mp && !this.isDevMode && isGodFloorSeed(this.baseSeed) && this.floor === 6, ghostFloor: !this.mp && !!this._ghostFloorOn && this.floor === 1 })));
+    const dungeon = this._snowRestore ? this._snowRestore.dungeon : this.sanctuary ? generateSanctuaryMap() : this.hell ? generateHellMap() : this.snowfield ? generateSnowfieldMap(this._godExiled) : (this.bossRush || this.bossFloor) ? generateBossArena() : (this.pvp ? generatePvpMap() : this.party ? generatePartyMap(this.lounge) : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor, { secretLibrary: !this.mp, whiteDoor: !this.mp && !this.isDevMode && isGodFloorSeed(this.baseSeed) && this.floor === 6, ghostFloor: !this.mp && !!this._ghostFloorOn && this.floor === 1 })));
     if (this.mp && !this.bossRush && !this.pvp && !this.party && !this.frontline) { addRitualRoom(dungeon); if (this.bossFloor && this.floor >= 25) addDemonRooms(dungeon, Math.min(10, Math.max(4, Object.keys(this.latestPlayers || {}).length + 2))); } // 協力プレイ：調伏の儀の部屋を遠くに足す
     this.rt = null; if (this._rtGfx && this._rtGfx.scene) this._rtGfx.clear(); // 前の階の調伏の儀の進行は持ち越さない
     this.dungeon = dungeon;
@@ -6027,7 +6516,7 @@ class GameScene extends Phaser.Scene {
     document.getElementById('txHud').style.display = this.frontline ? 'block' : 'none';
     if (this.hell) { document.getElementById('floorLabel').textContent = '地獄'; document.getElementById('floorNum').textContent = '🔥'; }
     if (this.pvp) { document.getElementById('floorLabel').textContent = 'PvP'; document.getElementById('floorNum').textContent = ''; document.getElementById('seedWrap').style.display = 'none'; }
-    if (this.party) { document.getElementById('floorLabel').textContent = 'パーティー'; document.getElementById('floorNum').textContent = '🎉'; document.getElementById('seedWrap').style.display = 'none'; }
+    if (this.party) { document.getElementById('floorLabel').textContent = this.lounge ? '交流' : 'パーティー'; document.getElementById('floorNum').textContent = this.lounge ? '💬' : '🎉'; document.getElementById('seedWrap').style.display = 'none'; }
     document.getElementById('txHpFill').style.width = '100%';
     document.getElementById('seedNum').textContent = this.baseSeed;
     this.placeAlliesAtPlayer(); // 召喚した味方は次のフロアにも付いてくる
@@ -6377,12 +6866,18 @@ class GameScene extends Phaser.Scene {
     const bx = (room.x + room.w - 6 + 0.5) * TILE, by = (room.y + room.h / 2 + 0.5) * TILE; // マスの真ん中に立つ
     const gfx = this.add.circle(bx, by, type.radius, type.color).setDepth(4);
     const hpBar = this.add.rectangle(bx, by - type.radius - 10, type.radius * 2, 6, 0xff5b5b).setDepth(4);
-    const label = this.add.text(bx, by - type.radius - 22, '主人公', { fontSize: '12px', color: '#ffd54c', fontStyle: 'bold', fontFamily: 'sans-serif' }).setOrigin(0.5).setDepth(4);
+    const label = this.add.text(bx, by - type.radius - 22, '', { fontSize: '12px', color: '#ffd54c', fontStyle: 'bold', fontFamily: 'sans-serif' }).setOrigin(0.5).setDepth(4).setVisible(false); // 頭上の名前は出さない（名前は画面上のボス名バナーだけ。他の処理が label を触っても困らないよう、空の文字を持たせて隠してある）
     const bossId = this.floor + '_boss';
     this.bossGroupCounts = this.bossGroupCounts || {};
     this.bossGroupCounts[bossId] = 1;
     this.enemies = [{ id: bossId, type, gfx, hpBar, label, hp: type.hp, maxHp: type.hp, damage: 0, state: 'idle', timer: 0, dirX: 0, dirY: 0, hitCooldown: 0, bossGroupId: bossId, _bossScale: 1 }];
     this.showBossUi(type, bossId);
+    // 🏷 ボスの名前は、エンディングで最初に名前欄へ入る名前（Firebase の library/endingTalk の name）と同じにする。読み込めるまで（読み込めない時はずっと）は、バナーは「主人公」のまま
+    fetchEndingTalk().then(t => {
+      if (!t || !t.name) return;
+      type.displayName = t.name;
+      if (this._bossUiGroup === bossId) document.getElementById('bossNameBanner').textContent = t.name;
+    }).catch(() => {});
     if (this._vsHeroG && this._vsHeroG.scene) this._vsHeroG.destroy();
     this._vsHeroG = this.add.graphics().setDepth(4.5); // 赤い目を描く板
     // ⚔ 位置は固定：敵は bx,by、自分はそこから duelTiles マス手前の同じ高さ。ここが開始位置（画面の中なら自由に動ける）
@@ -12200,17 +12695,19 @@ class GameScene extends Phaser.Scene {
           if (t === 3) k = 1;
           const red = this.nextIsBoss; // ボス階への出口は白ではなく赤く染める
           const inHut = dungeon.hut && x >= dungeon.hut.x && x < dungeon.hut.x + dungeon.hut.w && y >= dungeon.hut.y && y < dungeon.hut.y + dungeon.hut.h; // 小屋の中は木の床
-          const base = dungeon.party ? (((x + y) & 1) ? 0xf1e6cf : 0xecd5dc) : dungeon.hell ? [0x7b3b2a, 0x84412e, 0x70352a][((Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0) % 3] : dungeon.holy ? 0xf6ecc8 : dungeon.snow ? (inHut ? 0x9a7650 : 0xc9d6e6) : (dungeon.werewolf ? this.wwFloorColor(x, y) : 0x33333f); // 人狼ゲームのマップだけ、広場・道・家で床の色を変える
+          const base = dungeon.lounge ? 0xe6e6ec : dungeon.party ? (((x + y) & 1) ? 0xf1e6cf : 0xecd5dc) : dungeon.hell ? [0x7b3b2a, 0x84412e, 0x70352a][((Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0) % 3] : dungeon.holy ? 0xf6ecc8 : dungeon.snow ? (inHut ? 0x9a7650 : 0xc9d6e6) : (dungeon.werewolf ? this.wwFloorColor(x, y) : 0x33333f); // 人狼ゲームのマップだけ、広場・道・家で床の色を変える
           g.fillStyle(lerpColor(base, red ? 0xb02a2a : dungeon.hell ? 0xe0a040 : 0x9a9aaa, k), 1);
           g.fillRect(x * TILE - ox, y * TILE - oy, TILE, TILE);
-          g.lineStyle(t === 3 ? 2 : 1, lerpColor(dungeon.party ? 0xdccfba : dungeon.hell ? 0x5e2a1d : dungeon.holy ? 0xe3d297 : dungeon.snow ? (inHut ? 0x7d5d3b : 0xb6c5d8) : 0x26262e, red ? 0xff6b6b : dungeon.hell ? 0xffd070 : 0xdcdce8, k), 1);
+          g.lineStyle(t === 3 ? 2 : 1, lerpColor(dungeon.lounge ? 0xd0d0d8 : dungeon.party ? 0xdccfba : dungeon.hell ? 0x5e2a1d : dungeon.holy ? 0xe3d297 : dungeon.snow ? (inHut ? 0x7d5d3b : 0xb6c5d8) : 0x26262e, red ? 0xff6b6b : dungeon.hell ? 0xffd070 : 0xdcdce8, k), 1);
           g.strokeRect(x * TILE - ox, y * TILE - oy, TILE, TILE);
         } else if (dungeon.party && t === 0) { // 🎉 パーティールーム：壁（上の2行は飾りの壁・そのほかは水色。真ん中のテーブルの下地もここ）
           any = true;
           const px0 = x * TILE - ox, py0 = y * TILE - oy;
+          if (dungeon.lounge) { g.fillStyle(0x9aa3ad, 1); g.fillRect(px0, py0, TILE, TILE); if (y >= 2) { g.lineStyle(1, 0x8a939d, 1); g.strokeRect(px0, py0, TILE, TILE); } } else { // 💬 交流ルーム：飾りのない、灰色の壁
           g.fillStyle(y < 2 ? 0xc98fa6 : 0xa9c8d6, 1); g.fillRect(px0, py0, TILE, TILE);
           if (y === 1) { g.fillStyle(0xe0c58a, 1); g.fillCircle(px0 + 16, py0 + 20, 3); g.fillStyle(0xf3ece4, 1); g.fillRect(px0, py0 + TILE - 2, TILE, 2); }
           else if (y >= 2) { g.lineStyle(1, 0x93b3c3, 1); g.strokeRect(px0, py0, TILE, TILE); }
+          }
         } else if (dungeon.holy && t === 0) { // ✨ 聖域：柱・祭壇・外周の壁を、金白色のブロックで描く
           any = true;
           const edge = x < 2 || y < 2 || x >= dungeon.width - 2 || y >= dungeon.height - 2;
@@ -25691,20 +26188,22 @@ class GameScene extends Phaser.Scene {
     this._partyKey = this.input.keyboard.addKey('E'); // 調べる（メモ・草原の入口）
     const T = this.add.graphics().setDepth(0.6); this._partyStatic = T; // 動かない飾り：テーブル・ケーキ・プレゼント・扉
     T.fillStyle(0x000000, 0.12); T.fillRect(228, 202, 192, 40);
-    T.fillStyle(0xd58aa4, 1); for (let x = 224; x < 416; x += 16) T.fillCircle(x + 8, 236, 8); // テーブルのふち飾り（下半分だけ見える）
-    T.fillStyle(0xffffff, 1); T.fillRect(224, 196, 192, 40);
-    T.fillStyle(0xe8c4a4, 1); T.fillRect(302, 192, 36, 14); T.fillStyle(0xd9a0b6, 1); T.fillRect(302, 186, 36, 8); T.fillStyle(0xc25460, 1); T.fillCircle(320, 183, 4); T.fillStyle(0xe0c58a, 1); T.fillRect(319, 172, 2, 9); // ケーキ
+    if (!this.lounge) { T.fillStyle(0xd58aa4, 1); for (let x = 224; x < 416; x += 16) T.fillCircle(x + 8, 236, 8); // テーブルのふち飾り（下半分だけ見える）
+    } T.fillStyle(0xffffff, 1); T.fillRect(224, 196, 192, 40);
+    if (!this.lounge) { T.fillStyle(0xe8c4a4, 1); T.fillRect(302, 192, 36, 14); T.fillStyle(0xd9a0b6, 1); T.fillRect(302, 186, 36, 8); T.fillStyle(0xc25460, 1); T.fillCircle(320, 183, 4); T.fillStyle(0xe0c58a, 1); T.fillRect(319, 172, 2, 9); // ケーキ
     [[246, 212, 0x8fb4cc], [394, 212, 0xa99bcf]].forEach(([x, y, c]) => { T.fillStyle(c, 1); T.fillRect(x - 9, y - 9, 18, 14); T.fillStyle(0xffffff, 1); T.fillRect(x - 1, y - 9, 2, 14); T.fillRect(x - 9, y - 3, 18, 2); }); // プレゼント
-    T.fillStyle(0xa0522d, 1); T.fillRect(288, 416, 64, 32); T.fillStyle(0xe0c58a, 1); T.fillRect(286, 416, 3, 32); T.fillRect(351, 416, 3, 32); // 下の扉
+    } T.fillStyle(0xa0522d, 1); T.fillRect(288, 416, 64, 32); T.fillStyle(0xe0c58a, 1); T.fillRect(286, 416, 3, 32); T.fillRect(351, 416, 3, 32); // 下の扉
     this._partyFx = this.add.graphics().setDepth(0.8);   // 動く飾り（光・旗・風船・草原の入口・メモ）
     this._partyConf = this.add.graphics().setDepth(7.5); // 紙吹雪（いちばん手前）
     const tx = (x, y, str, size, color, stroke) => this.add.text(x, y, str, Object.assign({ fontSize: size + 'px', fontFamily: 'sans-serif', fontStyle: 'bold', color }, stroke ? { stroke: stroke.c, strokeThickness: stroke.w } : {})).setOrigin(0.5).setResolution(2).setDepth(1);
-    this._partyTitle = tx(320, 30, '🎉 PARTY ROOM 🎉', 18, '#ffffff', { c: '#9c4f6a', w: 4 });
-    tx(320, 432, '⭐', 14, '#ffffff'); tx(320, 151, 'ホラー', 11, '#ffffff', { c: '#2f7a49', w: 3 });
+    this._partyTitle = this.lounge ? null : tx(320, 30, '🎉 PARTY ROOM 🎉', 18, '#ffffff', { c: '#9c4f6a', w: 4 }); // 交流ルームは、題名の飾りも出さない
+    tx(320, 432, '⭐', 14, '#ffffff');
+    if (this.lounge) { tx(PARTY_PORTAL_LGRASS.x, 119, '🌿', 14, '#ffffff'); tx(PARTY_PORTAL_LGRASS.x, 151, '草原', 11, '#ffffff', { c: '#2f7a49', w: 3 }); tx(PARTY_PORTAL_LDUNGEON.x, 119, '🕳', 14, '#ffffff'); tx(PARTY_PORTAL_LDUNGEON.x, 151, 'ダンジョン', 11, '#ffffff', { c: '#4a3a7a', w: 3 }); tx(PARTY_PORTAL_LSTAIRS.x, 119, '🪜', 14, '#ffffff'); tx(PARTY_PORTAL_LSTAIRS.x, 151, '階段', 11, '#ffffff', { c: '#8a5a2a', w: 3 }); } // 💬 交流ルーム：草原とダンジョンの2つの入口（斬り合いの入口はない）
+    else tx(320, 151, 'ホラー', 11, '#ffffff', { c: '#2f7a49', w: 3 });
     tx(PARTY_PORTAL_SOCIAL.x, 119, '🎙', 14, '#ffffff'); tx(PARTY_PORTAL_SOCIAL.x, 151, '交流ルーム', 11, '#ffffff', { c: '#2f5f9a', w: 3 });
-    tx(PARTY_PORTAL_HERO.x, 119, '⚔', 14, '#ffffff'); tx(PARTY_PORTAL_HERO.x, 151, '斬り合い', 11, '#ffffff', { c: '#9a2f2f', w: 3 });
+    if (!this.lounge) { tx(PARTY_PORTAL_HERO.x, 119, '⚔', 14, '#ffffff'); tx(PARTY_PORTAL_HERO.x, 151, '斬り合い', 11, '#ffffff', { c: '#9a2f2f', w: 3 }); }
     this.player.x += (Math.random() - 0.5) * 80; // 同時に入った人と重ならないように
-    this._partyLoadMemos();
+    if (!this.lounge) this._partyLoadMemos(); // 💬 交流ルームには、メモがない
     this.events.once('shutdown', () => { const pb = document.getElementById('partyPrompt'); if (pb) pb.remove(); });
   }
   _partyLoadMemos() { // メモをFirebaseから読む（1枚目は机の上の案内書き、2枚目以降が壁に貼られる）
@@ -25717,15 +26216,15 @@ class GameScene extends Phaser.Scene {
   _drawParty(t) {
     const g = this._partyFx, c = this._partyConf, tg = this._partyTarget; g.clear(); c.clear();
     const hsl = (h, sat, l) => Phaser.Display.Color.HSLToColor((((h % 360) + 360) % 360) / 360, sat, l).color;
-    for (let x = 8; x < 640; x += 32) { const sw = Math.sin(t * 2 + x * 0.05) * 2; g.fillStyle(hsl((x * 3) % 360, 0.45, 0.66), 1); g.fillTriangle(x, 66, x + 24, 66, x + 12 + sw, 84); } // 三角の旗
-    g.fillStyle(0xe8a64a, 1); g.fillCircle(320, 170, 2.5 + Math.sin(t * 9) * 0.6); // ろうそくの火
-    PARTY_BALLOONS.forEach(([bx, by], i) => { // 風船
+    if (!this.lounge) for (let x = 8; x < 640; x += 32) { const sw = Math.sin(t * 2 + x * 0.05) * 2; g.fillStyle(hsl((x * 3) % 360, 0.45, 0.66), 1); g.fillTriangle(x, 66, x + 24, 66, x + 12 + sw, 84); } // 三角の旗
+    if (!this.lounge) { g.fillStyle(0xe8a64a, 1); g.fillCircle(320, 170, 2.5 + Math.sin(t * 9) * 0.6); } // ろうそくの火
+    (this.lounge ? [] : PARTY_BALLOONS).forEach(([bx, by], i) => { // 風船
       const y = by + Math.sin(t * 1.5 + i) * 6; g.lineStyle(1, 0x999999, 1); g.lineBetween(bx, y + 14, bx + Math.sin(t + i) * 3, y + 40);
       g.fillStyle(hsl(i * 67 + 10, 0.45, 0.66), 1); g.fillEllipse(bx, y, 22, 28); g.fillStyle(0xffffff, 0.5); g.fillEllipse(bx - 4, y - 5, 5, 8);
     });
-    for (const PP of [PARTY_PORTAL, PARTY_PORTAL_SOCIAL, PARTY_PORTAL_HERO]) { // 🌿 草原（緑）／🎙 みんなの広場（水色）／⚔ 斬り合い（赤）への入口：光る扉
+    for (const PP of this._partyPortals()) { // 🌿 草原（緑）／🎙 みんなの広場（水色）／⚔ 斬り合い（赤）への入口：光る扉
       const hero = !!PP.hero, soc = !!PP.social, px = PP.x, py = PP.y, gl = 0.55 + 0.25 * Math.sin(t * 3);
-      g.fillStyle(hero ? 0xff8a8a : soc ? 0x78b8ff : 0x78dc8c, 0.28 * gl); g.fillCircle(px, py, 27); g.fillStyle(hero ? 0xce4a4a : soc ? 0x4f86ce : 0x4fae6a, 1); g.fillEllipse(px, py, 30, 40); g.fillStyle(hero ? 0xffd0d0 : soc ? 0xc9e2ff : 0xc9f2cf, 1); g.fillEllipse(px, py, 20, 30);
+      g.fillStyle(hero ? 0xff8a8a : soc ? 0x78b8ff : PP.ldungeon ? 0xa888e8 : PP.lstairs ? 0xf0b868 : 0x78dc8c, 0.28 * gl); g.fillCircle(px, py, 27); g.fillStyle(hero ? 0xce4a4a : soc ? 0x4f86ce : PP.ldungeon ? 0x6a4fae : PP.lstairs ? 0xb87a30 : 0x4fae6a, 1); g.fillEllipse(px, py, 30, 40); g.fillStyle(hero ? 0xffd0d0 : soc ? 0xc9e2ff : PP.ldungeon ? 0xd8c9f2 : PP.lstairs ? 0xf8e6c4 : 0xc9f2cf, 1); g.fillEllipse(px, py, 20, 30);
       for (let k = 0; k < 5; k++) { const a = t * 1.6 + k * 1.26; g.fillStyle(0xffffff, 0.85); g.fillRect(px + Math.cos(a) * 21 - 1.5, py + Math.sin(a) * 25 - 1.5, 3, 3); }
       if (tg === PP) { g.lineStyle(2, 0xffffff, 1); g.strokeEllipse(px, py, 38, 48); }
     }
@@ -25744,16 +26243,17 @@ class GameScene extends Phaser.Scene {
       if (n === tg) { g.lineStyle(2, 0xffffff, 1); g.strokeRect(n.x - 13, n.y - 13, 26, 26); }
     }
     const hash = n => ((n * 2654435761) >>> 0) % 1000;
-    for (let i = 0; i < 45; i++) { // 紙吹雪
+    for (let i = 0, nConf = this.lounge ? 0 : 45; i < nConf; i++) { // 紙吹雪
       const x = (hash(i) / 1000) * 640 + Math.sin(t + i) * 10, y = 64 + ((hash(i + 99) / 1000) * 384 + t * (25 + hash(i + 5) % 30)) % 384;
       c.fillStyle(hsl(hash(i + 3) % 360, 0.5, 0.66), 1); c.fillRect(x, y, 4, 3);
     }
   }
+  _partyPortals() { return this.lounge ? [PARTY_PORTAL_LGRASS, PARTY_PORTAL_LDUNGEON, PARTY_PORTAL_LSTAIRS, PARTY_PORTAL_SOCIAL] : [PARTY_PORTAL, PARTY_PORTAL_SOCIAL, PARTY_PORTAL_HERO]; } // 入口の一覧（交流ルームは、斬り合いがなく、ホラーが「草原」「ダンジョン」に分かれる）
   _updateParty(t) {
     if (!this._partyFx || !this._partyFx.scene || !this.player) return;
     const p = this.player;
     let tg = null, bd = 46; // 近くの調べられる物（メモ・草原の入口）
-    if (!this.isGhost && !this.isDowned && !this._partyLeaving) for (const n of [PARTY_PORTAL, PARTY_PORTAL_SOCIAL, PARTY_PORTAL_HERO].concat(PARTY_MEMOS_READABLE ? this._partyNotes : [])) { const d = Math.hypot(p.x - n.x, p.y - n.y); if (d < bd) { bd = d; tg = n; } }
+    if (!this.isGhost && !this.isDowned && !this._partyLeaving) for (const n of this._partyPortals().concat(PARTY_MEMOS_READABLE ? this._partyNotes : [])) { const d = Math.hypot(p.x - n.x, p.y - n.y); if (d < bd) { bd = d; tg = n; } }
     this._partyTarget = tg;
     this._drawParty(t);
     if (this._partyTitle && this._partyTitle.scene) this._partyTitle.y = 30 + Math.sin(t * 3) * 2;
@@ -25767,7 +26267,7 @@ class GameScene extends Phaser.Scene {
         pb.addEventListener('pointerdown', go); pb.addEventListener('touchstart', go, { passive: false });
         document.body.appendChild(pb);
       }
-      const label = (tg.portal ? (tg.hero ? '⚔ 主人公と戦う' : tg.social ? '🎙 交流ルームへ行く' : 'ホラーへ行く') : '🔍 メモを読む') + (IS_TOUCH_DEVICE ? '' : '  [E]');
+      const label = (tg.portal ? (tg.hero ? '⚔ 主人公と戦う' : tg.social ? '🎙 交流ルームへ行く' : tg.lgrass ? '🌿 草原へ行く' : tg.ldungeon ? '🕳 ダンジョンへ行く' : tg.lstairs ? '🪜 階段へ行く' : 'ホラーへ行く') : '🔍 メモを読む') + (IS_TOUCH_DEVICE ? '' : '  [E]');
       if (pb.textContent !== label) pb.textContent = label;
       pb._scene = this; pb.style.display = 'block';
       if (this._partyKey && Phaser.Input.Keyboard.JustDown(this._partyKey)) this._partyAct();
@@ -25780,7 +26280,7 @@ class GameScene extends Phaser.Scene {
     if (tg.hero) { this._partyLeave(true); return; } // ⚔ 斬り合い：部屋を出て、ボス部屋へ
     if (tg.portal) { // 🌿 草原（3D）へ。入っている間は、この画面を止める（小屋の本を読んでいる間と同じ）
       this._hutReading = true;
-      try { const back = () => { this._hutReading = false; }; if (tg.social) openPartyHall(back, { net: this.net, scene: this }); else openGrassland(back, { net: this.net, scene: this }); } catch (err) { console.error('草原を開けませんでした:', err); this._hutReading = false; }
+      try { const back = () => { this._hutReading = false; }; if (tg.social) openPartyHall(back, { net: this.net, scene: this }); else if (tg.lstairs) openStairs(back, { net: this.net, scene: this }); else openGrassland(back, { net: this.net, scene: this, noHorror: !!tg.lgrass, dungeonOnly: !!tg.ldungeon }); } catch (err) { console.error('草原を開けませんでした:', err); this._hutReading = false; }
       return;
     }
     this._partyReadNote(tg.m.title, tg.m.text);
@@ -28559,9 +29059,9 @@ class Net {
   }
 
   // 🎉 パーティールーム：固定のルーム（PARTYLIVE）に入る。まだ無ければ作る（同時に作っても、1つだけ作られる）。
-  async enterPartyRoom() {
+  async enterPartyRoom(lounge) { // lounge＝true：交流ルーム（パーティールームとは別の固定のルーム LOUNGELIVE。入った人が全員集まる）
     await this.signIn();
-    const roomId = 'PARTYLIVE', ref = this.db.ref('rooms/' + roomId);
+    const roomId = lounge ? 'LOUNGELIVE' : 'PARTYLIVE', ref = this.db.ref('rooms/' + roomId);
     const data = { baseSeed: (Math.random() * 1e9) | 0, floor: 1, mode: 'party', createdAt: firebase.database.ServerValue.TIMESTAMP };
     const tr = await ref.transaction(cur => (cur && cur.baseSeed != null) ? undefined : Object.assign({}, cur || {}, data)); // 無い（または壊れている）時だけ作る。入っている人の情報はそのまま残す
     const val = (tr && tr.snapshot && tr.snapshot.val()) || {};
@@ -29393,6 +29893,11 @@ const VOICE = {
   radius: 300,
   space3dRadius: 14, // 🎙 3Dの広場：距離の基準(メートル)。この半径の円を「距離1」とみなす（fullRatio・outRatio は2Dと共通：約4.5m以内で最大音量・約35mで聞こえなくなる）
   space3dDungeonRadius: 9, // 🕳 草原の暗いダンジョン：距離の基準(メートル)。小さいほど近くの声しか聞こえない（9なら、約3m以内で最大音量・約22mで聞こえなくなる。迷路は1マス3m）
+  space3dWallDist: 1.5,  // 🕳 草原の暗いダンジョン（交流ルームのダンジョン）の壁越しの声だけ：壁を抜ける声の「音量」を、実際の距離の何倍遠くにいるものとして決めるか。大きいほど、壁越しの声が早く小さくなって、早く聞こえなくなる（1＝従来どおり。1.5なら、壁1枚で約12.5mでほぼ聞こえなくなる）。こもり具合は2Dダンジョンと同じ式で、この値の影響を受けない
+  space3dDungeonFullM: 1,  // 🕳 交流ルームのダンジョン：最大音量で聞こえる範囲(メートル)。この距離より遠いと、距離に反比例して小さくなる（距離が2倍で音量は半分＝約6dB）。現実の普通の声は、1m先の音量を基準にこの法則で小さくなる。0.1くらいまで小さくすると、最大音量の範囲はほぼなくなる。大きいほど従来（約2.9m）に近づく
+  space3dTurnVolume: 0.7, // 🕳 交流ルームのダンジョン：通路を回り込んで届く声が、曲がり角1つごとに音量へかける割合。小さいほど、角を曲がった先の声が早く小さくなる（現実の声は、角を曲がるごとに約3dB弱まる）。1で角の影響なし
+  space3dTurnCutoff: 0.75, // 🕳 同じく、曲がり角1つごとに上限周波数へかける割合（角を曲がるたびに、高い音から消えてこもる）。1で影響なし
+  space3dDungeonReverbBase: 0.12, // 🕳 交流ルームのダンジョン：近くの声にも、石の壁に囲まれた場所らしい響きを少しつける量(0〜1)。0で、近い声は響かない
   space3dPitch: 1, // 🎙 3Dの広場：視線の上下（pitch）を声の聞こえ方に反映する強さ。0＝反映しない・1＝見ているままに反映（0.5くらいに下げると控えめ）。立体音響（HRTF）オンのときだけ効く
   fullRatio: 0.32,   // この距離(半径＝1)より近いと、最大音量で聞こえる（0.32×半径300＝96px＝3マス以内。1マス＝TILE 32px）
   maxVolume: 1,      // 最大音量(0〜1)。聞こえすぎる時は下げる
@@ -29418,6 +29923,7 @@ const VOICE = {
   reverbMax: 0.9,        // 遠い時に響きへ送る量の最大(0〜1)。大きいほど、遠い声が響きだらけになる（現実より少し大げさ）。0で響きなし
   reverbStart: 0.8,      // この距離（半径＝1）から、響きが増え始める。これより近いと、ほぼ響かない
   reverbFull: 1.8,       // この距離で、響きの送る量が最大(reverbMax)になる。outRatio に近づくと、声と一緒に消える
+  reverbRatioMax: 1,    // 🏠 洋室（3Dの広場）だけ：響きの量が、その時の声（直接音）の何倍までか。現実の部屋では、響きの量は距離でほぼ一定で、声だけが遠くで小さくなる。そのままだと遠い声が響きだらけになるので、声に対する響きの比に上限をつける。0.6＝もっと乾いた声・1＝声と同じ大きさまで・2＝響き多め。0で上限なし（従来どおり）
   wallReverb: 0.2,      // 壁越しの時の、響きの最低の割合(0〜1)。近くても、壁の向こうの声は響いて聞こえる。0で壁の影響なし
   downCutoff: 160,   // ダウンしている間の、声の上限周波数(Hz)。低いほど、くぐもって聞こえる（160だと、ほぼ何を言っているか分からない低いうなりになる）
   downVolume: 0.4,   // ダウンしている間の、声の音量にかける割合(0〜1)
@@ -29437,6 +29943,7 @@ const VOICE = {
     { sec: 0.5, decay: 2.4, pre: 0.008, bright: 7000, dark: 2500 },  // 短い：通路・小部屋
     { sec: 1.5, decay: 3,   pre: 0.02,  bright: 6000, dark: 1000 },  // 中くらい：ふつうの部屋
     { sec: 3.2, decay: 2.4, pre: 0.035, bright: 5000, dark: 800 },   // 長い：広い場所・洞窟
+    { sec: 4.5, decay: 1.6, pre: 0.015, bright: 9000, dark: 2600, flutter: 0.11 },  // 🪜 階段室：硬いコンクリートなので、明るいまま長く響く。flutter＝壁のあいだを往復して「ブンブン」と繰り返す間隔(秒)（なければ繰り返しなし）
   ],
   // いる場所ごとの響き：w＝[短い, 中くらい, 長い]を混ぜる割合、wet＝響き全体にかける倍率（大きいほどよく響く）
   env: {
@@ -29448,7 +29955,9 @@ const VOICE = {
     open:      { w: [1, 0, 0],         wet: 0.25 },  // 雪原・広場など外：ほとんど響かない
     hell:      { w: [0, 0.2, 0.8],     wet: 1.25 },  // 地獄
     sanctuary: { w: [0, 0.1, 0.9],     wet: 1.1 },   // 聖域
-    cave:      { w: [0, 0.15, 0.85],   wet: 1.45 },  // 🕳 草原の暗いダンジョン：反響する洞窟（長く暗く響く）
+    cave:      { w: [0, 0.15, 0.85],   wet: 1.45 },  // 🕳 反響する洞窟（長く暗く響く。今は使っていない）
+    stairs:    { w: [0, 0.15, 0, 0.85],   wet: 1.8 },   // 🪜 階段：コンクリートの階段室（長く明るく響き、近くの声にもよく響く）
+    maze:      { w: [0.15, 0.55, 0.3], wet: 1.1 },   // 🕳 交流ルームのダンジョン：石の壁に囲まれた迷路（ほどよく長く、暗く響く）
   },
   srcEnvMix: 0.6,        // 響きの種類を決める時、声の主がいる場所の割合(0〜1)。残りは自分のいる場所。1で声の主の場所だけ、0で自分の場所だけ（声には、声の主のいる空間の響きが乗るので、大きめにする）
   roomSmallArea: 36,     // 部屋の広さ（タイル数）がこれより小さいと「小さい部屋」
@@ -29526,6 +30035,7 @@ class VoiceChat {
           lp += ((Math.random() * 2 - 1) - lp) * (1 - Math.exp(-2 * Math.PI * fc / sr));
           d[i] = lp * env;
         }
+        if (T.flutter) { for (let k = 1; ; k++) { const at = pre + Math.floor(sr * (T.flutter * k + (Math.random() - 0.5) * 0.004)); if (at >= len - 64) break; const amp = (ch ? 0.9 : 1) * 0.6 * Math.pow(0.82, k) * Math.pow(1 - at / len, 1.2); for (let j = 0; j < 48; j++) d[at + j] += (Math.random() * 2 - 1) * amp * (1 - j / 48); } } // 🪜 硬い壁のあいだを往復する、ブンブンというくり返しの反響（だんだん小さく）
       }
       const conv = ctx.createConvolver(); conv.buffer = ir;
       const tap = ctx.createGain(); tap.gain.value = 1;   // この波形の入口。相手ごとに、どの波形へどれだけ送るかを変える（使っていない波形は、入力が無音になるので、ほぼ負荷なし）
@@ -29749,18 +30259,21 @@ class VoiceChat {
     this.bar.classList.toggle('high', !!(ww && ww.style.display && ww.style.display !== 'none'));
     if (!this.ctx || !sc || !sc.player) return;
     // 距離は、画面の大きさ・縦横比・演出のズームに関係なく、ワールド上の円（半径 VOICE.radius）で測る（声の聞こえ方を左右対称にするため）
-    const R = VOICE.radius, full = VOICE.fullRatio, fade = VOICE.fadeRatio, out = VOICE.outRatio;
+    const R = VOICE.radius, full0 = VOICE.fullRatio, fade = VOICE.fadeRatio, out = VOICE.outRatio;
+    const sp3d = this.space3d || null; // 🕳 交流ルームのダンジョンだけ、最大音量の範囲を狭くする（現実の声は、1mを基準に距離に反比例して小さくなる）。それ以外は従来どおり
+    const full = (sp3d && sp3d.d && VOICE.space3dDungeonFullM != null) ? VOICE.space3dDungeonFullM / (sp3d.radius || VOICE.space3dRadius) : full0;
     const clamp01 = (x) => x < 0 ? 0 : x > 1 ? 1 : x;
     // リアル寄り：fullより遠いと距離に反比例して小さくなる（距離が2倍で音量は半分）。fade〜outの間で、0へなめらかに消える
     const att = (d) => d <= full ? 1 : d >= out ? 0 : (full / d) * (d <= fade ? 1 : (out - d) / (out - fade));
     // こもり：遠いほど高い音を削る（周波数は対数で、なめらかに下げる）
-    const cutAt = (d) => VOICE.nearCutoff * Math.pow(VOICE.farCutoff / VOICE.nearCutoff, clamp01((d - full) / (out - full)));
+    const cutAt = (d) => VOICE.nearCutoff * Math.pow(VOICE.farCutoff / VOICE.nearCutoff, clamp01((d - full0) / (out - full0)));
     const panOf = (dx, dist) => VOICE.panMax * dx / Math.max(dist, VOICE.panSoft); // 左(-)〜右(+)。真横ほど片耳に寄り、すぐ近くは中央
     // 響き：遠いほど増える（声は距離で小さくなるのに、響きは残る＝奥から聞こえる感じ）。壁越しなら、近くてもある程度響く。声が消える距離に近づくと、響きも一緒に消える
-    const wetOf = (d, blocked) => {
+    const wetOf = (d, blocked, capV, base) => {
       const rd = clamp01((d - VOICE.reverbStart) / Math.max(0.01, VOICE.reverbFull - VOICE.reverbStart));
       const edge = d >= out ? 0 : d <= fade ? 1 : (out - d) / (out - fade);
-      return VOICE.reverbMax * Math.max(rd, blocked ? VOICE.wallReverb : 0) * edge;
+      const w = VOICE.reverbMax * Math.max(rd, blocked ? VOICE.wallReverb : 0, base || 0) * edge; // base＝近くても少し響く分（石の迷路など、壁に囲まれた場所）
+      return (capV !== undefined && VOICE.reverbRatioMax > 0) ? Math.min(w, capV * VOICE.reverbRatioMax) : w; // 🏠 capV：その時に聞こえている声の大きさ。響きは「声の大きさ×reverbRatioMax」まで（声が小さくなる遠くほど、響きも一緒に小さくなる）
     };
     const hasGrid = !!(sc.dungeon && sc.dungeon.grid), ct = this.ctx.currentTime, sp3 = this.space3d || null; // sp3＝3Dの広場にいる間の自分の位置 {x,z,yaw}
     this._updateEnv(sc); // 自分のいる場所の響きの種類
@@ -29781,20 +30294,20 @@ class VoiceChat {
           let uf = 0; // 前向きの成分（上が前）
           if (!tiles3) {
             const dr = dirOf(dx3, dz3);
-            v = vDirect; cut = Math.max(VOICE.minCutoff, cutAt(d)); wet = wetOf(d, false);
+            v = vDirect; cut = Math.max(VOICE.minCutoff, cutAt(d)); wet = wetOf(d, false, (sp3.key !== 'gl' || sp3.d) ? vDirect * (sp3.revRatio || 1) : undefined, sp3.d ? (sp3.revBase != null ? sp3.revBase : VOICE.space3dDungeonReverbBase) : 0);
             pv = panOf(dr.rx * dpx3, dpx3); ux = dr.rx; uf = dr.fw; hd = dpx3;
             bass = VOICE.nearBassDb * clamp01((VOICE.nearBassEnd - d) / Math.max(0.01, VOICE.nearBassEnd - VOICE.nearBassStart));
           } else { // 2Dダンジョンと同じ：①壁を通り抜ける音（厚いほど小さく・こもる）と、②通路を回り込んで届く音を、大きさに応じて混ぜる
             const k = tiles3 - 1, dw = dirOf(dx3, dz3);
-            const vW = vDirect * VOICE.wallVolume * Math.pow(VOICE.wallThickVolume, k), cW = cutAt(d) * VOICE.wallCutoffScale * Math.pow(VOICE.wallThickCutoff, k), pW = panOf(dw.rx * dpx3, dpx3);
+            const dW = d * (VOICE.space3dWallDist || 1), vW = att(dW) * VOICE.wallVolume * Math.pow(VOICE.wallThickVolume, k), cW = cutAt(d) * VOICE.wallCutoffScale * Math.pow(VOICE.wallThickCutoff, k), pW = panOf(dw.rx * dpx3, dpx3); // dW＝壁を抜ける声の音量だけに使う見かけの距離（space3dWallDist 倍）。こもり(cW)は2Dダンジョンと同じ式（実際の距離 d で計算）
             let vP = 0, cP = 0, pP = 0, dEff = d, dp = null, pdPx = 0; const path = sp3.path ? sp3.path(g.x || 0, g.z || 0) : null;
-            if (path) { dEff = Math.max(path.len, dm) / R3; vP = att(dEff) * VOICE.pathVolume; cP = cutAt(dEff) * VOICE.pathCutoffScale; dp = dirOf(path.dx, path.dz); pdPx = path.dist / R3 * R; pP = panOf(dp.rx * pdPx, pdPx); }
+            if (path) { dEff = Math.max(path.len, dm) / R3; vP = att(dEff) * VOICE.pathVolume * Math.pow(VOICE.space3dTurnVolume, path.turns || 0); cP = cutAt(dEff) * VOICE.pathCutoffScale * Math.pow(VOICE.space3dTurnCutoff, path.turns || 0); dp = dirOf(path.dx, path.dz); pdPx = path.dist / R3 * R; pP = panOf(dp.rx * pdPx, pdPx); }
             const sum = vW + vP, wP = sum > 0 ? vP / sum : 0;
             v = Math.max(vW, vP);
             if (sum > 0) { pv = pP * wP + pW * (1 - wP); cut = cP * wP + cW * (1 - wP); } else { pv = pW; cut = cW; }
             if (dp && dp.m > 0 && wP > 0) { ux = dp.rx * wP + dw.rx * (1 - wP); uf = dp.fw * wP + dw.fw * (1 - wP); hd = pdPx * wP + dpx3 * (1 - wP); } else { ux = dw.rx; uf = dw.fw; hd = dpx3; }
             cut = Math.max(VOICE.minCutoff, cut);
-            wet = wetOf(vP > vW ? dEff : d, true);
+            wet = wetOf(vP > vW ? dEff : d, true, sp3.d ? v * (sp3.revRatio || 1) : undefined, sp3.d ? (sp3.revBase != null ? sp3.revBase : VOICE.space3dDungeonReverbBase) : 0);
           }
           { const th = (sp3.pitch || 0) * (VOICE.space3dPitch == null ? 1 : VOICE.space3dPitch); uy = -uf * Math.cos(th); uz = -uf * Math.sin(th); } // 視線の上下（pitch）：下を向く(th<0)と、前にいる人は視界の上側＝頭の上寄りから聞こえる。上を向くと逆に下寄り
         }
@@ -30527,6 +31040,7 @@ function startGame(mode, extra) {
     arms4Ritual: !!(extra && extra.arms4Ritual), // 【期間限定】四つ腕の調伏の儀：始まったらすぐ調伏の儀に入る
     endingRitual: !!(extra && extra.endingRitual), // エンディング演出の調伏の儀：装飾品はシリアルキラー＋悪魔の装飾3つ、天使は動かず、翼が大きくなる
     pvp: !!(extra && extra.pvp), // PvPモード
+    lounge: !!(extra && extra.lounge), // 💬 交流ルーム（パーティールームと同じ仕組みで、外観がシンプル・メモなし）
     party: !!(extra && extra.party), // 🎉 パーティールーム（協力プレイのルームの一種。固定のルームに、入った人が全員集まる）
     frontline: !!(extra && extra.frontline), // 最北戦線（ソロ／協力プレイ）
     nightmare: !!(extra && extra.nightmare), // ナイトメア：ダンジョン（ソロ）で、壁の裏が見えない
@@ -30610,18 +31124,19 @@ async function waitWithMessage(waitFn) {
   btn.innerHTML = '通信できませんでした。もう一度押してください'; setTimeout(() => { btn.innerHTML = old; }, 3500); // 裏では読み込みのやり直しを続けている
   return false;
 }
-async function enterPartyRoom() { // 🎉 パーティールームへ：固定のルーム（PARTYLIVE）に入る。同時に入った人は、全員同じ部屋にいる（エンディングを見た人だけ）
-  try { if (!PARTY_OPEN_TO_ALL && !loadSave().endingDone) return; } catch (e) { return; } // PARTY_OPEN_TO_ALL（テスト用）が true なら、エンディング未視聴でも入れる
+async function enterPartyRoom(lounge) { // 💬 lounge＝true：交流ルームへ（同じ仕組み）
+  // 🎉 パーティールームへ：固定のルーム（PARTYLIVE）に入る。同時に入った人は、全員同じ部屋にいる（エンディングを見た人だけ）
+  if (!lounge) { try { if (!PARTY_OPEN_TO_ALL && !loadSave().endingDone) return; } catch (e) { return; } } // 交流ルームは誰でも入れる。パーティールームは、PARTY_OPEN_TO_ALL（テスト用）が true なら、エンディング未視聴でも入れる
   partyOpen = true;
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
-  setLobbyBusy(true); setLobbyStatus('パーティールームに入室中...');
+  setLobbyBusy(true); setLobbyStatus(lounge ? '交流ルームに入室中...' : 'パーティールームに入室中...');
   try {
     if (typeof netInstance === 'undefined' || !netInstance || !netInstance.enabled) throw new Error('通信（Firebase）に接続できません');
-    const info = await netInstance.enterPartyRoom();
+    const info = await netInstance.enterPartyRoom(!!lounge);
     setLobbyBusy(false); setLobbyStatus('');
-    startGame('mp', Object.assign({}, info, { party: true }));
+    startGame('mp', Object.assign({}, info, { party: true, lounge: !!lounge }));
   } catch (err) {
-    console.error('パーティールームに入れませんでした:', err);
+    console.error((lounge ? '交流ルーム' : 'パーティールーム') + 'に入れませんでした:', err);
     setLobbyStatus('入室できませんでした: ' + (err && err.message ? err.message : err)); setLobbyBusy(false);
   } finally { partyOpen = false; }
 }
@@ -30632,6 +31147,7 @@ document.getElementById('soloBtn').addEventListener('click', async () => {
   if (!raw) { clearSoloBtnBorder(); startGame('solo', { soloSeed: readSoloSeed(), rouletteEffect: rlEffect }); return; } // 空欄なら、今までどおりすぐ始める
   partyBusy = true;
   try {
+    if (raw === LOUNGE_NUMBER) { document.getElementById('soloSeedInput').value = ''; enterPartyRoom(true); return; } // 💬 交流ルーム：番号は入力欄にも残さない
     if (!(await waitWithMessage(waitPartyNumber))) return; // 合言葉を読めなかった：始めずに、もう一度押してもらう
     let endingSeen = false; try { endingSeen = !!loadSave().endingDone; } catch (e) { /* 読めなければ、見ていない扱い */ }
     const party = (endingSeen || PARTY_OPEN_TO_ALL) && !PARTY_NOFB && PARTY_NUM != null && PARTY_NUM !== '' && PARTY_NUM === raw; // エンディングを見た（endingDone）人だけが入れる。見ていない人が合言葉を入れても、ふつうのダンジョン番号として扱う
