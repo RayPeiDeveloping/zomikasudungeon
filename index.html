@@ -2283,7 +2283,7 @@ function openStairs(onClose, opt) {
       const dn = ctx.floor - 1, rm = ctx.remote || null, down = rm ? (rm.d === -1 && dn >= 3) : (dn >= 3 && Math.random() < 0.5); // 下へ向かう化け物は、3階より上でだけ（下に3つぶんの階が要るため）
       return stRunChase(ctx, { id: 'highlow', dir: down ? -1 : 1, DELAY: 2.0, REACT: 1.5, showAtDoor: true, growl: down ? 4 : 1, msg: 'ハイ＆ロー！　高い声は上から、低い声は下から…！　どっちだ？' }); // REACT 1.5秒＝気づく＋どちらか判断する＋向きを変える時間
     } },
-    { id: 'ceilingbiter', weight: 2, run: ctx => { // 🕷 天井ぐも：階段の天井に小さな敵がぶら下がっている（暗い中で、赤い目だけが見える）。下を通る直前に落ちてきて、しばらくぶら下がってから、また天井へ戻る。気づかず歩き続けて頭の下に入ると噛みつかれる（ダメージ50）。落ちてきた時に直前で止まれば助かる。
+    { id: 'ceilingbiter', weight: 2, run: ctx => { // 🕷 天井ぐも：階段の天井に小さな敵がぶら下がっている（暗い中で、赤い目だけが見える）。下を通る直前に落ちてきて、しばらくぶら下がってから、天井へ戻ると消える（1回きり）。気づかず歩き続けて頭の下に入ると噛みつかれる（ダメージ50）。落ちてきた時に直前で止まれば助かる。
       // 🤝 協力プレイ：同じ階段にいる全員に、同じくもが見える。動きは「起こした人」の画面で、同じ階段にいる全員の位置を見ながら計算し、位置と状態を配る（gl.sp）。ほかの人の画面では見ているだけ。噛まれた人は、自分の画面で自分のHPを減らす。
       if (ctx.remote) return true; if (stBusy()) return false; // ほかのイベントが動いている時は起こさない（ほかの人のくもは spRem で見せるので、ここでは何もしない）
       const dn = ctx.floor - 1, even = dn % 2 === 0, base = dn * R; // dn＝いまの踊り場の番号。その踊り場から上る階段（階段 dn）に仕掛ける
@@ -2332,7 +2332,7 @@ function openStairs(onClose, opt) {
           } else if (phase === 4) { // 天井へ飛び上がって戻る
             const u = Math.min(1, tm / RETRACT), e = 1 - (1 - u) * (1 - u), tx = even ? sm : L - sm, tz = Math.max(zLo, Math.min(zHi, pz0));
             ex = px0 + (tx - px0) * e; ez = pz0 + (tz - pz0) * e; bodyY = y0 + (fyAt(ex, ez) + HANG - y0) * e;
-            if (u >= 1) { phase = 0; tm = 0; cd = 1.8; bit = false; }
+            if (u >= 1) return true; // 降りて天井へ戻ったら、くもは消える（イベント終了）
           }
           spEyeFx(eyeM, phase, t);
           g.position.set(ex, bodyY, ez); if (phase !== 3) { const fc = nearest(); if (fc) g.rotation.y = Math.atan2(fc.x - ex, fc.z - ez); } // いつも、いちばん近い人のほうを向く
