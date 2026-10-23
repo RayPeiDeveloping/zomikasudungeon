@@ -2106,7 +2106,7 @@ function openStairs(onClose, opt) {
   // 新しい階（今までで一番高い階）の踊り場に初めて着くたびに、STAIR_EVENT_CHANCE の確率で、下の STAIR_EVENTS からひとつ起こる。1階（スタート地点）では起こらない。
   // イベントを足すには STAIR_EVENTS に { id, weight, run(ctx) } を1つ足すだけ（weight は出やすさ。大きいほど出やすい）。ctx＝{ floor(いまの階数), toast(文字, ミリ秒), damage(数), heal(数), root, P, R }
   // テスト：URL に ?stairevent=1 を付けると、新しい階の踊り場で必ず何か起こる。?stairevent=イベントのid で、そのイベントだけが必ず起こる。
-  const STAIR_EVENT_CHANCE = 0.2;
+  const STAIR_EVENT_CHANCE = 0.35;
   const stairEvQ = new URLSearchParams(location.search).get('stairevent');
   const stairEvChance = stairEvQ ? 1 : STAIR_EVENT_CHANCE;
   const toastEl = document.createElement('div'); toastEl.style.cssText = 'position:absolute;left:50%;top:18%;transform:translateX(-50%);max-width:80%;padding:10px 18px;background:rgba(0,0,0,0.72);color:#e8e2c8;font-size:18px;text-align:center;border-radius:6px;text-shadow:0 0 6px #000;opacity:0;transition:opacity 0.4s;pointer-events:none;white-space:pre-line;'; root.appendChild(toastEl);
