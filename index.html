@@ -1432,6 +1432,25 @@ async function fetchPartyRoomMemos() {
 // 🌿 草原（3D探索の試作）：パーティールームの「草原」の入口から入る。three.js（エンディングの十字架と同じ r128）で、丘のある草原を歩き回るだけ。
 // 操作：WASD／矢印（↑↓＝前後・←→＝向き）・Shift＝走る・ドラッグ＝見回す・Esc／右上の「もどる」＝出る。スマホは左のスティックで移動、ほかの所をドラッグで見回す。
 // 草と花は InstancedMesh 1つずつにまとめ、頂点シェーダーで「自分の周り70m四方」に並べ直す（どこまで歩いても草が途切れず、数も増えない）。丘の高さ hh() は、JSとGLSLで同じ式。
+// 🚪 ポータルごとの「部屋」（ゾーン）。同じゾーンにいる人どうしだけが、位置・声・イベントをやり取りする。
+//   'grass'＝草原／'dungeon:番号'＝その迷路／'stairs'＝階段／'hall'＝みんなの広場（洋室）／null＝2Dの部屋（どの3Dにもいない）
+//   ゾーンは、配られる状態の g3（広場）と gl（草原・ダンジョン・階段。d＝迷路、sd＝迷路の番号か 'stairs'）から決める。ポータルを足す時は、ここに足す。
+function zoneOfPlayer(p) {
+  if (!p) return null;
+  if (p.g3) return 'hall';
+  const g = p.gl; if (!g) return null;
+  if (g.sd === 'stairs') return 'stairs';
+  if (g.d) return 'dungeon:' + (g.sd || '');
+  return 'grass';
+}
+// 別のゾーンの人の状態は、ホストから配る時に「いる印」だけにする（毎フレーム変わる3Dの位置は送らない。2Dの部屋が姿を消す判定と、迷路の番号の合流判定には、この印で足りる）
+function zoneStubOf(p) {
+  if (!p || (!p.g3 && !p.gl)) return p;
+  const q = Object.assign({}, p);
+  if (q.g3) q.g3 = {};
+  if (q.gl) q.gl = { d: q.gl.d, sd: q.gl.sd };
+  return q;
+}
 function openGrassland(onClose, opt) {
   opt = opt || {};
   if (typeof THREE === 'undefined') { if (onClose) onClose(); return; }
@@ -1509,7 +1528,7 @@ function openGrassland(onClose, opt) {
   const makeTrees = (cx, cz) => { // そのマスの木（0〜2本）
     const grp = new THREE.Group(), r = h2(cx, cz, 0), n = r < 0.35 ? 0 : (r < 0.8 ? 1 : 2);
     for (let k = 0; k < n; k++) {
-      const x = (cx + h2(cx, cz, 1 + k * 3)) * CELL, z = (cz + h2(cx, cz, 2 + k * 3)) * CELL, sc2 = 0.8 + h2(cx, cz, 3 + k * 3) * 0.9;
+      const x = (cx + h2(cx, cz, 1 + k * 3)) * CELL, z = (cz + h2(cx, cz, 2 + k * 3)) * CELL, sc2 = h2(cx, cz, 20 + k) < 0.1 ? 2.8 + h2(cx, cz, 30 + k) * 2.2 : 0.6 + h2(cx, cz, 3 + k * 3) * 1.2; // 大きさは0.6〜1.8倍でばらばら。10本に1本ほどは、2.8〜5倍の巨木（場所の式だけで決まるので、全員同じ木を見る）
       if (Math.hypot(x, z) < 12) continue; // 出発地点のまわりには木を置かない
       const y = hh(x, z), tr = new THREE.Mesh(trunkGeo, trunkMat), lf = new THREE.Mesh(leafGeo, leafMat);
       tr.position.set(x, y + 1.3 * sc2, z); tr.scale.setScalar(sc2); lf.position.set(x, y + 3.6 * sc2, z); lf.scale.set(sc2, sc2 * 1.15, sc2); grp.add(tr, lf);
@@ -1523,36 +1542,37 @@ function openGrassland(onClose, opt) {
   };
 
   // ----- 操作 -----
-  const LOOK_SPEED = 0.75; // 視点を動かす速さの倍率（1＝前の速さ。小さいほどゆっくり）マウスのドラッグ・矢印キー・右スティックすべてに効く
+  const LOOK_SPEED = 0.75; // 視点を動かす速さの倍率（1＝前の速さ。小さいほどゆっくり）マウスのドラッグ・スマホのスワイプ・矢印キーすべてに効く
   const P = { x: 0, z: 0, yaw: 0, pitch: -0.04 }, keys = {}; let sv = { x: 0, y: 0 }, sr = { x: 0, y: 0 }, closed = false, raf = 0, last = 0;
   const ctl = k => ({ w: 'f', arrowup: 'f', s: 'b', arrowdown: 'b', a: 'l', d: 'r', arrowleft: 'tl', arrowright: 'tr' })[k];
   const exit = () => {
     if (closed) return; closed = true; cancelAnimationFrame(raf);
     document.removeEventListener('keydown', onKeyDown, true); document.removeEventListener('keyup', onKeyUp, true); window.removeEventListener('resize', resize); window.removeEventListener('blur', onBlur);
     scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); });
-    if (dScene) dScene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); stopChaseSound(); stopHeart(); glStop(); [trunkGeo, leafGeo, trunkMat, leafMat, shTex].forEach(o => o.dispose()); THREE.ShaderChunk.fog_vertex = FOG_ORIG; renderer.dispose(); try { renderer.forceContextLoss(); } catch (e) { /* 何もしない */ }
+    if (dScene) dScene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); stopChaseSound(); stopHeart(); stopAmbient(); glStop(); cairnStop(); [trunkGeo, leafGeo, trunkMat, leafMat, shTex].forEach(o => o.dispose()); THREE.ShaderChunk.fog_vertex = FOG_ORIG; renderer.dispose(); try { renderer.forceContextLoss(); } catch (e) { /* 何もしない */ }
     root.remove(); if (onClose) onClose();
   };
   const onKeyDown = ev => {
     const k = (ev.key || '').toLowerCase(); keys.shift = ev.shiftKey;
     if (k === 'escape') { ev.preventDefault(); ev.stopPropagation(); exit(); return; }
+    if (k === 'e' && !inDungeon) { ev.preventDefault(); ev.stopPropagation(); if (!ev.repeat) stackAction(); return; } // 🪨 石を積む
     if (ctl(k)) { ev.preventDefault(); ev.stopPropagation(); keys[ctl(k)] = true; }
   };
   const onKeyUp = ev => { const c = ctl((ev.key || '').toLowerCase()); keys.shift = ev.shiftKey; if (c) { keys[c] = false; ev.stopPropagation(); } };
   const onBlur = () => { Object.keys(keys).forEach(k => { keys[k] = false; }); sv = { x: 0, y: 0 }; sr = { x: 0, y: 0 }; };
   document.addEventListener('keydown', onKeyDown, true); document.addEventListener('keyup', onKeyUp, true); window.addEventListener('blur', onBlur);
   let lookId = null, lx = 0, ly = 0; // ドラッグで見回す（マウス・指）
-  cv.onpointerdown = ev => { if (lookId !== null || (touch && ev.pointerType !== 'mouse')) return; // スマホでは、視点は右スティックだけで動かす
+  cv.onpointerdown = ev => { if (lookId !== null) return; // スマホも、画面をスワイプして見回す（右スティックはなし）
     lookId = ev.pointerId; lx = ev.clientX; ly = ev.clientY; try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } };
   cv.onpointermove = ev => { if (ev.pointerId !== lookId) return; P.yaw -= (ev.clientX - lx) * 0.0045 * LOOK_SPEED; P.pitch = Math.max(-1.3, Math.min(1.3, P.pitch - (ev.clientY - ly) * 0.0045 * LOOK_SPEED)); lx = ev.clientX; ly = ev.clientY; };
   cv.onpointerup = cv.onpointercancel = ev => { if (ev.pointerId === lookId) lookId = null; };
   const btn = document.createElement('div'); btn.textContent = '✕ もどる';
   btn.style.cssText = 'position:absolute;top:12px;right:12px;padding:9px 14px;font-size:16px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.38);border:2px solid rgba(255,255,255,0.7);border-radius:10px;cursor:pointer;';
   btn.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); exit(); }; root.appendChild(btn);
-  const hint = document.createElement('div'); hint.textContent = touch ? '🌿 左スティック：移動　右スティック：見回す' : '🌿 WASD・矢印：移動　Shift：走る　ドラッグ：見回す　Esc：もどる';
+  const hint = document.createElement('div'); hint.textContent = touch ? '🌿 左スティック：移動　画面スワイプ：見回す　石を拾って「積む」' : '🌿 WASD・矢印：移動　Shift：走る　ドラッグ：見回す　石に近づくと拾う／E：石を積む　Esc：もどる';
   hint.style.cssText = 'position:absolute;left:50%;bottom:4vh;transform:translateX(-50%);padding:8px 16px;font-size:15px;color:#fff;background:rgba(0,0,0,0.35);border-radius:999px;white-space:nowrap;transition:opacity 1.5s;pointer-events:none;';
   root.appendChild(hint); setTimeout(() => { hint.style.opacity = '0'; }, 7000);
-  if (touch) { // スマホ：2D（書庫・パーティールーム）と同じ位置・大きさのスティック。左＝移動、右＝視点（右は「調べる」ボタンと同じ位置）
+  if (touch) { // スマホ：2D（書庫・パーティールーム）と同じ位置・大きさのスティック。左＝移動、視点は画面のスワイプ（右は「調べる」ボタンと同じ位置）
     const mkStick = (right, cb) => {
       const base = document.createElement('div'), knob = document.createElement('div');
       base.style.cssText = 'position:absolute;' + (right ? 'right' : 'left') + ':14.5vh;top:55.5vh;transform:translateY(-50%);width:27vh;height:27vh;border-radius:50%;background:rgba(255,255,255,0.08);border:0.5vh solid rgba(255,255,255,0.25);touch-action:none;';
@@ -1563,7 +1583,7 @@ function openGrassland(onClose, opt) {
       base.onpointermove = ev => { if (ev.pointerId === id) apply(ev); };
       base.onpointerup = base.onpointercancel = ev => { if (ev.pointerId === id) { id = null; knob.style.transform = ''; cb({ x: 0, y: 0 }); } };
     };
-    mkStick(false, v => { sv = v; }); mkStick(true, v => { sr = v; });
+    mkStick(false, v => { sv = v; }); // 右スティックはなし：視点は、画面のスワイプで動かす（sr は常に0）
   }
   const resize = () => { const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
   window.addEventListener('resize', resize); resize();
@@ -1590,6 +1610,58 @@ function openGrassland(onClose, opt) {
   // ----- 👁 三回目に黒い影を見ると、大きな音を立てて追いかけてくる。足は自分の走る速さ(4.2×1.9)より1割速い。追いつかれると画面が暗転して、草原から出る -----
   const SHADOW_CHASE_AT = 3, CHASE_SPEED = 4.2 * 1.9 * 1.1, CATCH_DIST = 1.4; // 何回目に見た時に追ってくるか／追ってくる速さ(m/秒)／これより近づかれたら捕まる(m)
   let sCount = 0, chase = false, caught = false, ac = null, chMaster = null, chNodes = [], stompT = 0;
+  // ----- 🍃 草原のかすかな自然音：風（ゆっくり強弱する）・草のざわめき・遠くの鳥。左右に広がって聞こえ、高い丘の上ほど風が強い。影に追われている間とダンジョンの間は、静かに消える（音はすべて小さく、ここだけの別の AudioContext） -----
+  let amAc = null, amMaster = null, amWindBus = null, amBirdBus = null, amNodes = [], amBirdT = 3, amWant = -1;
+  const startAmbient = () => {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      const c = amAc = new AC(); if (c.resume) c.resume().catch(() => {});
+      const comp = c.createDynamicsCompressor(); amMaster = c.createGain(); amMaster.gain.value = 0; amMaster.connect(comp); comp.connect(c.destination);
+      const len = c.sampleRate * 4, brown = c.createBuffer(2, len, c.sampleRate), white = c.createBuffer(1, c.sampleRate * 2, c.sampleRate);
+      for (let ch = 0; ch < 2; ch++) { const d = brown.getChannelData(ch); let last = 0; for (let i = 0; i < len; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = last * 3.5; } } // 風のもと（低くて太い、茶色いノイズ）
+      { const d = white.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; } // 草のもと（さらさらした白いノイズ）
+      const pan = v => { if (!c.createStereoPanner) return null; const p = c.createStereoPanner(); p.pan.value = v; return p; };
+      const lfo = (hz, depth, target) => { const o = c.createOscillator(), g = c.createGain(); o.frequency.value = hz; g.gain.value = depth; o.connect(g); g.connect(target); o.start(); amNodes.push(o); };
+      amWindBus = c.createGain(); amWindBus.gain.value = 1; amWindBus.connect(amMaster);
+      [-0.85, 0.85].forEach((pv, i) => { // 風：左右で別々に強弱する（広がり）
+        const src = c.createBufferSource(), bp = c.createBiquadFilter(), g = c.createGain(), p = pan(pv);
+        src.buffer = brown; src.loop = true; bp.type = 'bandpass'; bp.frequency.value = 480; bp.Q.value = 0.45; g.gain.value = 0.06;
+        lfo(0.05 + 0.04 * i + Math.random() * 0.03, 0.04, g.gain); lfo(0.07 + 0.05 * i, 200, bp.frequency); // ひと吹きごとに強くなり、音の高さも少し変わる
+        src.connect(bp); bp.connect(g); if (p) { g.connect(p); p.connect(amWindBus); } else g.connect(amWindBus);
+        src.start(0, Math.random() * 3); amNodes.push(src);
+      });
+      { const src = c.createBufferSource(), hp = c.createBiquadFilter(), bp = c.createBiquadFilter(), g = c.createGain(); // 草のざわめき：風にあわせて、ごくわずか
+        src.buffer = white; src.loop = true; hp.type = 'highpass'; hp.frequency.value = 2800; bp.type = 'bandpass'; bp.frequency.value = 5200; bp.Q.value = 0.6; g.gain.value = 0.006;
+        lfo(0.11, 0.005, g.gain); src.connect(hp); hp.connect(bp); bp.connect(g); g.connect(amWindBus); src.start(); amNodes.push(src); }
+      amBirdBus = c.createGain(); amBirdBus.gain.value = 1; amBirdBus.connect(amMaster); // 鳥：遠くで鳴いて、やまびこのように少しだけ遅れて返ってくる（広い所の感じ）
+      { const dl = c.createDelay(1), fb = c.createGain(), wet = c.createGain(); dl.delayTime.value = 0.23; fb.gain.value = 0.3; wet.gain.value = 0.35; amBirdBus.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(amMaster); }
+    } catch (e) { amAc = null; }
+  };
+  const birdCall = () => { // 遠くの鳥の声：高い2〜5音の短いさえずり（小さく、ときどき）
+    if (!amAc || !amBirdBus) return;
+    try {
+      const c = amAc, t0 = c.currentTime + 0.05, n = 2 + Math.floor(Math.random() * 4), f = 2500 + Math.random() * 1900, p = c.createStereoPanner ? c.createStereoPanner() : null, lp = c.createBiquadFilter(), out = c.createGain();
+      lp.type = 'lowpass'; lp.frequency.value = 6000; out.gain.value = 0.55 + Math.random() * 0.45; if (p) p.pan.value = Math.random() * 1.8 - 0.9;
+      lp.connect(out); if (p) { out.connect(p); p.connect(amBirdBus); } else out.connect(amBirdBus);
+      for (let i = 0; i < n; i++) {
+        const ts = t0 + i * (0.11 + Math.random() * 0.05), o = c.createOscillator(), g = c.createGain(), up = Math.random() < 0.5;
+        o.type = 'sine'; o.frequency.setValueAtTime(f * (up ? 0.9 : 1.15), ts); o.frequency.exponentialRampToValueAtTime(f * (up ? 1.2 : 0.85), ts + 0.07);
+        g.gain.setValueAtTime(0.0001, ts); g.gain.linearRampToValueAtTime(0.03, ts + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, ts + 0.09);
+        o.connect(g); g.connect(lp); o.start(ts); o.stop(ts + 0.11);
+      }
+    } catch (e) { /* 何もしない */ }
+  };
+  const updateAmbient = (dt) => { // 毎フレーム：音の大きさ（追われている間・ダンジョンでは0）、丘の高さに応じた風、鳥のタイミング
+    if (!amAc || amAc.state === 'closed') return;
+    if (amAc.state === 'suspended' && amAc.resume) amAc.resume().catch(() => {}); // 最初の操作のあとで鳴りはじめる
+    const want = (chase || caught || inDungeon) ? 0 : 1;
+    if (want !== amWant) { amWant = want; amMaster.gain.setTargetAtTime(want ? 0.6 : 0, amAc.currentTime, want ? 2.2 : 0.5); } // ゆっくり聞こえはじめる／追われたら、すっと消える
+    if (!want) return;
+    amWindBus.gain.value = 1 + 1.3 * Math.max(0, Math.min(1, hh(P.x, P.z) / 12)); // 高い丘の上ほど風が強い（開放感）
+    amBirdT -= dt; if (amBirdT <= 0) { birdCall(); amBirdT = 5 + Math.random() * 11; }
+  };
+  const stopAmbient = () => { amNodes.forEach(n => { try { n.stop(); } catch (e) { /* 何もしない */ } }); amNodes = []; if (amAc) { try { amAc.close(); } catch (e) { /* 何もしない */ } amAc = null; } };
+  if (!opt.dungeonOnly) startAmbient(); // 交流ルームの「ダンジョン」（草原を歩かない）では鳴らさない
   const blk = document.createElement('div'); blk.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity 0.6s;'; root.appendChild(blk); // 暗転用の黒い幕
   const thump = v => { if (!ac) return; try { const t0 = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(120, t0); o.frequency.exponentialRampToValueAtTime(32, t0 + 0.25); g.gain.setValueAtTime(v, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.32); o.connect(g); g.connect(chMaster); o.start(t0); o.stop(t0 + 0.35); } catch (e) { /* 何もしない */ } }; // ドンという足音
   const startChaseSound = () => { // うなる低い声＋ざらざらした音＋足音。近づくほど大きくなる
@@ -1873,8 +1945,8 @@ function openGrassland(onClose, opt) {
     const want = new Set();
     for (const uid in players) {
       if (uid === glNet.uid) continue;
-      const g = players[uid] && players[uid].gl; if (!g) continue;
-      if (inDungeon ? !(g.d && g.sd === dSeed) : !!g.d) continue; // 草原の人は草原の人だけ、ダンジョンの人は同じ迷路の人だけ見える
+      const g = players[uid] && players[uid].gl; if (!g || typeof g.x !== 'number') continue; // 位置が無い（＝別のゾーンの印だけ）の人は出さない
+      if (zoneOfPlayer(players[uid]) !== (inDungeon ? 'dungeon:' + dSeed : 'grass')) continue; // 草原の人は草原の人だけ、ダンジョンの人は同じ迷路の人だけ見える
       want.add(uid);
       let r = glRem.get(uid); if (r && r.sc !== sc) { glRemove(uid); r = null; }
       if (!r) r = glMake(uid, players[uid], sc);
@@ -1896,16 +1968,227 @@ function openGrassland(onClose, opt) {
   const glBar = glNet ? document.getElementById('voiceBar') : null, glBarZ = glBar ? glBar.style.zIndex : ''; if (glBar) glBar.style.zIndex = '450'; // この画面より手前に、マイクのボタンを出す
   const glVS = { x: 0, z: 0, yaw: 0, pitch: 0, env: 'open', key: 'gl', d: 0, sd: 0, radius: 0, wall: null, path: null }; // 🎙 声：草原は屋外（ほとんど響かない）、ダンジョンは2Dダンジョンの通路と同じ響き＋壁越しはこもる（radius＝距離の基準(m)・wall/path＝壁の数と回り込みの経路を調べる関数）
   glPublish(false);
+  // ----- 🪨 石積み：草原に散らばった石を拾い（近づくと自動で拾う）、好きな場所で積める（E／スマホは「積む」ボタン）。
+  //   ・すでにある山（他の人が積みはじめたものも）の近くで積むと、その山に石が1つ増える。近くに山がなければ、そこに新しい山ができる。
+  //   ・山に積み足すたびに、その山は全部崩れることがある。崩れる確率は、高い山ほど上がる（pOf：2段の山に積む時 約2％、5段で約7％、10段で約17％、15段で約38％、20段で約68％。山の最初の1個は崩れない。崩れる山の高さは平均10段くらい）。
+  //   崩れる時は、ぐらっと傾いて倒れ、石がほどけて倒れた先に転がる。散らばった石は近くに残って、拾いなおせる（倒れる向き・散らばる場所は崩れた時の印 k から決まるので、全員同じ）。
+  //   ・山はホストが決めて、順序保証つきの events チャネルで全員に配る（Firebaseは使わない）。積む依頼は1つずつ順番に決まるので、同時に積んでも、崩れるかどうかは全員で同じ結果になる。山は Net が持つので、草原の外にいた間の分も届く（部屋の全員がいなくなると、山は消える）。
+  //   ・落ちている石の場所は式だけで決まる（全員同じ場所）。拾った石は自分だけ消える（他の人の画面の石は消えない）。部屋につながっていない時は、自分だけの山になる。崩れて散らばった石だけは、みんなで共有（先に拾った1人だけが拾えて、他の人の画面からは消える）。 -----
+  const COOLDOWN = 3, MAXN = CAIRN_MAXN, PICK_R = 1.3, STACK_REACH = 1.8, JOIN_R = 1.5, BLOCK_R = 0.62, SCELL = 12, SRAD = 4, SY = 0.6;
+  const pOf = cairnPOf; // いま n 段の山に1つ積む時に、崩れる確率（n段が高いほど上がる。崩れた時の山の高さは、平均10段・半分は10段まで・9割は15段まで）
+  const stoneMats = [0x8d8d88, 0x7a7a76, 0x9a968c, 0x6f726f].map(c => new THREE.MeshLambertMaterial({ color: c })), stoneGeo = new THREE.DodecahedronGeometry(1, 0);
+  const stones = new Map(), taken = new Set(), grabbing = new Set(), cairns = new Map(), cLocal = {}, cTimers = [];
+  let scx = NaN, scz = NaN, held = 0, fx = [], cLive = false, cBusy = false, cFail = false, cShared = false, cToastT = 0, actTxt = '', cdEnd = 0, cdOn = false; // cdEnd＝次に置けるようになる時刻(ms)
+  const mkEl = (css, txt) => { const d = document.createElement('div'); d.style.cssText = css; if (txt != null) d.textContent = txt; root.appendChild(d); return d; };
+  const stoneHud = mkEl('position:absolute;top:12px;left:12px;padding:8px 13px;font-size:17px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.38);border-radius:10px;pointer-events:none;', '🪨 × 0');
+  const bestHud = mkEl('position:absolute;top:6px;left:50%;transform:translateX(-50%);padding:2px 10px;font-size:12px;color:rgba(255,255,255,0.9);background:rgba(0,0,0,0.28);border-radius:999px;white-space:nowrap;pointer-events:none;', '');
+  let best = 0; try { best = Math.max(0, parseInt(localStorage.getItem('stairCairnBest'), 10) || 0); } catch (e) { /* 何もしない */ } // 石積みの最高記録（いちばん高く積めた段数）。このブラウザに覚えておく
+  const bestUp = n => { if (!(n > best)) return; best = Math.min(Math.floor(n), 999); try { localStorage.setItem('stairCairnBest', String(best)); } catch (e) { /* 何もしない */ } bestHud.textContent = '🏆 最高 ' + best + '段'; };
+  bestHud.textContent = '🏆 最高 ' + best + '段';
+  const cToast = mkEl('position:absolute;left:50%;top:22%;transform:translateX(-50%);padding:9px 18px;font-size:17px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.5);border-radius:999px;white-space:nowrap;opacity:0;transition:opacity 0.3s;pointer-events:none;');
+  const actBtn = mkEl(touch
+    ? 'position:absolute;right:14.5vh;top:55.5vh;transform:translateY(-50%);width:20vh;height:20vh;border-radius:50%;display:none;align-items:center;justify-content:center;text-align:center;white-space:pre-line;font-size:2.6vh;line-height:1.3;font-weight:bold;color:#fff;background:rgba(255,255,255,0.22);border:0.5vh solid rgba(255,255,255,0.6);box-sizing:border-box;padding:1vh;touch-action:none;cursor:pointer;'
+    : 'position:absolute;left:50%;bottom:calc(4vh + 52px);transform:translateX(-50%);padding:9px 18px;font-size:16px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.5);border:2px solid rgba(255,255,255,0.7);border-radius:999px;white-space:nowrap;display:none;cursor:pointer;');
+  actBtn.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); stackAction(); };
+  const toast = msg => { cToast.textContent = msg; cToast.style.opacity = '1'; clearTimeout(cToastT); cToastT = setTimeout(() => { cToast.style.opacity = '0'; }, 2200); };
+  const setHeld = n => { held = n; stoneHud.textContent = '🪨 × ' + held; };
+  const hid = str => { let h = 0; for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 9973; return h + 1; }; // 山の名前（キー）から、石の形のもとになる数を作る（全員同じ形になる）
+
+
+  // 🔊 石の音（録音ではなく、その場で合成する。ここだけの別の AudioContext）：積む＝「カツン」（1個目は低くて鈍い「コト」）、崩れる＝石が着地するたびの「カラカラ」。小さめの音。
+  //   音は山が変わった時（setCairn）に鳴らすので、自分が積んだ時も、他の人が積んだ時も同じ道を通る。遠いほど小さく、左右の向きも付く。
+  const SND_VOL = 0.22; // 石の音の全体の大きさ（大きくしたい時はここ）
+  let sctx = null, sNoise = null;
+  const getCtx = () => {
+    if (closed) return null;
+    if (!sctx) { try { sctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { sctx = false; } }
+    if (sctx && sctx.state === 'suspended') sctx.resume().catch(() => {});
+    return sctx || null;
+  };
+  root.addEventListener('pointerdown', () => { getCtx(); }, true);
+  const getNoise = c => { if (!sNoise) { sNoise = c.createBuffer(1, (c.sampleRate * 0.5) | 0, c.sampleRate); const d = sNoise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; } return sNoise; };
+  const sndPos = (x, z) => { const dx = x - P.x, dz = z - P.z, d = Math.hypot(dx, dz), k = Math.max(0, 1 - d / 45); return { v: k * k, pan: d > 0.5 ? Math.max(-0.8, Math.min(0.8, (dx * Math.cos(P.yaw) - dz * Math.sin(P.yaw)) / d)) : 0 }; }; // 距離で小さく／自分の右にあれば右から
+  const clack = (c, when, vol, pan, f0) => { // 石と石が当たる音1つ：ぶつかる瞬間のノイズ＋石の短い鳴り（3つの高さ）
+    const t = c.currentTime + when, out = c.createGain(); out.gain.value = SND_VOL;
+    if (c.createStereoPanner) { const sp = c.createStereoPanner(); sp.pan.value = pan; out.connect(sp); sp.connect(c.destination); } else out.connect(c.destination);
+    const ns = c.createBufferSource(), bp = c.createBiquadFilter(), g1 = c.createGain(); ns.buffer = getNoise(c); bp.type = 'bandpass'; bp.frequency.value = f0 * 2.2; bp.Q.value = 1.2;
+    g1.gain.setValueAtTime(0, t); g1.gain.linearRampToValueAtTime(vol * 0.9, t + 0.002); g1.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
+    ns.connect(bp); bp.connect(g1); g1.connect(out); ns.start(t, Math.random() * 0.3); ns.stop(t + 0.05);
+    [[f0, 0.55, 0.09], [f0 * 2.41, 0.28, 0.05], [f0 * 3.9, 0.12, 0.03]].forEach(([f, am, dur]) => {
+      const o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(f * 1.02, t); o.frequency.exponentialRampToValueAtTime(f, t + 0.01);
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol * am, t + 0.001); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.02);
+    });
+  };
+  const sndStack = (x, z, n, delay) => { // n＝積んだあとの段数。delay＝石が落ちて当たるまでの秒数
+    const c = getCtx(); if (!c || c.state !== 'running') return; const ps = sndPos(x, z); if (ps.v < 0.02) return;
+    try { if (n <= 1) clack(c, delay, ps.v * 0.8, ps.pan, 520 + Math.random() * 120); else clack(c, delay, ps.v, ps.pan, 1150 + Math.random() * 300); } catch (e) { /* 何もしない */ }
+  };
+  const sndCollapse = (x, z, Ts) => { // Ts＝それぞれの石が着地するまでの秒数
+    const c = getCtx(); if (!c || c.state !== 'running') return; const ps = sndPos(x, z); if (ps.v < 0.02) return;
+    try {
+      const t = c.currentTime, ns = c.createBufferSource(), lp = c.createBiquadFilter(), g = c.createGain(), out = c.createGain(); out.gain.value = SND_VOL; // 傾いている間の、石がずれてきしむ低い音（だんだん大きく）
+      ns.buffer = getNoise(c); ns.loop = true; lp.type = 'lowpass'; lp.frequency.value = 600; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(ps.v * 0.3, t + 0.8); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+      ns.connect(lp); lp.connect(g); g.connect(out); if (c.createStereoPanner) { const sp = c.createStereoPanner(); sp.pan.value = ps.pan; out.connect(sp); sp.connect(c.destination); } else out.connect(c.destination); ns.start(t); ns.stop(t + 1.25);
+      Ts.forEach(T => { // 着地するたびに「カラッ」。そのあと、小さく跳ねて1〜2回
+        clack(c, T, ps.v * 0.55, ps.pan, 700 + Math.random() * 1500);
+        clack(c, T + 0.07 + Math.random() * 0.06, ps.v * 0.3, ps.pan, 700 + Math.random() * 1500);
+        if (Math.random() < 0.4) clack(c, T + 0.19 + Math.random() * 0.08, ps.v * 0.15, ps.pan, 700 + Math.random() * 1500);
+      });
+    } catch (e) { /* 何もしない */ }
+  };
+
+  // 落ちている石：自分のまわり（±4マス）だけ作る
+  const syncStones = () => {
+    const cx = Math.floor(P.x / SCELL), cz = Math.floor(P.z / SCELL); if (cx === scx && cz === scz) return; scx = cx; scz = cz;
+    stones.forEach((m, key) => { if (!m.userData.keep && Math.abs(m.userData.cx - cx) > SRAD || Math.abs(m.userData.cz - cz) > SRAD) { scene.remove(m); stones.delete(key); } });
+    for (let a = cx - SRAD; a <= cx + SRAD; a++) for (let b = cz - SRAD; b <= cz + SRAD; b++) {
+      const n = Math.floor(h2(a, b, 50) * 3.3);
+      for (let k = 0; k < n; k++) {
+        const key = a + ',' + b + ',' + k; if (taken.has(key) || stones.has(key)) continue;
+        const x = (a + h2(a, b, 51 + k * 4)) * SCELL, z = (b + h2(a, b, 52 + k * 4)) * SCELL, r = 0.2 + h2(a, b, 53 + k * 4) * 0.18, m = new THREE.Mesh(stoneGeo, stoneMats[Math.floor(h2(a, b, 54 + k * 4) * 4) % 4]);
+        m.scale.set(r, r * SY, r * 0.85); m.rotation.y = h2(a, b, 55 + k * 4) * 6.283; m.position.set(x, hh(x, z) + r * 0.3, z); m.userData.cx = a; m.userData.cz = b; scene.add(m); stones.set(key, m);
+      }
+    }
+  };
+
+  // 石の山：i段目の石の大きさ・高さ・ずれは、山の名前と段から決まる（全員同じ形）
+  const lvR = i => Math.max(0.17, 0.46 - i * 0.028), lvY = i => { let y = 0; for (let j = 0; j < i; j++) y += lvR(j) * SY * 1.85; return y + lvR(i) * SY; };
+  const addCStone = (c, anim) => {
+    const i = c.meshes.length, q = hid(c.id), r = lvR(i), m = new THREE.Mesh(stoneGeo, stoneMats[Math.floor(h2(q, i, 4) * 4) % 4]);
+    m.scale.set(r, r * SY, r * 0.9); m.rotation.y = h2(q, i, 3) * 6.283; m.position.set((h2(q, i, 1) - 0.5) * 0.1, lvY(i), (h2(q, i, 2) - 0.5) * 0.1); c.grp.add(m); c.meshes.push(m);
+    if (anim) { const ty = m.position.y; m.position.y = ty + 0.8; fx.push({ k: 'drop', m, ty, vy: 0 }); sndStack(c.x, c.z, i + 1, 0.4); } // 上から落ちてきて、ことんと乗る（0.8mの落下は約0.4秒）。乗る瞬間に音
+  };
+  const dropFx = c => { fx = fx.filter(f => !(f.k === 'drop' && c.meshes.indexOf(f.m) >= 0)); };
+  const removeCairn = c => { dropFx(c); scene.remove(c.grp); };
+  const collapseCairn = (c, tok) => { // ぐらっと傾いて、決まった向きに倒れる（ふちを軸に、だんだん速く）。傾ききったら石がほどけて、倒れた先にころころ転がって止まる。倒れる向き・止まる場所は、山の名前と崩れた時の印 tok から決まる（全員同じ）。止まった石はあとで拾える
+    fx.forEach(f => { if (f.k === 'drop' && c.meshes.indexOf(f.m) >= 0) f.m.position.y = f.ty; }); dropFx(c); // 落ちている途中の石は、乗った高さに確定させてから傾ける（空中で止まらないように）
+    const q = hid(c.id + '|' + tok), ang = h2(q, 0, 60) * 6.283, dx = Math.cos(ang), dz = Math.sin(ang), Tt = 0.95 + h2(q, 0, 68) * 0.25, Ts = [], lands = [];
+    c.meshes.forEach((m, j) => { // j段目の石が止まる場所：高い石ほど遠く（倒れた山が地面に長く伸びるように）。横にも少しばらける
+      const d = lvY(j) * 1.05 + 0.3 + h2(q, j, 62) * 0.4, side = (h2(q, j, 61) - 0.5) * 2 * (0.25 + 0.05 * j), T = 0.28 + h2(q, j, 63) * 0.2;
+      lands.push({ x1: c.x + dx * d - dz * side, z1: c.z + dz * d + dx * side, T }); Ts.push(Tt + T);
+    });
+    fx.push({ k: 'topple', c, t: 0, Tt, th1: 1.1, axis: new THREE.Vector3(dz, 0, -dx), pv: new THREE.Vector3(dx * 0.4, 0, dz * 0.4), gy: hh(c.x, c.z), q, lands, tok });
+    sndCollapse(c.x, c.z, Ts);
+  };
+  const setCairn = (id, v) => { // DB（または自分だけの記録）の内容を、見た目に反映する。v＝{ x, z, n（段数。0＝崩れた）, by } か null（なくなった）
+    let c = cairns.get(id);
+    if (!v || !v.n) { if (c) { if (v && c.n > 0) collapseCairn(c, v.k || 0); else removeCairn(c); cairns.delete(id); } return; }
+    if (typeof v.x !== 'number' || typeof v.z !== 'number') return;
+    bestUp(v.n);
+    if (!c) { c = { id, x: v.x, z: v.z, n: 0, grp: new THREE.Group(), meshes: [] }; c.grp.position.set(c.x, hh(c.x, c.z), c.z); scene.add(c.grp); cairns.set(id, c); }
+    while (c.meshes.length < v.n) addCStone(c, cLive);
+    while (c.meshes.length > v.n) { const m = c.meshes.pop(); c.grp.remove(m); }
+    c.n = v.n;
+  };
+  const reapLater = id => { // 崩れた印（n:0）を、少ししてから片づける（積んだ本人か、入った時にすでにあった分だけ）
+    if (cShared) return; // みんなの山は、崩れた山をホストがすぐ消すので、片づけは要らない
+    cTimers.push(setTimeout(() => { if (cLocal[id] && cLocal[id].n === 0) delete cLocal[id]; }, 4000 + Math.random() * 3000));
+  };
+  const doPlace = (id, x, z, done) => { // 石を1つ積む。transaction の中で、新しい山／積み増し／崩れる を決める（再試行されても、その時の最新の山で決め直す）
+    const uid = glNet && glNet.uid ? glNet.uid : 'me', X = Math.round(x * 100) / 100, Z = Math.round(z * 100) / 100;
+    const upd = cur => {
+      if (!cur || !cur.n) return { x: X, z: Z, n: 1, by: uid };
+      if (cur.n >= MAXN) return undefined;
+      if (Math.random() < pOf(cur.n)) return { x: cur.x, z: cur.z, n: 0, by: cur.by || uid, k: 1 + Math.floor(Math.random() * 1e9) }; // k＝この崩れの印（散らばる場所の種）
+      return { x: cur.x, z: cur.z, n: cur.n + 1, by: cur.by || uid };
+    };
+    if (cShared) glNet.cairnPlace({ id, x: X, z: Z }, done); // みんなの山：ホストが決める（同時に積んでも、1つずつ順番に決まる）
+    else { const v = upd(cLocal[id]); if (v === undefined) { done(false, cLocal[id]); return; } cLocal[id] = v; setCairn(id, v); done(true, v); }
+  };
+  const aimSpot = () => ({ x: P.x - Math.sin(P.yaw) * STACK_REACH, z: P.z - Math.cos(P.yaw) * STACK_REACH }); // 向いている方向の前
+  const findCairn = sp => { let best = null, bd = JOIN_R; cairns.forEach(c => { const d = Math.hypot(c.x - sp.x, c.z - sp.z); if (d < bd) { bd = d; best = c; } }); return best; };
+  const stackAction = () => {
+    if (closed || inDungeon || cBusy || performance.now() < cdEnd) return; // クールダウン中は置けない
+    if (held <= 0) { toast('石を持っていない（草原の石に近づくと拾える）'); return; }
+    getCtx(); // 音を鳴らせる状態にしておく
+    const sp = aimSpot(), tg = findCairn(sp);
+    if (tg && tg.n >= MAXN) { toast('これ以上は積めない'); return; }
+    let id, x, z;
+    if (tg) { id = tg.id; x = tg.x; z = tg.z; }
+    else { x = sp.x; z = sp.z; const base = 'c' + Math.floor(x / 2) + '_' + Math.floor(z / 2); id = base; for (let k = 1; cairns.has(id); k++) id = base + '-' + k; }
+    cBusy = true; cdEnd = performance.now() + COOLDOWN * 1000; const to = setTimeout(() => { cBusy = false; }, 4000); cTimers.push(to);
+    doPlace(id, x, z, (ok, v) => {
+      clearTimeout(to); cBusy = false; if (closed) return;
+      if (!ok) { cdEnd = 0; toast(v && v.n >= MAXN ? 'これ以上は積めない' : '積めなかった…'); return; } // 置けなかった時は、クールダウンなし
+      setHeld(held - 1);
+      if (v && v.n === 0) { toast('💥 崩れた！'); reapLater(id); } else if (v) toast('🪨 ' + v.n + '段');
+    });
+  };
+  cShared = !!(glNet && glNet.enabled && !glNet.offline && glNet.roomId && glNet.cairnPlace && glNet.listenCairn && glNet.cairnSnapshot);
+  if (cShared) { // みんなの山：ホストが決めて、順序保証つきの events チャネルで全員に配る（Firebaseは使わない）。いまの山は Net が持っている（草原の外にいた間の分も）
+    const snapApply = c => { // いまの山を丸ごと反映する。最初にあった山は、落ちてくる演出なしで出す
+      cLive = false; Array.from(cairns.keys()).forEach(id => { if (!c[id]) setCairn(id, null); }); for (const id in c) setCairn(id, c[id]); cLive = true;
+    };
+    const applyTaken = keys => keys.forEach(key => { taken.add(key); const mm = stones.get(key); if (mm && !grabbing.has(key)) { stones.delete(key); scene.remove(mm); } }); // 誰かが拾った崩れ石を、自分の画面からも消す（自分が拾おうとしている最中のものは、結果が返ってから決める）
+    glNet.listenCairn(m => { if (closed || !m) return; if (m.m === 'u') { setCairn(m.id, m.v); bestUp(m.b); } else if (m.m === 's') { snapApply(m.c || {}); applyTaken(m.tk || []); bestUp(m.b); } else if (m.m === 't' && typeof m.key === 'string') applyTaken([m.key]); });
+    snapApply(glNet.cairnSnapshot()); applyTaken(glNet.cairnTaken ? glNet.cairnTaken() : []); bestUp(glNet.cairnBest ? glNet.cairnBest() : 0);
+    glNet.cairnHello(); // ゲストは、ホストに「いまの山」を送ってもらう（届くと snapApply）
+  } else cLive = true;
+  const cairnPush = () => { cairns.forEach(c => { const dx = P.x - c.x, dz = P.z - c.z, d = Math.hypot(dx, dz); if (d < BLOCK_R && d > 1e-4) { P.x = c.x + dx / d * BLOCK_R; P.z = c.z + dz / d * BLOCK_R; } }); };
+  const cairnFrame = dt => {
+    if (inDungeon) { if (actTxt) { actTxt = ''; actBtn.style.display = 'none'; } return; }
+    syncStones();
+    stones.forEach((m, key) => {
+      if (Math.hypot(m.position.x - P.x, m.position.z - P.z) >= PICK_R) return;
+      if (cShared && glNet.cairnGrab && key.charAt(0) === 'd') { // 崩れて散らばった石：ホストが「最初に頼んだ1人」だけに拾わせる（二人が別々に拾えて二倍になるのを防ぐ）
+        if (grabbing.has(key)) return; grabbing.add(key);
+        glNet.cairnGrab(key, (ok, gone) => {
+          grabbing.delete(key); if (closed) return;
+          const mm = stones.get(key);
+          if (ok) { taken.add(key); stones.delete(key); setHeld(held + 1); if (mm) fx.push({ k: 'pick', m: mm, t: 0, s0: mm.scale.clone() }); }
+          else if (gone) { taken.add(key); if (mm) { stones.delete(key); scene.remove(mm); } } // 先に誰かが拾っていた
+        });
+        return;
+      }
+      stones.delete(key); taken.add(key); setHeld(held + 1); fx.push({ k: 'pick', m, t: 0, s0: m.scale.clone() });
+    });
+    for (let i = fx.length - 1; i >= 0; i--) {
+      const f = fx[i], m = f.m;
+      if (f.k === 'drop') { f.vy -= 9.8 * dt; m.position.y += f.vy * dt; if (m.position.y <= f.ty) { m.position.y = f.ty; fx.splice(i, 1); } }
+      else if (f.k === 'pick') { f.t += dt; const u = Math.min(1, f.t / 0.22), kk = Math.min(1, dt * 14); m.position.x += (P.x - m.position.x) * kk; m.position.z += (P.z - m.position.z) * kk; m.position.y += (hh(P.x, P.z) + 1.2 - m.position.y) * kk; m.scale.copy(f.s0).multiplyScalar(1 - u * 0.8); if (u >= 1) { scene.remove(m); fx.splice(i, 1); } }
+      else if (f.k === 'topple') { // 山ぜんたいが、倒れる側のふちを軸に傾く（はじめはゆっくり、だんだん速く。最初に少しぐらつく）
+        f.t += dt; const u = Math.min(1, f.t / f.Tt), g = f.c.grp, th = f.th1 * u * u + 0.035 * Math.sin(u * 18) * (1 - u);
+        g.quaternion.setFromAxisAngle(f.axis, th); const rp = f.pv.clone().applyQuaternion(g.quaternion); g.position.set(f.c.x + f.pv.x - rp.x, f.gy + f.pv.y - rp.y, f.c.z + f.pv.z - rp.z);
+        if (u >= 1) { // 石がほどける：そのままの向き・位置から、決まった場所へ転がる
+          f.c.meshes.forEach((m, j) => {
+            const l = f.lands[j], pw = new THREE.Vector3(), qw = new THREE.Quaternion(); m.getWorldPosition(pw); m.getWorldQuaternion(qw); g.remove(m); m.position.copy(pw); m.quaternion.copy(qw); scene.add(m);
+            fx.push({ k: 'fall', m, key: 'd' + f.c.id + '|' + f.tok + '|' + j, x0: pw.x, y0: pw.y, z0: pw.z, x1: l.x1, z1: l.z1, y1: hh(l.x1, l.z1) + m.scale.y * 0.9, t: 0, T: l.T, H: 0.12 + h2(f.q, j, 64) * 0.3, rx: (h2(f.q, j, 65) - 0.5) * 5, rz: (h2(f.q, j, 66) - 0.5) * 5, ry: h2(f.q, j, 67) * 6.283 });
+          });
+          scene.remove(g); f.c.meshes = []; fx.splice(i, 1);
+        }
+      }
+      else if (f.k === 'fall') { // 放物線を描いて、決まった場所に落ちる。落ちたら、拾える石になる
+        f.t += dt; const u = Math.min(1, f.t / f.T);
+        m.position.set(f.x0 + (f.x1 - f.x0) * u, f.y0 + (f.y1 - f.y0) * u + 4 * f.H * u * (1 - u), f.z0 + (f.z1 - f.z0) * u);
+        m.rotation.x += f.rx * dt; m.rotation.z += f.rz * dt;
+        if (u >= 1) { m.position.set(f.x1, f.y1, f.z1); m.rotation.set(0, f.ry, 0); m.userData = { cx: 0, cz: 0, keep: true }; fx.splice(i, 1); if (taken.has(f.key) || stones.has(f.key)) scene.remove(m); else stones.set(f.key, m); }
+      }
+    }
+    const tg = findCairn(aimSpot()); let txt = '';
+    if (held > 0) txt = tg ? (touch ? '積む\n崩れる' + Math.round(pOf(tg.n) * 100) + '%' : 'E：石を積む（' + tg.n + '段 → ' + (tg.n + 1) + '段・' + Math.round(pOf(tg.n) * 100) + '%で崩れる）') : (touch ? '石を\n置く' : 'E：石を置く（新しい山）');
+    else if (tg && !touch) txt = '石を持っていない（草原の石を拾おう）';
+    const left = cdEnd - performance.now(); // ⏳ クールダウン中：ボタンが時間とともに満たされていき、満タンになったら置ける。残り秒数も出る
+    if (left > 0) {
+      const pr = Math.round((1 - left / (COOLDOWN * 1000)) * 100); if (txt) txt += (touch ? '\n' : '　') + '⏳' + Math.ceil(left / 1000);
+      actBtn.style.background = touch ? 'conic-gradient(rgba(255,255,255,0.55) ' + pr + '%, rgba(255,255,255,0.08) 0)' : 'linear-gradient(90deg, rgba(255,255,255,0.4) ' + pr + '%, rgba(0,0,0,0.55) 0)'; actBtn.style.opacity = '0.8'; cdOn = true;
+    } else if (cdOn) { cdOn = false; actBtn.style.background = touch ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.5)'; actBtn.style.opacity = ''; }
+    if (txt !== actTxt) { actTxt = txt; actBtn.textContent = txt; actBtn.style.display = txt ? (touch ? 'flex' : 'block') : 'none'; }
+  };
+  const cairnStop = () => { try { if (sctx) sctx.close(); } catch (e) { /* 何もしない */ } sctx = null; if (cShared) { try { glNet.listenCairn(null); } catch (e) { /* 何もしない */ } } cTimers.forEach(clearTimeout); clearTimeout(cToastT); };
+
   const frame = ms => {
     if (closed) return;
     const t = ms / 1000, dt = Math.min(0.05, last ? t - last : 0.016); last = t;
     P.yaw += ((keys.tl ? 1 : 0) - (keys.tr ? 1 : 0)) * 1.8 * LOOK_SPEED * dt;
     P.yaw -= sr.x * 2.2 * LOOK_SPEED * dt; P.pitch = Math.max(-1.3, Math.min(1.3, P.pitch - sr.y * 1.6 * LOOK_SPEED * dt)); // 右スティック：視点を動かす
     glFrame(dt, t); // 🎙 仲間の姿の同期
+    cairnFrame(dt); // 🪨 石の拾得・石積みの演出・操作の表示
+    updateAmbient(dt); // 🍃 自然音
     let mf = (keys.f ? 1 : 0) - (keys.b ? 1 : 0) - sv.y, mr = (keys.r ? 1 : 0) - (keys.l ? 1 : 0) + sv.x; const mm = Math.hypot(mf, mr); if (mm > 1) { mf /= mm; mr /= mm; }
     const sp2 = 4.2 * (keys.shift ? 1.9 : 1) * dt, sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
     if (inDungeon) { dungeonFrame(dt, t, mf, mr, sp2, sy, cy); raf = requestAnimationFrame(frame); return; } // 🕳 ダンジョンの間は、草原は止めておく
     P.x += (-sy * mf + cy * mr) * sp2; P.z += (-cy * mf - sy * mr) * sp2;
+    cairnPush(); // 🪨 石の山の中には入れない
     syncTrees(); ground.position.set(Math.round(P.x / GS) * GS, 0, Math.round(P.z / GS) * GS); U.uGC.value.set(ground.position.x, ground.position.z); // 歩ける範囲に制限はない（木と地面は自分についてくる）
     camera.position.set(P.x, hh(P.x, P.z) + 1.65, P.z); camera.rotation.set(P.pitch, P.yaw, 0); camera.updateMatrixWorld(); if (!opt.noHorror) updateShadow(dt, t); // 👁 黒い影（opt.noHorror＝交流ルームの「草原」：影は出ず、何も起こらない）
     sky.position.copy(camera.position); clouds.rotation.y += dt * 0.004;
@@ -2065,7 +2348,7 @@ function openStairs(onClose, opt) {
   };
   const hint = document.createElement('div'); hint.style.cssText = 'position:absolute;left:50%;bottom:4vh;transform:translateX(-50%);padding:8px 16px;font-size:15px;color:#fff;background:rgba(0,0,0,0.45);border-radius:999px;white-space:nowrap;transition:opacity 1.2s;pointer-events:none;'; root.appendChild(hint);
   let hintTm = 0; const say = (txt, ms) => { hint.textContent = txt; hint.style.opacity = '1'; clearTimeout(hintTm); hintTm = setTimeout(() => { hint.style.opacity = '0'; }, ms); };
-  say(touch ? '🪜 左スティック：移動　右スティック：見回す' : '🪜 WASD・矢印：移動　Shift：走る　ドラッグ：見回す　E：ドアを調べる　Esc：もどる', 7000);
+  say(touch ? '🪜 左スティック：移動　画面スワイプ：見回す' : '🪜 WASD・矢印：移動　Shift：走る　ドラッグ：見回す　E：ドアを調べる　Esc：もどる', 7000);
   const hud = document.createElement('div'); hud.style.cssText = 'position:absolute;top:12px;left:14px;font-size:22px;font-weight:bold;color:#d9d3b8;text-shadow:0 0 6px #000;opacity:0.85;pointer-events:none;'; root.appendChild(hud); hud.style.display = 'none'; // 左上の階数表示は使わない（HPバーがその位置）
   // ===== ❤ HP とゲームオーバー =====
   // 左上に HP バー（文字・数字なし）を出す。HP が 0 になるとゲームオーバー（動けなくなり、「もう一度」か「階段を出る」を選ぶ）。
@@ -2113,8 +2396,8 @@ function openStairs(onClose, opt) {
   let toastTm = 0;
   const stairToast = (text, ms) => { toastEl.textContent = text; toastEl.style.opacity = '1'; clearTimeout(toastTm); toastTm = setTimeout(() => { toastEl.style.opacity = '0'; }, ms || 3000); };
   // ----- 🏃 イベント用の「毎フレーム処理」と、走る速さ（スプリント） -----
-  const stairTickers = []; const stBusy = () => stairTickers.some(k => !k.passive); /* stBusy＝ほかのイベントを止める動作中のイベントがあるか（passive な、ずっと続くイベント＝鳴き声は数えない） */ let stEvOut = null, stSpOut = null, stClockOff = 0, stClockAsked = false; const stSeenEv = new Set(); // 🤝 みんなで同じイベントを見るための状態：stEvOut＝自分が起こしたイベントの印（ほかの人に配る）／stClockOff＝サーバー時計とのずれ(ミリ秒)／stSeenEv＝もう始めた他人のイベント
-  const stNow = () => Date.now() + stClockOff; // サーバー時計に合わせた「いま」（人によって時計がずれていても、同じ時刻で動かすため）
+  const stairTickers = []; const stBusy = () => stairTickers.some(k => !k.passive); /* stBusy＝ほかのイベントを止める動作中のイベントがあるか（passive な、ずっと続くイベント＝鳴き声は数えない） */ let stSpOut = null; const stSeenEv = new Set(); // 🤝 みんなで同じイベントを見るための状態：stSpOut＝自分のくもの状態（gl.sp で配る）とのずれ(ミリ秒)／stSeenEv＝もう始めた他人のイベント
+  const stNow = () => Date.now(); // 自分の時計の「いま」（人どうしの時刻合わせには使わない。イベントは events チャネルで1回だけ届く）
   let camShake = 0, scareLock = false; let sprintBoost = false; // camShake＝画面の揺れの強さ（毎フレーム弱まる）／scareLock＝true の間は、捕まって動けない // sprintBoost＝true の間は、Shift なし（スマホでも）で走る速さになる
   const stairEvAbort = () => { while (stairTickers.length) { const k = stairTickers.pop(); try { if (k.cleanup) k.cleanup(false); } catch (e) { console.error(e); } } sprintBoost = false; }; // やり直し・出る時に、イベントを全部片づける
   const stairTickersRun = (dt, t) => { for (let i = stairTickers.length - 1; i >= 0; i--) { const k = stairTickers[i]; let fin = false; try { fin = k.tick(dt, t); } catch (err) { console.error('階段イベントのエラー:', err); fin = true; } if (fin) { stairTickers.splice(i, 1); try { if (k.cleanup) k.cleanup(true); } catch (e) { console.error(e); } } } };
@@ -2138,7 +2421,7 @@ function openStairs(onClose, opt) {
   const stRunChase = (ctx, o) => { // 🏃 化け物が扉から出てきて、追ってくる（スプリント・ハイアンドロー共通）。o＝{ id, dir（1＝下から上へ／-1＝上から下へ）, DELAY（扉が開いてから走り出すまで）, REACT（プレイヤーが気づいて・判断して走り出すまでの時間）, showAtDoor, growl（うなり声の高さ）, msg }。3階分にげると、化け物はそこの扉に入って終わり。追いつかれると即死
       if (stBusy()) return false; // もう何か動いている時は起こさない
       const rm = ctx.remote || null; // rm＝ほかの人が起こしたイベントを、こちらでも同じように見せる時の情報 { el＝起きてからの経過秒 }
-      if (!rm) stEvOut = { id: o.id, d: o.dir, f: ctx.floor, k: Math.random().toString(36).slice(2, 10), t: Math.round(stNow()) }; // 自分が起こした：「どの階で・いつ」をほかの人に配る（階段も化け物の動きも式だけで決まるので、これだけで全員に同じものが見える）
+      if (!rm) stSendEv({ id: o.id, d: o.dir, f: ctx.floor, k: Math.random().toString(36).slice(2, 10) }); // 自分が起こした：「どの階で・いつ」をほかの人に配る（階段も化け物の動きも式だけで決まるので、これだけで全員に同じものが見える）
       const dn = ctx.floor - 1, up = o.dir >= 0, DELAY = o.DELAY, CATCH_H = 1.6, CATCH_V = 1.8, CATCH_W = 2.7; // dn＝自分のいる踊り場の番号／up＝下から上へ向かう化け物か（false なら、上から下へ）
       const jLow = up ? dn - 1 : dn - 3, jHigh = up ? dn + 3 : dn + 1, j0 = up ? jLow : jHigh, jEnd = up ? jHigh : jLow, yLo = jLow * R - 3, yHi = jHigh * R + 3; // j0＝化け物が出てくる扉の階／jEnd＝入っていく扉の階（自分のいる階から、進む向きに3つ先）／yLo〜yHi＝通り道の高さの範囲
       // // j0＝出てくる扉の階（いまの1つ下）／jEnd＝入っていく扉の階（いまの3つ上）
@@ -2224,7 +2507,7 @@ function openStairs(onClose, opt) {
           if (s >= total) { phase = 2; tm = 0; mon.visible = false; rattleSnd(); sprintBoost = false; ctx.toast('化け物は扉の中へ消えた…', 3000); }
           return false;
         },
-        cleanup: () => { if (scareFx && scareFx.parentNode) scareFx.parentNode.removeChild(scareFx); scareLock = false; camShake = 0; scene.remove(mon); geos2.forEach(g => g.dispose()); mats2.forEach(m => m.dispose()); closeAll(); sprintBoost = false; if (!rm) stEvOut = null; }
+        cleanup: () => { if (scareFx && scareFx.parentNode) scareFx.parentNode.removeChild(scareFx); scareLock = false; camShake = 0; scene.remove(mon); geos2.forEach(g => g.dispose()); mats2.forEach(m => m.dispose()); closeAll(); sprintBoost = false; }
       });
       return true; // 始まった
   };
@@ -2247,15 +2530,15 @@ function openStairs(onClose, opt) {
   };
   const spScreech = v => { if (v < 0.005 || !ac || !master) return; try { const t0 = ac.currentTime, o = ac.createOscillator(), gn = ac.createGain(); o.type = 'sawtooth'; o.frequency.setValueAtTime(1800, t0); o.frequency.exponentialRampToValueAtTime(700, t0 + 0.22); gn.gain.setValueAtTime(0.0001, t0); gn.gain.linearRampToValueAtTime(v, t0 + 0.02); gn.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.25); o.connect(gn); gn.connect(master); if (rev) gn.connect(rev); o.start(t0); o.stop(t0 + 0.3); } catch (e) { /* 何もしない */ } };
   const spEyeFx = (eyeM, ph, t) => { if (ph === 0) eyeM.color.setRGB(1, 0.1 + 0.1 * Math.sin(t * 9), 0.1); else if (ph === 2) eyeM.color.setRGB(1, Math.random() * 0.3, 0.1); }; // 目のちらつき（待っている時はゆっくり、止まった時は激しく）
+  const spSeen = new Map(); // くもの状態の「届いた印 t」が最後に変わった時刻（uid → { t, at }）。送り主が止まったかどうかを、自分の時計だけで見分ける
   const spRem = new Map(); // ほかの人が出したくも（uid → { k, M, tx, ty, tz, tc, tr, ph, init, lastBn }）。見ているだけ
   const spRemRemove = uid => { const v = spRem.get(uid); if (!v) return; v.M.dispose(); spRem.delete(uid); };
   const stRemoteSpider = (uid, s) => { // ほかの人のくもの状態を受け取る。受け取れたら true
     const num = (a, lim) => typeof a === 'number' && Number.isFinite(a) && Math.abs(a) < lim;
     if (!s || typeof s.k !== 'string' || s.k.length > 24 || !num(s.x, 1e4) || !num(s.y, 1e5) || !num(s.z, 1e4) || !num(s.c, 1e5) || !num(s.r, 100) || !Number.isInteger(s.ph) || s.ph < 0 || s.ph > 4) return false; // 変な値は無視
-    if (Number.isFinite(s.t) && stNow() - s.t > 5000) return false; // 送り主が止まっている（死んだ・固まった）時の古い状態は見せない
+    if (Number.isFinite(s.t)) { let z = spSeen.get(uid); if (!z || z.t !== s.t) { z = { t: s.t, at: performance.now() }; spSeen.set(uid, z); } if (performance.now() - z.at > 5000) return false; } // 送り主が止まっている（死んだ・固まった）時の古い状態は見せない（届いた印 t が5秒変わらなければ止まっている。人どうしの時計は比べない）
     let v = spRem.get(uid); if (v && v.k !== s.k) { spRemRemove(uid); v = null; } // 別のくもに変わった
-    const me = glNet ? glNet.uid : null, fresh = !!me && s.b === me && Number.isFinite(s.bt) && stNow() - s.bt < 2500;
-    if (!v) { v = { k: s.k, M: spiderModel(), tx: s.x, ty: s.y, tz: s.z, tc: s.c, tr: s.r, ph: s.ph, init: false, lastBn: Number.isFinite(s.bn) ? (fresh ? s.bn - 1 : s.bn) : 0 }; spRem.set(uid, v); } // 途中から見えた時は、古い噛みつきでは痛くならない
+    if (!v) { v = { k: s.k, M: spiderModel(), tx: s.x, ty: s.y, tz: s.z, tc: s.c, tr: s.r, ph: s.ph, init: false }; spRem.set(uid, v); }
     v.tx = s.x; v.ty = s.y; v.tz = s.z; v.tc = s.c; v.tr = s.r;
     if (s.ph !== v.ph) { // 状態が変わった瞬間の音：近いほど大きい
       const dist = Math.hypot(P.x - s.x, P.z - s.z, (P.y - s.y) * 0.5);
@@ -2263,7 +2546,6 @@ function openStairs(onClose, opt) {
       else if (s.ph === 2 && v.ph === 1) { stairThud(Math.max(0, 1 - dist / 10)); camShake = Math.max(camShake, Math.max(0, 1 - dist / 8)); }
       v.ph = s.ph;
     }
-    if (me && s.b === me && Number.isFinite(s.bn) && s.bn > v.lastBn) { v.lastBn = s.bn; stairDamage(SP_DMG); camShake = Math.max(camShake, 3); spScreech(0.3); stairThud(1.6); } // 自分が噛まれた：自分のHPを減らす
     return true;
   };
   const spRemFrame = (dt, t) => { // 見ているだけのくもを、届いた位置へなめらかに動かす
@@ -2311,7 +2593,7 @@ function openStairs(onClose, opt) {
           tm += dt; const fy = fyAt(ex, ez);
           const nearest = () => near.reduce((b, q) => (!b || Math.hypot(q.x - ex, q.z - ez) < Math.hypot(b.x - ex, b.z - ez)) ? q : b, null);
           const canBite = q => !bit && Math.hypot(q.x - ex, q.z - ez) < BITE_R && Math.abs(q.y - fy) < 1.2;
-          const bite = q => { bit = true; phase = 3; tm = 0; vicId = q.id; biteN++; biteAt = Math.round(stNow()); if (q.self) { ctx.damage(DMG); camShake = Math.max(camShake, 3); screech(0.3); stairThud(1.6); } }; // 自分が噛まれた時はここでHPを減らす。ほかの人が噛まれた時は、biteN を配って、その人の画面で減らす
+          const bite = q => { bit = true; phase = 3; tm = 0; vicId = q.id; biteN++; if (q.self) { ctx.damage(DMG); camShake = Math.max(camShake, 3); screech(0.3); stairThud(1.6); } else if (glNet && glNet.sendStairBite) { try { glNet.sendStairBite(q.id, { k: sk }); } catch (e) { /* 何もしない */ } } }; // 自分が噛まれた時はここでHPを減らす。ほかの人が噛まれた時は、その人にだけ events チャネルで1回送って、その人の画面で減らす
           if (phase === 0) {
             bodyY = fy + HANG; cd -= dt;
             const trg = near.find(q => onStairOf(q) && Math.abs(sm - pgOf(q)) < TRIG);
@@ -2337,7 +2619,7 @@ function openStairs(onClose, opt) {
           spEyeFx(eyeM, phase, t);
           g.position.set(ex, bodyY, ez); if (phase !== 3) { const fc = nearest(); if (fc) g.rotation.y = Math.atan2(fc.x - ex, fc.z - ez); } // いつも、いちばん近い人のほうを向く
           thr.scale.y = Math.max(0.1, fy + CEIL - (bodyY + 0.2)); // 糸は、天井まで（天井＝階段の床から CEIL の高さ）
-          stSpOut = { k: sk, f: ctx.floor, ph: phase, x: r2s(ex), y: r2s(bodyY), z: r2s(ez), c: r2s(fy + CEIL), r: r2s(g.rotation.y), t: Math.round(stNow()), ...(biteN > 0 && vicId !== ME ? { b: vicId, bn: biteN, bt: biteAt } : {}) }; // ほかの人に配る状態（glPublish が gl.sp として送る）
+          stSpOut = { k: sk, f: ctx.floor, ph: phase, x: r2s(ex), y: r2s(bodyY), z: r2s(ez), c: r2s(fy + CEIL), r: r2s(g.rotation.y), t: Math.round(stNow()) }; // ほかの人に配る状態（glPublish が gl.sp として送る）
           return false;
         },
         cleanup: () => { stSpOut = null; M.dispose(); },
@@ -2345,14 +2627,14 @@ function openStairs(onClose, opt) {
       return true;
     } },
     { id: 'tallman', weight: 2, run: ctx => { // 🧍 トールマン：踊り場で曲がると、背が高く細い、黒い身体の男が立っている（階段の列の、はしの壁ぎわ）。男の「顔」を見ると、画面がチカチカして50ダメージを受け、男は消える。顔が視界（画面）に入らなければ、そのまま通りすぎられる（横を向く・足元を見る・うつむくなど）。
-      // 🤝 協力プレイ：男は、起こした人と同じ階・同じ場所に、ほかの人の画面にも立つ（stEvOut で配る。位置は階の番号だけで決まる）。顔を見て消えるのは、見た人の画面だけ（ほかの人の男は消えない）。
+      // 🤝 協力プレイ：男は、起こした人と同じ階・同じ場所に、ほかの人の画面にも立つ（順序保証つきの events チャネルで1回配る。位置は階の番号だけで決まる）。顔を見て消えるのは、見た人の画面だけ（ほかの人の男は消えない）。
       const rm = ctx.remote || null; // rm＝ほかの人が起こしたイベントを、こちらでも見せる時の情報
       if (stBusy()) return false; // ほかのイベントが動いている時は起こさない（ほかの人のイベントは、終わるまで毎フレーム試される）
       const dn = ctx.floor - 1, even = dn % 2 === 0, base = dn * R; // dn＝いまの踊り場の番号
       if (rm && (P.y > base + R + 1 || P.y < base - 6)) return false; // 見る側が別の階にいる間は始めない（近くに来たら始める。古くなると、呼び出し側があきらめる）
       const DMG = 50, GAZE_D = 14, GAZE_T = 0.2, FLASH_T = 0.9, FLASH_HZ = 5; // DMG＝ダメージ／GAZE_D＝顔が「見える」遠さ(m)／GAZE_T＝顔が画面（視界）に入り続けたら当たる時間(秒。一瞬のかすりで当たらないための短い猶予)／FLASH_T＝画面がチカチカする長さ(秒)／FLASH_HZ＝1秒あたりの点滅の回数（光に弱い人のため、あまり速くしない）
       const mx = even ? -1.6 : L + 1.6, mz = even ? 0.45 : WD - 0.45, hy = base + 2.8; // 男の立つ場所＝次の階段の列のそばの、踊り場のかど（階段の仕切りの壁のかげになって、踊り場に上がって曲がるまで見えない）／hy＝顔の高さ
-      if (!rm) stEvOut = { id: 'tallman', d: 1, f: ctx.floor, k: Math.random().toString(36).slice(2, 10), t: Math.round(stNow()) }; // 自分が起こした：ほかの人にも配る（終わっても、15秒たつまでは配り続ける）
+      if (!rm) stSendEv({ id: 'tallman', d: 1, f: ctx.floor, k: Math.random().toString(36).slice(2, 10) }); // 自分が起こした：ほかの人にも配る
       const geos = [], mats = [], mk = (c, basic) => { const m = basic ? new THREE.MeshBasicMaterial({ color: c }) : new THREE.MeshLambertMaterial({ color: c }); mats.push(m); return m; };
       const bodyM = mk(0x060607), faceM = mk(0xc9c4b6), voidM = mk(0x000000, true);
       const g = new THREE.Group(), head = new THREE.Group(), add = (geo, mat, x, y, z, parent) => { geos.push(geo); const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); (parent || g).add(m); return m; };
@@ -2394,12 +2676,12 @@ function openStairs(onClose, opt) {
       return true;
     } },
     { id: 'shuffle', weight: 1, run: ctx => { // 🔀 シャッフル：階段にいる全員が、いまいる階の前後10階以内（上下どちらも）の、どこかの踊り場へ、ばらばらにランダムに飛ばされる。画面がまっ暗になって、気がつくと別の階にいる。
-      // 🤝 協力プレイ：起こした人が stEvOut で配る。受け取った人（階段にいる全員）が、それぞれ自分の画面で、自分のいる階を中心に行き先を決めて飛ぶ。起こした人も飛ぶ。
+      // 🤝 協力プレイ：起こした人が 順序保証つきの events チャネルで1回配る。受け取った人（階段にいる全員）が、それぞれ自分の画面で、自分のいる階を中心に行き先を決めて飛ぶ。起こした人も飛ぶ。
       const rm = ctx.remote || null; // rm＝ほかの人が起こしたイベントを、こちらでも起こす時の情報
       if (dead) return true; // 死んでいる人は飛ばない（これ以上は試さない）
       const RANGE = 10; // 飛ぶ範囲：いまの階から上下に何階まで
       stairEvAbort(); // 動いているイベント（くも・化け物など）は、ぜんぶ片づける
-      if (!rm) stEvOut = { id: 'shuffle', d: 1, f: ctx.floor, k: Math.random().toString(36).slice(2, 10), t: Math.round(stNow()) }; // 自分が起こした：ほかの人にも配る（片づけたあとに作る。片づけで消えないように）
+      if (!rm) stSendEv({ id: 'shuffle', d: 1, f: ctx.floor, k: Math.random().toString(36).slice(2, 10) }); // 自分が起こした：ほかの人にも配る（片づけたあとに作る。片づけで消えないように）
       const j0 = Math.max(0, Math.round(P.gy / R)), lo = Math.max(0, j0 - RANGE), hi = j0 + RANGE, cand = []; // j0＝いまの階の踊り場の番号（1階＝0）／lo〜hi＝行き先の範囲（1階より下はない）
       for (let k = lo; k <= hi; k++) if (k !== j0) cand.push(k); // いまの階には飛ばない
       const tj = cand[Math.floor(Math.random() * cand.length)]; // 行き先の踊り場の番号
@@ -2413,13 +2695,13 @@ function openStairs(onClose, opt) {
       setTimeout(() => { if (veil.parentNode) veil.parentNode.removeChild(veil); }, 1600);
       return true;
     } },
-    { id: 'babycry', weight: 2, run: ctx => { // 👶 鳴き声：赤ちゃんの泣き声が、自分の1階下あたりから、ずっと聞こえ続ける。上へ進む間は、声も一緒に上がってくる（いつも1階下）。戻る時は、声の位置は動かない。声が聞こえている間に、1階以上戻ると、声のいた所に醜い生き物がいる。その姿を見ると、HPの50%のダメージを受けて、生き物は消える（声もやむ）。
-      // 🤝 協力プレイ：起こした人が stEvOut で配り、階段にいる全員が、それぞれ自分の画面で自分用の声を聞く（声の位置も生き物も、人ごとに別。ほかの人には見えない）。ずっと続くので、ほかのイベント（くも・化け物など）は止めない（passive）。
+    { id: 'babycry', weight: 2, run: ctx => { // 👶 鳴き声：赤ちゃんの泣き声が、自分の1階下あたりから、ずっと聞こえ続ける。上へ進む間は、声も一緒に上がってくる（いつも1階下）。戻る時は、声の位置は動かない。声が聞こえている間に、戻ると（半階ぶん戻った所から）、声のいた所に醜い生き物がいる。その姿を見ると、生き物がこちらへ顔を向けて気づき（声はやむ）、すごい勢いで走ってきて、恐怖演出のあと、そのまま死ぬ（見ている間は目をそらせず、動けない）。
+      // 🤝 協力プレイ：起こした人が 順序保証つきの events チャネルで1回配り、階段にいる全員が、それぞれ自分の画面で自分用の声を聞く（声の位置も生き物も、人ごとに別。ほかの人には見えない）。ずっと続くので、ほかのイベント（くも・化け物など）は止めない（passive）。
       const rm = ctx.remote || null;
       if (dead) return true;
       if (stairTickers.some(k => k.id === 'babycry')) return true; // もう聞こえている
-      if (!rm) stEvOut = { id: 'babycry', d: 1, f: ctx.floor, k: Math.random().toString(36).slice(2, 10), t: Math.round(stNow()) }; // 自分が起こした：ほかの人にも配る
-      const BACK_ON = 1.0 * R, BACK_OFF = 0.8 * R, GAZE_D = 14, GAZE_T = 0.2, DMG = Math.round(STAIR_MAX_HP * 0.5); // BACK_ON＝いちばん高く行った所から、これだけ下へ戻ると生き物が現れる(m。1階ぶん以上)／BACK_OFF＝これより上に戻ると、また隠れる／GAZE_D＝生き物が「見える」遠さ(m)／GAZE_T＝視界に入り続けたら当たる時間(秒)／DMG＝最大HPの半分
+      if (!rm) stSendEv({ id: 'babycry', d: 1, f: ctx.floor, k: Math.random().toString(36).slice(2, 10) }); // 自分が起こした：ほかの人にも配る
+      const BACK_ON = 0.5 * R, BACK_OFF = 0.2 * R, GAZE_D = 14, GAZE_T = 0.2; // BACK_ON＝いちばん高く行った所から、これだけ下へ戻ると生き物が現れる(m。階の高さの半分。声のいた所は1階下なので、半階ぶん戻ると、まだ前の下のほうに生き物が見える。1階ぶん戻ると足もとに重なって見えない)／BACK_OFF＝これより上に戻ると、また隠れる／GAZE_D＝生き物が「見える」遠さ(m)／GAZE_T＝視界に入り続けたら、生き物に気づかれる時間(秒)
       let topY = P.gy, vy = Math.max(0, P.gy - R), active = false, gz = 0, sInit = false, sx = 0, sy = 0, sz = 0; // topY＝いままででいちばん高く行った高さ／vy＝声の高さ（いつも topY の1階下。戻っても下がらない）／sx,sy,sz＝声の聞こえる位置（なめらかに動く）
       const posAt = h => { // 高さ h（階段の上の点）から、階段の列の真ん中の位置と、段の高さを求める
         const j = Math.max(0, Math.floor(h / R + 1e-6)), f = Math.max(0, Math.min(1, (h - j * R) / R)), ev = j % 2 === 0, lane = (MID - DIVT) / 2, x = ev ? f * L : L - f * L, z = ev ? lane : WD - lane, y0 = surfY(x, z, j);
@@ -2453,7 +2735,7 @@ function openStairs(onClose, opt) {
       const fleshM = mk(0x8d8179), veinM = mk(0x6a3a3a), voidM = mk(0x000000, true), eyeM = mk(0xe6e0a0, true), toothM = mk(0xd9d2b8, true);
       const cg = new THREE.Group(), head = new THREE.Group(), add = (geo, mat, x, y, z, parent) => { geos.push(geo); const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); (parent || cg).add(m); return m; };
       add(new THREE.SphereGeometry(0.3, 10, 8), fleshM, 0, 0.42, -0.1).scale.set(1.05, 0.85, 1.5); // からだ
-      head.position.set(0.05, 0.62, 0.45); head.rotation.z = -0.25; cg.add(head); // 頭：大きすぎて、かたむいている（前＝+z）
+      head.position.set(0.05, 0.62, 0.45); head.rotation.z = -0.25; head.rotation.x = -1.15; cg.add(head); // 頭：大きすぎて、かたむいている（前＝+z）。顔は上（階段の上がわ＝こちら）を向く（x をマイナスに回すと上向き）
       add(new THREE.SphereGeometry(0.27, 12, 10), fleshM, 0, 0, 0, head).scale.set(1.15, 0.95, 1);
       add(new THREE.SphereGeometry(0.14, 8, 6), veinM, -0.14, 0.17, -0.05, head); // こぶ
       [[-0.11, 0.07, 0.05], [0.12, 0.12, 0.035], [0.02, -0.02, 0.025]].forEach(([x, y, r]) => { add(new THREE.SphereGeometry(r, 8, 6), eyeM, x, y, 0.22, head); add(new THREE.SphereGeometry(r * 0.4, 6, 5), voidM, x, y, 0.22 + r * 0.8, head); }); // 目：大きさも高さもばらばら
@@ -2462,6 +2744,40 @@ function openStairs(onClose, opt) {
       [[-0.28, 0.3], [0.28, 0.3], [-0.26, -0.35], [0.26, -0.35]].forEach(([x, z]) => { const a = add(new THREE.CylinderGeometry(0.025, 0.04, 0.8, 5), fleshM, x, 0.28, z); a.rotation.z = x < 0 ? 0.9 : -0.9; a.rotation.x = z > 0 ? -0.5 : 0.4; }); // 細くて長い手足
       cg.visible = false; scene.add(cg);
       const fp = new THREE.Vector3();
+      let rs = 0, rt = 0, sc = 0; // 見られたあとの段階：rs＝0まだ／1気づく／2走ってくる／3つかまえた、rt＝その段階の経過(秒)、sc＝次の悲鳴までの時間
+      const lockLook = (dt, kk) => { // 視点を、生き物の顔へむりやり向ける（目をそらせない）
+        const dx = cg.position.x - P.x, dy = cg.position.y + 0.62 - (P.y + EYE), dz = cg.position.z - P.z;
+        const ty = Math.atan2(-dx, -dz), tp = Math.atan2(dy, Math.hypot(dx, dz));
+        let da = ty - P.yaw; da -= Math.round(da / 6.2832) * 6.2832;
+        P.yaw += da * Math.min(1, dt * kk); P.pitch += (tp - P.pitch) * Math.min(1, dt * kk);
+      };
+      const runRush = (dt, t) => { // 見られたあとの流れ：気づく(0.55秒) → すごい勢いで走ってくる → つかまる(0.3秒) → 死ぬ。終わったら true
+        rt += dt;
+        Object.keys(keys).forEach(k => { keys[k] = false; }); sv = { x: 0, y: 0 }; sr = { x: 0, y: 0 }; // 動けない
+        cg.visible = true;
+        const tx = P.x, ty = P.y + EYE - 0.62, tz = P.z; // 生き物の体の置き場所（顔が目の前に来る）
+        let dx = tx - cg.position.x, dy = ty - cg.position.y, dz = tz - cg.position.z, d = Math.hypot(dx, dy, dz) || 1;
+        lockLook(dt, rs === 1 ? 10 : rs === 2 ? 14 : 20);
+        if (rs === 1) { // 気づく：顔がこちらをまっすぐ向いて、頭がふるえる
+          head.rotation.x += (-0.15 - head.rotation.x) * Math.min(1, dt * 14); head.rotation.z = -0.25 + 0.12 * Math.sin(t * 40);
+          camShake = Math.max(camShake, 2.5);
+          if (rt >= 0.55) { rs = 2; rt = 0; sc = 0; }
+        } else if (rs === 2) { // すごい勢いで走ってくる（だんだん速く）
+          const step = Math.min((12 + rt * 40) * dt, Math.max(0, d - 1.05));
+          cg.position.x += dx / d * step; cg.position.y += dy / d * step; cg.position.z += dz / d * step;
+          cg.rotation.z = 0.1 * Math.sin(t * 32); head.rotation.x = -0.15 + 0.12 * Math.sin(t * 28); head.rotation.z = -0.25 + 0.1 * Math.sin(t * 36); // 全身で駆けるゆれ
+          sc -= dt; if (sc <= 0) { sc = 0.2; spScreech(0.4 + 0.3 * Math.min(1, rt)); }
+          camShake = Math.max(camShake, 3 + 7 * Math.min(1, rt));
+          hitFx.style.transition = 'none'; hitFx.style.opacity = Math.sin(rt * 50) > 0 ? '0.5' : '0.1'; // 画面の縁が赤く点滅する
+          if (d - step <= 1.06) { rs = 3; rt = 0; spScreech(1.0); stairThud(2.6); camShake = Math.max(camShake, 14); }
+        } else { // つかまえた：顔が目の前いっぱいに。叫んで、画面が真っ赤になって、死ぬ
+          cg.position.set(tx - dx / d * 1.05, ty - dy / d * 1.05, tz - dz / d * 1.05); // 顔が目の前にくるように置く
+          head.rotation.z = -0.25 + 0.15 * Math.sin(t * 60); camShake = Math.max(camShake, 12);
+          hitFx.style.transition = 'none'; hitFx.style.opacity = '0.9';
+          if (rt >= 0.3) { ctx.damage(STAIR_MAX_HP * 2); return true; }
+        }
+        return false;
+      };
       stairTickers.push({
         id: 'babycry', passive: true,
         tick: (dt, t) => {
@@ -2476,22 +2792,24 @@ function openStairs(onClose, opt) {
               vq -= dt; if (vq <= 0) { vq = 0.12; const w = Math.min(6, stLos(P.x, P.y + EYE, P.z, sx, sy, sz)); vLp.frequency.setTargetAtTime(Math.max(450, 7000 / (1 + 1.6 * w)), ac.currentTime, 0.08); vOut.gain.setTargetAtTime(0.8 / (1 + 0.2 * w), ac.currentTime, 0.08); } // 床やコンクリートをはさむほど、こもって小さくなる
             } catch (e) { vOn = false; }
           }
+          if (rs > 0) return runRush(dt, t); // 見られたあと：演出へ（ふだんの処理はしない）
           const back = topY - P.gy; // いちばん高く行った所から、どれだけ戻ったか
           if (!active && back >= BACK_ON) active = true; else if (active && back < BACK_OFF) active = false; // 戻ると、声のいた所に生き物が現れる。上へ戻ると、また隠れる
           cg.visible = active && Math.abs(tg.y - P.y) < 14;
           if (cg.visible) {
             cg.position.set(tg.x, tg.y, tg.z);
-            let da = Math.atan2(P.x - tg.x, P.z - tg.z) - cg.rotation.y; da -= Math.round(da / 6.2832) * 6.2832; cg.rotation.y += da * Math.min(1, dt * 4); head.rotation.z = -0.25 + 0.06 * Math.sin(t * 2.2); // こちらを向く。頭がゆれる
+            let da = Math.atan2(P.x - tg.x, P.z - tg.z) - cg.rotation.y; da -= Math.round(da / 6.2832) * 6.2832; cg.rotation.y += da * Math.min(1, dt * 4); head.rotation.z = -0.25 + 0.06 * Math.sin(t * 2.2); head.rotation.x = -1.15 + 0.05 * Math.sin(t * 1.7); // こちらを向く。頭がゆれる
             const cx = tg.x, cy = tg.y + 0.55, cz = tg.z, ox = P.x, oy = P.y + EYE, oz = P.z, dx = cx - ox, dy = cy - oy, dz = cz - oz, dist = Math.hypot(dx, dy, dz), cp = Math.cos(P.pitch);
             const ahead = -Math.sin(P.yaw) * cp * dx + Math.sin(P.pitch) * dy - Math.cos(P.yaw) * cp * dz > 0;
             fp.set(cx, cy, cz).project(camera);
             const seen = dist < GAZE_D && ahead && Math.abs(fp.x) < 1 && Math.abs(fp.y) < 1 && fp.z < 1 && stLos(ox, oy, oz, cx, cy, cz) === 0; // 生き物が画面（視界）に入っていて、間に壁がない
             gz = seen ? gz + dt : Math.max(0, gz - dt * 2);
-            if (gz >= GAZE_T) { ctx.damage(DMG); camShake = Math.max(camShake, 4); spScreech(0.3); stairThud(1.4); cg.visible = false; return true; } // 見てしまった：最大HPの50%のダメージ。生き物は消えて、声もやむ
+            if (gz >= GAZE_T) { rs = 1; rt = 0; vOn = false; try { if (vOut && ac) vOut.gain.setTargetAtTime(0, ac.currentTime, 0.03); } catch (e) { /* 何もしない */ } spScreech(0.35); stairThud(1.2); camShake = Math.max(camShake, 4); } // 見てしまった：声がぴたりとやんで、生き物に気づかれる
           } else gz = 0;
           return false;
         },
         cleanup: () => {
+          if (rs > 0 && !dead) { try { hitFx.style.opacity = '0'; } catch (e) { /* 何もしない */ } } // 演出の途中で片づけられたら、画面の赤みを消す
           try { if (vOut && ac) { vOut.gain.cancelScheduledValues(ac.currentTime); vOut.gain.setTargetAtTime(0, ac.currentTime, 0.04); } } catch (e) { /* 何もしない */ }
           setTimeout(() => { try { if (vPan) vPan.disconnect(); if (vSend) vSend.disconnect(); if (vOut) vOut.disconnect(); if (vLp) vLp.disconnect(); if (vIn) vIn.disconnect(); } catch (e) { /* 何もしない */ } }, 900); // 予約済みの声が尽きてから、つなぎを外す
           scene.remove(cg); geos.forEach(o => o.dispose()); mats.forEach(o => o.dispose());
@@ -2530,13 +2848,13 @@ function openStairs(onClose, opt) {
   document.addEventListener('keydown', onKeyDown, true); document.addEventListener('keyup', onKeyUp, true); window.addEventListener('blur', onBlur);
   root.addEventListener('pointerdown', () => { if (ac && ac.state === 'suspended' && ac.resume) ac.resume().catch(() => {}); }, true);
   let lookId = null, lx = 0, ly = 0; // ドラッグで見回す（マウス・指）
-  cv.onpointerdown = ev => { if (lookId !== null || (touch && ev.pointerType !== 'mouse')) return; lookId = ev.pointerId; lx = ev.clientX; ly = ev.clientY; try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } };
+  cv.onpointerdown = ev => { if (lookId !== null) return; lookId = ev.pointerId; lx = ev.clientX; ly = ev.clientY; try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } };
   cv.onpointermove = ev => { if (ev.pointerId !== lookId) return; P.yaw -= (ev.clientX - lx) * 0.0045 * LOOK_SPEED; P.pitch = Math.max(-1.3, Math.min(1.3, P.pitch - (ev.clientY - ly) * 0.0045 * LOOK_SPEED)); lx = ev.clientX; ly = ev.clientY; };
   cv.onpointerup = cv.onpointercancel = ev => { if (ev.pointerId === lookId) lookId = null; };
   const btn = document.createElement('div'); btn.textContent = '✕ もどる';
   btn.style.cssText = 'position:absolute;top:12px;right:12px;padding:9px 14px;font-size:16px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.38);border:2px solid rgba(255,255,255,0.7);border-radius:10px;cursor:pointer;';
   btn.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); exit(); }; root.appendChild(btn);
-  if (touch) { // スマホ：左＝移動、右＝視点（草原と同じ位置・大きさ）
+  if (touch) { // スマホ：左＝移動、視点は画面のスワイプ（草原と同じ位置・大きさ）
     const mkStick = (right, cb) => {
       const base = document.createElement('div'), knob = document.createElement('div');
       base.style.cssText = 'position:absolute;' + (right ? 'right' : 'left') + ':14.5vh;top:55.5vh;transform:translateY(-50%);width:27vh;height:27vh;border-radius:50%;background:rgba(255,255,255,0.08);border:0.5vh solid rgba(255,255,255,0.25);touch-action:none;';
@@ -2547,7 +2865,7 @@ function openStairs(onClose, opt) {
       base.onpointermove = ev => { if (ev.pointerId === id) apply(ev); };
       base.onpointerup = base.onpointercancel = ev => { if (ev.pointerId === id) { id = null; knob.style.transform = ''; cb({ x: 0, y: 0 }); } };
     };
-    mkStick(false, v => { sv = v; }); mkStick(true, v => { sr = v; });
+    mkStick(false, v => { sv = v; }); // 右スティックはなし：視点は、画面のスワイプで動かす（sr は常に0）
   }
   const resize = () => { const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
   window.addEventListener('resize', resize); resize();
@@ -2617,7 +2935,7 @@ function openStairs(onClose, opt) {
   };
   const glVS = { x: 0, z: 0, yaw: 0, pitch: 0, env: 'stairs', revBase: 0.6, revRatio: 2.2, key: 'gl', d: 1, sd: 'stairs', radius: (typeof VOICE !== 'undefined' && VOICE.space3dDungeonRadius) || 9, wall: stWall, path: stPath }; // 🎙 声：コンクリートの階段室の響き（長く明るく、ブンブンと往復する反響つき）。revBase＝近くの声にもつく響きの量／revRatio＝響きが声（直接音）の何倍まで大きくなれるか（既定は1倍。階段室は硬いので、遠い声は響きの方が大きいくらいにする）。壁越し（仕切り・床）と階段をたどる回り込みは、上の stWall / stPath が階段の形から計算する
   const r2 = v => Math.round(v * 100) / 100;
-  const glPublish = clear => { if (!glNet) return; if (stEvOut && stNow() - stEvOut.t > 15000) stEvOut = null; try { glNet.updateOwnState({ gl: clear ? null : { x: r2(P.x), z: r2(P.z + VZ * P.y), y: r2(P.y), r: r2(P.yaw), p: r2(P.pitch), d: 1, sd: 'stairs', ...(stEvOut ? { ev: stEvOut } : {}), ...(stSpOut ? { sp: stSpOut } : {}) } }); } catch (e) { /* 何もしない */ } }; // ev＝自分が起こしたイベントの印（{ id, f＝階, k＝見分ける印, t＝サーバー時刻 }）。終わる（または15秒たつ）と外れる
+  const glPublish = clear => { if (!glNet) return; try { glNet.updateOwnState({ gl: clear ? null : { x: r2(P.x), z: r2(P.z + VZ * P.y), y: r2(P.y), r: r2(P.yaw), p: r2(P.pitch), d: 1, sd: 'stairs', ...(stSpOut ? { sp: stSpOut } : {}) } }); } catch (e) { /* 何もしない */ } }; // （イベントはここの状態には乗せない。順序保証つきの events チャネルで、起きた時に1回だけ配る＝ stSendEv）
   const glMake = (uid, p) => {
     let col; try { col = new THREE.Color(p.color == null ? 0xffffff : p.color); } catch (e) { col = new THREE.Color(0xffffff); }
     const grp = new THREE.Group(), mat = new THREE.MeshLambertMaterial({ color: col }), noseM = new THREE.MeshLambertMaterial({ color: 0xffffff }), nose = new THREE.Group(); nose.position.y = 1.42; nose.add(new THREE.Mesh(glNoseGeo, noseM));
@@ -2630,24 +2948,39 @@ function openStairs(onClose, opt) {
     const r = { grp, mat, noseM, nose, tex, label, tx: 0, ty: 0, tz: 0, tr: 0, tp: 0, by: 0, init: false }; glRem.set(uid, r); return r;
   };
   const glRemove = uid => { const r = glRem.get(uid); if (!r) return; scene.remove(r.grp); r.mat.dispose(); r.noseM.dispose(); r.tex.dispose(); r.label.material.dispose(); glRem.delete(uid); };
-  const stRemoteEv = (uid, e) => { // 🤝 ほかの人が起こしたイベントを、こちらでも同じ階・同じ時刻から動かす（イベント側は ctx.remote を見て、経過ぶん進めた所から始める）
-    if (!e || typeof e.id !== 'string' || typeof e.k !== 'string' || e.k.length > 24 || !Number.isFinite(e.f) || !Number.isFinite(e.t) || Math.abs(e.f) > 9999) return; // 変な値は無視
-    const key = uid + ':' + e.k; if (stSeenEv.has(key)) return;
-    const el = (stNow() - e.t) / 1000; if (el > 12) { stSeenEv.add(key); return; } if (el < -3) return; // 古すぎるものは始めない／時計が大きく先走っているものは、少し待つ
-    const ev = STAIR_EVENTS.find(x => x.id === e.id); if (!ev) { stSeenEv.add(key); return; }
-    let started = false; try { started = ev.run({ floor: e.f, toast: stairToast, damage: stairDamage, heal: stairHeal, root, P, R, remote: { el: Math.max(0, el), d: e.d === -1 ? -1 : 1 } }) === true; } catch (err) { console.error('階段イベント（他の人）のエラー:', err); stSeenEv.add(key); return; }
-    if (started) { stSeenEv.add(key); if (stSeenEv.size > 300) stSeenEv.clear(); } // 自分のイベントが動いている間は始められないので、終わるまで毎フレーム試す
+  const stSendEv = o => { if (!glNet || !glNet.sendStairEv) return; try { glNet.sendStairEv(o); } catch (e) { /* 何もしない */ } }; // 🪜 自分が起こしたイベントを、同じ階段にいる人たちへ配る（順序保証つきの events チャネル。{ id, d, f＝階, k＝見分ける印 }）。1回だけ送る
+  const stEvQ = []; // 届いたイベントの待ち行列（届いた順に、1つずつ始める＝順序が入れ替わらない）
+  const stRecvEv = e => { // 🤝 events チャネルで、ほかの人のイベントが届いた
+    if (!glNet || !e || typeof e.u !== 'string' || e.u === glNet.uid || typeof e.id !== 'string' || typeof e.k !== 'string' || e.k.length > 24 || !Number.isFinite(e.f) || Math.abs(e.f) > 9999) return; // 変な値・自分のものは無視
+    stEvQ.push({ u: e.u, e, at: performance.now() }); if (stEvQ.length > 40) stEvQ.shift();
   };
+  const stPumpEv = () => { // 毎フレーム：待ち行列の先頭から順に始める。先頭が始められない間（自分のイベントが動いている間）は、後ろも待つ
+    while (stEvQ.length) {
+      const q = stEvQ[0], e = q.e, key = q.u + ':' + e.k, el = (performance.now() - q.at) / 1000, ev = STAIR_EVENTS.find(x => x.id === e.id);
+      if (!ev || stSeenEv.has(key) || el > 12) { stEvQ.shift(); continue; } // 知らない・済み・古すぎるものは捨てる
+      let started = false;
+      try { started = ev.run({ floor: e.f, toast: stairToast, damage: stairDamage, heal: stairHeal, root, P, R, remote: { el, d: e.d === -1 ? -1 : 1 } }) === true; } catch (err) { console.error('階段イベント（他の人）のエラー:', err); stEvQ.shift(); stSeenEv.add(key); continue; } // el＝待たされた秒数（始めるのが遅れたぶん、進めた所から始まる）
+      if (!started) break; // まだ始められない：次のフレームでもう一度（順序を守るため、後ろには進まない）
+      stEvQ.shift(); stSeenEv.add(key); if (stSeenEv.size > 300) stSeenEv.clear();
+    }
+  };
+  if (glNet && glNet.listenStairEv) glNet.listenStairEv(stRecvEv); // 階段にいる間だけ受け取る（出る時は glStop で外す）
+  let stBiteAt = 0;
+  const stBiteRecv = e => { // 🕷 ほかの人のくもに噛まれた（events チャネルで、噛まれた人にだけ1回届く）：自分のHPを減らす
+    if (!e || typeof e.u !== 'string' || (glNet && e.u === glNet.uid)) return;
+    const now = performance.now(); if (now - stBiteAt < 300) return; stBiteAt = now; // 続けて届いても、一度に何回も痛くならない
+    stairDamage(SP_DMG); camShake = Math.max(camShake, 3); spScreech(0.3); stairThud(1.6);
+  };
+  if (glNet && glNet.listenStairBite) glNet.listenStairBite(stBiteRecv);
   const glFrame = (dt, t) => {
     if (!glNet) return;
-    if (!stClockAsked) { stClockAsked = true; try { if (glNet.db) glNet.db.ref('.info/serverTimeOffset').once('value').then(sn => { const v = Number(sn.val()); if (Number.isFinite(v)) stClockOff = v; }).catch(() => { /* 何もしない */ }); } catch (e) { /* 何もしない */ } } // サーバー時計とのずれを一度だけ聞く
+    stPumpEv(); // 🪜 届いたイベントを、届いた順に始める
     glAcc += dt; if (glAcc >= 0.06) { glAcc = 0; glPublish(false); }
     { const v = glNet._voice; if (v && !v.stopped) { glVS.x = P.x; glVS.z = P.z + VZ * P.y; glVS.yaw = P.yaw; glVS.pitch = P.pitch; v.space3d = glVS; } } // 声：自分の位置と向きを渡す（毎回渡して、繋ぎ直されても外れないようにする）
     const players = (glSc && glSc.latestPlayers) || {}, want = new Set(), wantSp = new Set();
     for (const uid in players) {
       if (uid === glNet.uid) continue;
-      const g = players[uid] && players[uid].gl; if (!g || !g.d || g.sd !== 'stairs') continue; // 階段にいる人だけ
-      if (g.ev) stRemoteEv(uid, g.ev); // その人がイベントを起こしていたら、こちらでも同じように始める
+      const g = players[uid] && players[uid].gl; if (!g || typeof g.x !== 'number' || zoneOfPlayer(players[uid]) !== 'stairs') continue; // 階段にいる人だけ
       if (g.sp && stRemoteSpider(uid, g.sp)) wantSp.add(uid); // その人のくもが出ていたら、こちらでも見せる
       want.add(uid);
       let r = glRem.get(uid); if (!r) r = glMake(uid, players[uid]);
@@ -2665,7 +2998,7 @@ function openStairs(onClose, opt) {
     });
   };
   const glStop = () => {
-    stEvOut = null; stSpOut = null; Array.from(spRem.keys()).forEach(spRemRemove); if (!glNet) return; { const v = glNet._voice; if (v && v.space3d === glVS) v.space3d = null; } Array.from(glRem.keys()).forEach(glRemove);
+    stEvQ.length = 0; if (glNet && glNet.listenStairEv) glNet.listenStairEv(null); if (glNet && glNet.listenStairBite) glNet.listenStairBite(null); stSpOut = null; Array.from(spRem.keys()).forEach(spRemRemove); if (!glNet) return; { const v = glNet._voice; if (v && v.space3d === glVS) v.space3d = null; } Array.from(glRem.keys()).forEach(glRemove);
     glPublish(true); setTimeout(() => glPublish(true), 300); setTimeout(() => glPublish(true), 1200); // 取りこぼしても消えるように、数回送る
   };
   glPublish(false);
@@ -2842,17 +3175,17 @@ function openPartyHall(onClose, opt) {
   const onBlur = () => { Object.keys(keys).forEach(k => { keys[k] = false; }); sv = { x: 0, y: 0 }; sr = { x: 0, y: 0 }; };
   document.addEventListener('keydown', onKeyDown, true); document.addEventListener('keyup', onKeyUp, true); window.addEventListener('blur', onBlur);
   let lookId = null, lx = 0, ly = 0; // ドラッグで見回す（マウス・指）
-  cv.onpointerdown = ev => { if (lookId !== null || (touch && ev.pointerType !== 'mouse')) return; // スマホでは、視点は右スティックだけで動かす
+  cv.onpointerdown = ev => { if (lookId !== null) return; // スマホも、画面をスワイプして見回す（右スティックはなし）
     lookId = ev.pointerId; lx = ev.clientX; ly = ev.clientY; try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } };
   cv.onpointermove = ev => { if (ev.pointerId !== lookId) return; P.yaw -= (ev.clientX - lx) * 0.0045 * LOOK_SPEED; P.pitch = Math.max(-1.3, Math.min(1.3, P.pitch - (ev.clientY - ly) * 0.0045 * LOOK_SPEED)); lx = ev.clientX; ly = ev.clientY; };
   cv.onpointerup = cv.onpointercancel = ev => { if (ev.pointerId === lookId) lookId = null; };
   const btn = document.createElement('div'); btn.textContent = '✕ もどる';
   btn.style.cssText = 'position:absolute;top:12px;right:12px;padding:9px 14px;font-size:16px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.38);border:2px solid rgba(255,255,255,0.7);border-radius:10px;cursor:pointer;';
   btn.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); exit(); }; root.appendChild(btn);
-  const hint = document.createElement('div'); hint.textContent = touch ? '🎙 左スティック：移動　右スティック：見回す　🎤：マイク' : '🎙 WASD・矢印：移動　Shift：走る　ドラッグ：見回す　🎤：マイク　Esc：もどる';
+  const hint = document.createElement('div'); hint.textContent = touch ? '🎙 左スティック：移動　画面スワイプ：見回す　🎤：マイク' : '🎙 WASD・矢印：移動　Shift：走る　ドラッグ：見回す　🎤：マイク　Esc：もどる';
   hint.style.cssText = 'position:absolute;left:50%;bottom:4vh;transform:translateX(-50%);padding:8px 16px;font-size:15px;color:#fff;background:rgba(0,0,0,0.35);border-radius:999px;white-space:nowrap;transition:opacity 1.5s;pointer-events:none;';
   root.appendChild(hint); setTimeout(() => { hint.style.opacity = '0'; }, 7000);
-  if (touch) { // スマホ：2D（書庫・パーティールーム）と同じ位置・大きさのスティック。左＝移動、右＝視点
+  if (touch) { // スマホ：2D（書庫・パーティールーム）と同じ位置・大きさのスティック。左＝移動、視点は画面のスワイプ
     const mkStick = (right, cb) => {
       const base = document.createElement('div'), knob = document.createElement('div');
       base.style.cssText = 'position:absolute;' + (right ? 'right' : 'left') + ':14.5vh;top:55.5vh;transform:translateY(-50%);width:27vh;height:27vh;border-radius:50%;background:rgba(255,255,255,0.08);border:0.5vh solid rgba(255,255,255,0.25);touch-action:none;';
@@ -2863,7 +3196,7 @@ function openPartyHall(onClose, opt) {
       base.onpointermove = ev => { if (ev.pointerId === id) apply(ev); };
       base.onpointerup = base.onpointercancel = ev => { if (ev.pointerId === id) { id = null; knob.style.transform = ''; cb({ x: 0, y: 0 }); } };
     };
-    mkStick(false, v => { sv = v; }); mkStick(true, v => { sr = v; });
+    mkStick(false, v => { sv = v; }); // 右スティックはなし：視点は、画面のスワイプで動かす（sr は常に0）
   }
   const resize = () => { const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
   window.addEventListener('resize', resize); resize();
@@ -2901,12 +3234,12 @@ function openPartyHall(onClose, opt) {
     const players = (socScene && socScene.latestPlayers) || {};
     for (const uid in players) {
       if (uid === socNet.uid) continue;
-      const p = players[uid], g = p && p.g3; if (!g) continue;
+      const p = players[uid], g = p && p.g3; if (!g || typeof g.x !== 'number') continue; // 位置が無い（＝別のゾーンの印だけ）の人は出さない
       const r = remotes.get(uid) || socMakeRemote(uid, p);
       r.tx = g.x || 0; r.tz = g.z || 0; r.tr = g.r || 0; r.tp = g.p || 0; r.ts = g.s ? 1 : 0;
       if (!r.init) { r.init = true; r.grp.position.set(r.tx, 0, r.tz); r.grp.rotation.y = r.tr; r.nose.rotation.x = r.tp; }
     }
-    for (const uid of Array.from(remotes.keys())) { const p = players[uid]; if (!p || !p.g3) socRemoveRemote(uid); }
+    for (const uid of Array.from(remotes.keys())) { const p = players[uid]; if (!p || !p.g3 || typeof p.g3.x !== 'number') socRemoveRemote(uid); }
     const k = 1 - Math.exp(-dt * 12);
     remotes.forEach(r => {
       const g = r.grp, ox = g.position.x, oz = g.position.z;
@@ -29321,6 +29654,9 @@ function decodeEnemyEntry(en) {
 // 状態の通信は順序保証も再送も無いので、差分を取りこぼしても、この間隔で自動的に正しい状態に戻る。
 const ENEMY_FULL_INTERVAL_MS = 1000;
 
+// 🪨 草原の石積み（3D）の決まり：ホストが決めるので、ここに置く（草原の画面の外にいても、Net がいまの山を持つ）
+const CAIRN_MAXN = 30;
+const cairnPOf = n => Math.min(1, 0.02 + 0.00182 * (n - 1) * (n - 1)); // いま n 段の山に1つ積む時に、崩れる確率（n段が高いほど上がる）
 class Net {
   constructor(config) {
     // Firebaseの読み込み元(gstatic.com)がブロックされる環境（一部のプレビュー環境や、
@@ -29353,6 +29689,7 @@ class Net {
     this._enemyMirrorByFloor = {}; this._enemySeqByFloor = {};  // ゲスト側：受信済みミラーと直近の連番
     this._frontlineCb = null; this._frontlineMirror = null; this._frontlineSeq = 0; this._frontlineSeqSeen = 0;
     this._eventCbs = {};        // attack/shot/eshot/revive の購読コールバック
+    this._eventCbs.cairn = (p) => this._onCairnMsg(p); // 🪨 草原の石積み：草原の外にいる間も、いまの山を受け取って持ち続ける
     this._hostUid = null;
     this._hostPc = null; this._hostChannels = null;             // ゲスト側：ホストへのPeerConnectionと2本のDataChannel
     this._connectedHostUid = null; this._connectingHostUid = null;
@@ -29889,12 +30226,42 @@ class Net {
 
   _broadcastToGuests(channelName, msgObj, excludeUid, onlyUids, dropIfBusy) { // onlyUids：あれば、その人たちにだけ送る／dropIfBusy：送信待ちが溜まっている相手には送らない
     if (!this._guestPeers) return;
-    const raw = JSON.stringify(msgObj);
+    // 🚪 ゾーン（ポータルごとの部屋）で絞る：
+    //   ・players（全員の状態）：別のゾーンの人の3Dの位置は送らず、「いる印」だけにする（同じゾーンの人の分は、今まで通り全部）。ゾーンごとに1回だけ作る
+    //   ・events の 'stair'（階段の出来事）は、階段にいる人にだけ。'cairn'（石の山の変化）は、階段と広場にいる人には送らない（2Dの部屋の人には、あとで山を丸ごともらう時に食い違わないよう送る）
+    const hot = this._hotMap || {};
+    const isPlayers = channelName === 'state' && msgObj && msgObj.t === 'players' && msgObj.p && typeof msgObj.p === 'object';
+    let raw = null, zoneOf = null, cache = null, evOk = null;
+    if (isPlayers) {
+      zoneOf = {}; let any = false;
+      for (const u in msgObj.p) { const z = zoneOfPlayer(msgObj.p[u]); zoneOf[u] = z; if (z) any = true; }
+      if (any) cache = {}; else raw = JSON.stringify(msgObj); // 誰も3Dにいなければ、今まで通り1回で済む
+    } else {
+      raw = JSON.stringify(msgObj);
+      if (channelName === 'events' && !onlyUids && msgObj) {
+        if (msgObj.k === 'stair') evOk = z => z === 'stairs';
+        else if (msgObj.k === 'cairn') evOk = z => z !== 'stairs' && z !== 'hall';
+      }
+    }
     this._guestPeers.forEach((entry, uid) => {
       if (uid === excludeUid) return;
       if (onlyUids && onlyUids.indexOf(uid) < 0) return;
       const ch = entry.channels && entry.channels[channelName];
-      if (ch && ch.readyState === 'open') { if (dropIfBusy && ch.bufferedAmount > NET_FAST_BUSY_BYTES) return; try { ch.send(raw); } catch (e) {} }
+      if (!ch || ch.readyState !== 'open') return;
+      if (dropIfBusy && ch.bufferedAmount > NET_FAST_BUSY_BYTES) return;
+      const gz = zoneOfPlayer(hot[uid]);
+      if (evOk && !evOk(gz)) return;
+      let out = raw;
+      if (cache) {
+        const key = gz || '';
+        out = cache[key];
+        if (out === undefined) {
+          const p2 = {};
+          for (const u in msgObj.p) p2[u] = (zoneOf[u] === gz) ? msgObj.p[u] : zoneStubOf(msgObj.p[u]);
+          out = cache[key] = JSON.stringify(Object.assign({}, msgObj, { p: p2 }));
+        }
+      }
+      try { ch.send(out); } catch (e) {}
     });
   }
 
@@ -29957,6 +30324,8 @@ class Net {
       if (!msg.to || msg.to.indexOf(this.uid) >= 0) this._fireLocal(msg.k, msg.p);
       this._broadcastToGuests('state', msg, guestUid, msg.to, true);
     } else if (msg.t === 'event') {
+      if (msg.k === 'cairn') { if (!msg.p || (msg.p.m !== 'q' && msg.p.m !== 'h' && msg.p.m !== 'g')) return; msg.to = [this.uid]; } // 石積み：ゲストから届くのは「積む依頼」と「いまの山をください」だけ。ホストにだけ届ける
+      if ((msg.k === 'stair' || msg.k === 'stairbite' || msg.k === 'cairn') && msg.p && typeof msg.p === 'object') msg.p = Object.assign({}, msg.p, { u: guestUid }); // 3Dのイベント：送信者uidはホストが確定する（なりすまし防止）
       if (msg.to) { // 宛先つきの event：宛先の人たちにだけ中継する（ホスト自身が宛先なら自分にも）
         if (msg.to.indexOf(this.uid) >= 0) this._fireLocal(msg.k, msg.p);
         this._broadcastToGuests('events', msg, guestUid, msg.to);
@@ -30125,6 +30494,79 @@ class Net {
   sendShot(payload) { this._sendEvent('shot', Object.assign({}, payload, { uid: this.uid }), false); }
   listenShots(cb) { this._eventCbs.shot = cb; }
 
+  // 🪜 階段のイベント（くも・化け物など）：順序保証つき・再送ありの events チャネルで、起きた時に1回だけ配る（Firebaseも、時計の同期も使わない）。自分には返さない
+  sendStairEv(payload) { this._sendEvent('stair', Object.assign({}, payload, { u: this.uid }), false); }
+  listenStairEv(cb) { this._eventCbs.stair = cb; }
+
+  // ===== 3D共通：宛先つきのイベント／草原の石積み（Firebaseは使わない。ホストが決めて、順序保証つきの events チャネルで配る） =====
+  _sendEventTo(kind, payload, toUids) { // toUids の人にだけ届ける（ゲストが送る時はホスト経由）。送れたら true
+    const msg = { t: 'event', k: kind, p: payload, to: toUids };
+    if (this.isHost) { if (toUids.indexOf(this.uid) >= 0) this._fireLocal(kind, payload); this._broadcastToGuests('events', msg, null, toUids); return true; }
+    return this._sendToHost('events', msg);
+  }
+  sendStairBite(toUid, payload) { return this._sendEventTo('stairbite', Object.assign({}, payload, { u: this.uid }), [toUid]); } // 🕷 くもに噛まれた人へ（その人の画面で、1回だけHPを減らす）
+  listenStairBite(cb) { this._eventCbs.stairbite = cb; }
+  _cairnS() { if (!this._cairnMap || this._cairnRid !== this.roomId) { this._cairnRid = this.roomId; this._cairnMap = {}; this._cairnPend = {}; this._cairnTaken = {}; this._cairnBest = 0; } return this._cairnMap; } // いまの石の山（id → { x, z, n, by }）。部屋が変わったら空にする
+  cairnSnapshot() { return JSON.parse(JSON.stringify(this._cairnS())); }
+  listenCairn(cb) { this._cairnView = cb; } // 草原の画面が、山の変化を受け取る口（出る時は null）
+  cairnHello() { if (!this.isHost && this._hostUid) this._sendEventTo('cairn', { m: 'h' }, [this._hostUid]); } // ゲスト：ホストに、いまの山を丸ごと送ってもらう
+  cairnBest() { this._cairnS(); return this._cairnBest; } // この部屋での石積みの最高記録（いちばん高く積めた段数）
+  cairnTaken() { this._cairnS(); return Object.keys(this._cairnTaken); } // もう拾われた「崩れて散らばった石」の印（全員で共有）
+  cairnGrab(key, cb) { // 崩れて散らばった石を1つ拾う依頼。cb(ok, gone)：ok＝拾えた（先に頼んだ1人だけ）／gone＝もう誰かが拾った（通信できなかった時は ok=false, gone=false）
+    this._cairnS(); const pend = this._cairnPend, rid = (this._cairnSeq = (this._cairnSeq || 0) + 1);
+    const tm = setTimeout(() => { if (pend[rid]) { delete pend[rid]; cb(false, false); } }, 4000);
+    pend[rid] = (ok, v) => { clearTimeout(tm); cb(!!ok, !ok && !!(v && v.gone)); };
+    if (this.isHost) { this._cairnGrabHandle({ m: 'g', rid, key, u: this.uid }); return; }
+    if (!this._hostUid || !this._sendEventTo('cairn', { m: 'g', rid, key }, [this._hostUid])) { delete pend[rid]; clearTimeout(tm); cb(false, false); }
+  }
+  _cairnGrabHandle(p) { // ホストだけ：石を拾う依頼を1つずつ順番に決める。最初の1人だけ拾えて、全員の画面からその石が消える（二人が別々に拾って石が二倍になるのを防ぐ）
+    this._cairnS(); const T = this._cairnTaken;
+    if (!this.isHost || !p || typeof p.key !== 'string' || p.key.length > 80 || p.key.charAt(0) !== 'd' || typeof p.u !== 'string') return;
+    let ok = false;
+    if (!T[p.key]) {
+      ok = true; T[p.key] = 1; const ks = Object.keys(T); if (ks.length > 3000) delete T[ks[0]];
+      this._broadcastToGuests('events', { t: 'event', k: 'cairn', p: { m: 't', key: p.key } }); // 先に全員へ配ってから、依頼した人に結果を返す（同じ順序の道を通る）
+      if (this._cairnView) this._cairnView({ m: 't', key: p.key });
+    }
+    const rep = { m: 'r', rid: p.rid, ok, v: ok ? null : { gone: true } };
+    if (p.u === this.uid) this._onCairnMsg(rep); else this._sendEventTo('cairn', rep, [p.u]);
+  }
+  cairnPlace(req, cb) { // 石を1つ積む依頼。cb(ok, v)：ok＝積めた（v＝積んだあとの山。n:0 は崩れた）／積めない時は ok=false
+    this._cairnS(); const pend = this._cairnPend, rid = (this._cairnSeq = (this._cairnSeq || 0) + 1);
+    const tm = setTimeout(() => { if (pend[rid]) { delete pend[rid]; cb(false, null); } }, 4000);
+    pend[rid] = (ok, v) => { clearTimeout(tm); cb(ok, v); };
+    if (this.isHost) { this._cairnHandle({ m: 'q', rid, id: req.id, x: req.x, z: req.z, u: this.uid }); return; }
+    if (!this._hostUid || !this._sendEventTo('cairn', { m: 'q', rid, id: req.id, x: req.x, z: req.z }, [this._hostUid])) { delete pend[rid]; clearTimeout(tm); cb(false, null); }
+  }
+  _cairnHandle(p) { // ホストだけ：積む依頼を受けて、新しい山／積み増し／崩れる を決める（依頼は1つずつ順番に決まるので、同時に積んでも全員同じ結果になる）
+    const S = this._cairnS();
+    if (!this.isHost || !p || typeof p.id !== 'string' || p.id.length > 40 || typeof p.u !== 'string' || !Number.isFinite(p.x) || !Number.isFinite(p.z) || Math.abs(p.x) > 1e5 || Math.abs(p.z) > 1e5) return;
+    const cur = S[p.id], X = Math.round(p.x * 100) / 100, Z = Math.round(p.z * 100) / 100; let v, ok = true;
+    if (!cur || !cur.n) v = { x: X, z: Z, n: 1, by: p.u };
+    else if (cur.n >= CAIRN_MAXN) { v = cur; ok = false; }
+    else if (Math.random() < cairnPOf(cur.n)) v = { x: cur.x, z: cur.z, n: 0, by: cur.by || p.u, k: 1 + Math.floor(Math.random() * 1e9) }; // k＝この崩れの印（散らばる場所の種）
+    else v = { x: cur.x, z: cur.z, n: cur.n + 1, by: cur.by || p.u };
+    if (ok) { // 変わった山を、全員に配る（崩れた山は、ここで消す）。先に配ってから、依頼した人に結果を返す（同じ順序の道を通る）
+      if (v.n === 0) delete S[p.id]; else S[p.id] = v;
+      if (v.n > this._cairnBest) this._cairnBest = v.n; // 最高記録の更新
+      this._broadcastToGuests('events', { t: 'event', k: 'cairn', p: { m: 'u', id: p.id, v, b: this._cairnBest } });
+      if (this._cairnView) this._cairnView({ m: 'u', id: p.id, v, b: this._cairnBest });
+    }
+    const rep = { m: 'r', rid: p.rid, ok, v };
+    if (p.u === this.uid) this._onCairnMsg(rep); else this._sendEventTo('cairn', rep, [p.u]);
+  }
+  _onCairnMsg(p) { // events チャネルの 'cairn'（m：q＝積む依頼／h＝いまの山をください／u＝山が変わった／s＝いまの山の全部／r＝依頼の結果）
+    if (!p || typeof p !== 'object') return;
+    const S = this._cairnS();
+    if (p.m === 'q') this._cairnHandle(p);
+    else if (p.m === 'g') this._cairnGrabHandle(p);
+    else if (p.m === 't') { if (this.isHost || typeof p.key !== 'string') return; this._cairnTaken[p.key] = 1; if (this._cairnView) this._cairnView(p); }
+    else if (p.m === 'h') { if (this.isHost && typeof p.u === 'string') this._sendEventTo('cairn', { m: 's', c: JSON.parse(JSON.stringify(S)), tk: Object.keys(this._cairnTaken), b: this._cairnBest }, [p.u]); }
+    else if (p.m === 'u') { if (this.isHost || typeof p.id !== 'string') return; if (p.v && p.v.n) S[p.id] = p.v; else delete S[p.id]; if (typeof p.b === 'number' && p.b > this._cairnBest) this._cairnBest = p.b; if (this._cairnView) this._cairnView(p); }
+    else if (p.m === 's') { if (this.isHost || !p.c || typeof p.c !== 'object') return; this._cairnMap = p.c; if (typeof p.b === 'number' && p.b > this._cairnBest) this._cairnBest = p.b; if (Array.isArray(p.tk)) p.tk.forEach(k => { if (typeof k === 'string') this._cairnTaken[k] = 1; }); if (this._cairnView) this._cairnView(p); }
+    else if (p.m === 'r') { const f = this._cairnPend && this._cairnPend[p.rid]; if (f) { delete this._cairnPend[p.rid]; f(!!p.ok, p.v || null); } }
+  }
+
   // 敵（飛び道具持ち/ボス）の発射をホストから全員へブロードキャストする経路。
   // 発射判断（誰を狙うか・いつ撃つか）の権威はホストのみが持ち、各クライアントは
   // 受け取った弾を自分のプレイヤーとの当たり判定にのみ使う。
@@ -30244,11 +30686,15 @@ class OfflineNet {
   sendAttack(p) { this._fireLocal('attack', p); }
   sendEnemyShot(p) { this._fireLocal('eshot', p); }
   sendShot() {}
+  sendStairEv() {} // 一人きりなので、配る相手はいない
+  sendStairBite() {}
   broadcastRevive(pos, clear) { this._fireLocal('revive', Object.assign({}, pos || {}, clear ? { clear: true } : {})); }
   // 購読系
   listenPvp(cb) { this._eventCbs.pvp = cb; }
   listenAttacks(cb) { this._eventCbs.attack = cb; }
   listenShots(cb) { this._eventCbs.shot = cb; }
+  listenStairEv(cb) { this._eventCbs.stair = cb; }
+  listenStairBite(cb) { this._eventCbs.stairbite = cb; }
   listenEnemyShots(cb) { this._eventCbs.eshot = cb; }
   listenRevive(cb) { this._eventCbs.revive = (val) => cb(val && typeof val.x === 'number' ? { x: val.x, y: val.y, clear: !!val.clear } : null); }
   listenFloor() {} listenFrontline() {} listenDrops() {} listenLoot() {} listenEnemies() {}
