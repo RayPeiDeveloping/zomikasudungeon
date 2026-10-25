@@ -1429,6 +1429,34 @@ async function fetchPartyRoomMemos() {
   })();
   return Promise.race([run, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))]);
 }
+// 🎥 3D（草原・ダンジョン・階段・洋室）の視点操作は、すべてこの1つの処理を使う。直す時はここだけ直せばよい。
+//   ・ドラッグ（マウス・指）で見回す：動かした量だけ向きが変わる。スマホは1pxあたりの回転を大きく、素早く振るほど少し多く回り、離したあとは少しすべって止まる
+//   ・矢印キー左右・右スティックでも回る（step を毎フレーム呼ぶ）
+//   P＝{ yaw, pitch }を持つ自分の向き／touch＝スマホか。戻り値 .step(dt, keys, sr)：keys.tl/tr（矢印キー）・sr＝右スティック {x,y} を反映し、すべりも進める
+const LOOK_SPEED_3D = 0.75; // 視点を動かす速さの倍率（小さいほどゆっくり）。ドラッグ・スワイプ・矢印キー・右スティックすべてに効く
+function createLookControl(cv, P, touch) {
+  const SPEED = LOOK_SPEED_3D, SWIPE = 0.0045 * (touch ? 1.8 : 1) * SPEED; // SWIPE＝1pxあたりの回転量。スマホは指が動かせる距離が短いので大きめ
+  const clampPitch = v => Math.max(-1.3, Math.min(1.3, v)); // 真上・真下まではいかない
+  const GLIDE_DECAY = 14, GLIDE_POWER = 0.5; // すべりの調整：GLIDE_DECAY＝大きいほどすぐ止まる（以前は4.5）／GLIDE_POWER＝離した時の勢いの割合（1＝指の速さのまま、0＝すべらない）
+  let lookId = null, lx = 0, ly = 0, lt = 0, gvx = 0, gvy = 0; // gvx,gvy＝指を離したあとも少し滑って回る速さ（rad/秒、スマホだけ）
+  cv.onpointerdown = ev => { if (lookId !== null) return; lookId = ev.pointerId; lx = ev.clientX; ly = ev.clientY; lt = ev.timeStamp; gvx = gvy = 0; try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } };
+  cv.onpointermove = ev => {
+    if (ev.pointerId !== lookId) return;
+    const dx = ev.clientX - lx, dy = ev.clientY - ly, dtm = Math.max(1, ev.timeStamp - lt), gain = 1 + Math.min(0.8, Math.hypot(dx, dy) / dtm * 0.5); // 素早く振るほど、少し多く回る（最大1.8倍）
+    const ry = -dx * SWIPE * gain, rp = -dy * SWIPE * gain; P.yaw += ry; P.pitch = clampPitch(P.pitch + rp);
+    if (touch) { const dv = Math.max(8, dtm) / 1000; gvx = Math.max(-8, Math.min(8, gvx * 0.6 + (ry / dv) * 0.4 * GLIDE_POWER)); gvy = Math.max(-8, Math.min(8, gvy * 0.6 + (rp / dv) * 0.4 * GLIDE_POWER)); } // 指の動く速さを覚えておく
+    lx = ev.clientX; ly = ev.clientY; lt = ev.timeStamp;
+  };
+  cv.onpointerup = cv.onpointercancel = ev => { if (ev.pointerId !== lookId) return; lookId = null; if (!touch || ev.type === 'pointercancel' || ev.timeStamp - lt > 90) gvx = gvy = 0; }; // 指を止めてから離した時は、すべらない
+  return {
+    step(dt, keys, sr) {
+      if (lookId === null && (gvx || gvy)) { P.yaw += gvx * dt; P.pitch = clampPitch(P.pitch + gvy * dt); const k = Math.exp(-dt * GLIDE_DECAY); gvx *= k; gvy *= k; if (Math.hypot(gvx, gvy) < 0.03) gvx = gvy = 0; } // 離したあとの「すべり」（だんだん止まる）
+      P.yaw += (((keys && keys.tl) ? 1 : 0) - ((keys && keys.tr) ? 1 : 0)) * 1.8 * SPEED * dt; // 矢印キー左右
+      if (sr) { P.yaw -= sr.x * 2.2 * SPEED * dt; P.pitch = clampPitch(P.pitch - sr.y * 1.6 * SPEED * dt); } // 右スティック
+    }
+  };
+}
+
 // 🌿 草原（3D探索の試作）：パーティールームの「草原」の入口から入る。three.js（エンディングの十字架と同じ r128）で、丘のある草原を歩き回るだけ。
 // 操作：WASD／矢印（↑↓＝前後・←→＝向き）・Shift＝走る・ドラッグ＝見回す・Esc／右上の「もどる」＝出る。スマホは左のスティックで移動、ほかの所をドラッグで見回す。
 // 草と花は InstancedMesh 1つずつにまとめ、頂点シェーダーで「自分の周り70m四方」に並べ直す（どこまで歩いても草が途切れず、数も増えない）。丘の高さ hh() は、JSとGLSLで同じ式。
@@ -1711,13 +1739,11 @@ function openGrassland(onClose, opt) {
   };
 
   // ----- 操作 -----
-  const LOOK_SPEED = 0.75; // 視点を動かす速さの倍率（1＝前の速さ。小さいほどゆっくり）マウスのドラッグ・スマホのスワイプ・矢印キーすべてに効く
   const P = { x: 0, z: 0, yaw: 0, pitch: -0.04 }, keys = {}; let sv = { x: 0, y: 0 }, sr = { x: 0, y: 0 }, closed = false, raf = 0, last = 0;
   const ctl = k => ({ w: 'f', arrowup: 'f', s: 'b', arrowdown: 'b', a: 'l', d: 'r', arrowleft: 'tl', arrowright: 'tr', ' ': 'dive' })[k];
   const exit = () => {
     if (closed) return; closed = true; cancelAnimationFrame(raf);
     document.removeEventListener('keydown', onKeyDown, true); document.removeEventListener('keyup', onKeyUp, true); window.removeEventListener('resize', resize); window.removeEventListener('blur', onBlur);
-    try { document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('pointerlockerror', onPlError); if (document.pointerLockElement) document.exitPointerLock(); } catch (e) { /* 何もしない */ }
     scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); });
     if (dScene) dScene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); stopChaseSound(); stopHeart(); stopAmbient(); try { wVoiceRestore(); } catch (e) { /* 何もしない */ } glStop(); cairnStop(); [trunkGeo, leafGeo, trunkMat, leafMat, shTex].forEach(o => o.dispose()); THREE.ShaderChunk.fog_vertex = FOG_ORIG; renderer.dispose(); try { renderer.forceContextLoss(); } catch (e) { /* 何もしない */ }
     root.remove(); if (onClose) onClose();
@@ -1731,38 +1757,11 @@ function openGrassland(onClose, opt) {
   const onKeyUp = ev => { const c = ctl((ev.key || '').toLowerCase()); keys.shift = ev.shiftKey; if (c) { keys[c] = false; ev.stopPropagation(); } };
   const onBlur = () => { Object.keys(keys).forEach(k => { keys[k] = false; }); sv = { x: 0, y: 0 }; sr = { x: 0, y: 0 }; };
   document.addEventListener('keydown', onKeyDown, true); document.addEventListener('keyup', onKeyUp, true); window.addEventListener('blur', onBlur);
-  // ドラッグで見回す（マウス・指）：触った3D空間の点（＝その方向）を「つかんで」、指に付いてくるように視点を回す。
-  //   触った瞬間に、その画面の点から伸びる視線の方向 d0 を覚える。動かすたびに、「いま指がある点から伸びる方向」が d0 と同じになる向き（yaw・pitch）を求める。
-  //   位置は動かさず首だけ回すので、点をつかむ＝方向をつかむ、と同じ（壁に当てる判定はいらない）。向きは、カメラと同じ「yaw（Y回り）→pitch（X回り）」の順。
-  const lookWrap = x => Math.atan2(Math.sin(x), Math.cos(x));
-  const lookV = (px, py) => { const r = cv.getBoundingClientRect(), th = Math.tan(camera.fov * Math.PI / 360), nx = ((px - r.left) / (r.width || 1)) * 2 - 1, ny = 1 - ((py - r.top) / (r.height || 1)) * 2, a = nx * th * camera.aspect, b = ny * th, n = Math.hypot(a, b, 1); return [a / n, b / n, -1 / n]; }; // 画面の点 → カメラから見た視線の方向（長さ1）
-  const lookDir = (v, yaw, pitch) => { const cp = Math.cos(pitch), sp = Math.sin(pitch), y1 = v[1] * cp - v[2] * sp, z1 = v[1] * sp + v[2] * cp, cy = Math.cos(yaw), sy = Math.sin(yaw); return [v[0] * cy + z1 * sy, y1, -v[0] * sy + z1 * cy]; }; // カメラから見た方向 → 世界の方向（pitch のあと yaw）
-  const lookSolve = (v, d) => { // 画面の点 v の視線が、世界の方向 d を向くような [yaw, pitch]
-    const r = Math.hypot(v[1], v[2]), phi = Math.atan2(v[2], v[1]), ac = Math.acos(Math.max(-1, Math.min(1, d[1] / r))); // 高さ（Y）だけで pitch が決まる：cos(pitch + phi) = d.y / r（解は2つ）
-    const p1 = lookWrap(ac - phi), p2 = lookWrap(-ac - phi);
-    let pitch = Math.abs(lookWrap(p1 - P.pitch)) <= Math.abs(lookWrap(p2 - P.pitch)) ? p1 : p2; // 今の向きに近いほう
-    pitch = Math.max(-1.3, Math.min(1.3, pitch)); // 真上・真下まではいかない（今までと同じ）
-    const cp = Math.cos(pitch), sp = Math.sin(pitch), ux = v[0], uz = v[1] * sp + v[2] * cp; // 水平の向き：d の向き − pitch をかけたあとの向き
-    if (Math.hypot(ux, uz) < 1e-4 || Math.hypot(d[0], d[2]) < 1e-4) return [P.yaw, pitch]; // ほぼ真上・真下を見ている時は、横の向きは決まらないので、そのまま
-    return [P.yaw + lookWrap(Math.atan2(d[0], d[2]) - Math.atan2(ux, uz) - P.yaw), pitch]; // 今の yaw からのずれ（−π〜π）だけ動かす
-  };
-  let lookId = null, lx = 0, ly = 0, lookD = null, lookYaw = 0, lookPitch = 0;
-  // 🖱 パソコン：画面をクリックするとマウスが固定され（カーソルが消える）、動かすだけで見回せる。Esc で固定が外れる（もう一度 Esc で草原を出る）。固定できない環境では、従来のドラッグのまま
-  const MOUSE_SENS = 0.0026 * LOOK_SPEED; let plFail = false; const plOn = () => document.pointerLockElement === cv;
-  const onMouseMove = ev => { if (!plOn()) return; const mx = ev.movementX || 0, my = ev.movementY || 0; if (Math.abs(mx) > 300 || Math.abs(my) > 300) return; P.yaw -= mx * MOUSE_SENS; P.pitch = Math.max(-1.3, Math.min(1.3, P.pitch - my * MOUSE_SENS)); }; // 右へ動かす＝右を向く（yaw は減る方向）／上へ動かす＝上を向く
-  const onPlError = () => { plFail = true; };
-  document.addEventListener('mousemove', onMouseMove); document.addEventListener('pointerlockerror', onPlError);
-  cv.onpointerdown = ev => { if (!touch && ev.pointerType === 'mouse' && !plFail && cv.requestPointerLock) { if (!plOn()) { try { const r = cv.requestPointerLock(); if (r && r.catch) r.catch(onPlError); } catch (e) { plFail = true; } } return; } if (lookId !== null) return; lookId = ev.pointerId; lx = ev.clientX; ly = ev.clientY; lookD = lookDir(lookV(lx, ly), P.yaw, P.pitch); lookYaw = P.yaw; lookPitch = P.pitch; try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } };
-  cv.onpointermove = ev => {
-    if (ev.pointerId !== lookId) return;
-    if (Math.abs(P.yaw - lookYaw) > 1e-6 || Math.abs(P.pitch - lookPitch) > 1e-6) lookD = lookDir(lookV(lx, ly), P.yaw, P.pitch); // ドラッグ中に、ほかの動き（キー・右スティック・化け物の追いかけなど）で向きが変わった時は、いまの向きで、つかみ直す
-    const sl = lookSolve(lookV(ev.clientX, ev.clientY), lookD); P.yaw = sl[0]; P.pitch = sl[1]; lookYaw = P.yaw; lookPitch = P.pitch; lx = ev.clientX; ly = ev.clientY;
-  };
-  cv.onpointerup = cv.onpointercancel = ev => { if (ev.pointerId === lookId) { lookId = null; lookD = null; } };
+  const look = createLookControl(cv, P, touch); // 視点操作（ドラッグ・すべり・矢印キー・右スティック）は全部共通の処理
   const btn = document.createElement('div'); btn.textContent = '✕ もどる';
   btn.style.cssText = 'position:absolute;top:12px;right:12px;padding:9px 14px;font-size:16px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.38);border:2px solid rgba(255,255,255,0.7);border-radius:10px;cursor:pointer;';
   btn.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); exit(); }; root.appendChild(btn);
-  const hint = document.createElement('div'); hint.textContent = touch ? '🌿 左スティック：移動　画面スワイプ：見回す　石を拾って「積む」　深い水では下を向くと潜る' : '🌿 WASD・矢印：移動　Shift：走る　画面クリック：マウスで見回す（Esc：カーソルを出す）　石に近づくと拾う／E：石を積む　Space：水に潜る　Esc：もどる';
+  const hint = document.createElement('div'); hint.textContent = touch ? '🌿 左スティック：移動　画面スワイプ：見回す　石を拾って「積む」　深い水では下を向くと潜る' : '🌿 WASD・矢印：移動　Shift：走る　画面ドラッグ：見回す　石に近づくと拾う／E：石を積む　Space：水に潜る　Esc：もどる';
   hint.style.cssText = 'position:absolute;left:50%;bottom:4vh;transform:translateX(-50%);padding:8px 16px;font-size:15px;color:#fff;background:rgba(0,0,0,0.35);border-radius:999px;white-space:nowrap;transition:opacity 1.5s;pointer-events:none;';
   root.appendChild(hint); setTimeout(() => { hint.style.opacity = '0'; }, 7000);
   if (touch) { // スマホ：2D（書庫・パーティールーム）と同じ位置・大きさのスティック。左＝移動、視点は画面のスワイプ（右は「調べる」ボタンと同じ位置）
@@ -2248,7 +2247,7 @@ function openGrassland(onClose, opt) {
   bestHud.textContent = '🏆 最高 ' + best + '段';
   const cToast = mkEl('position:absolute;left:50%;top:22%;transform:translateX(-50%);padding:9px 18px;font-size:17px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.5);border-radius:999px;white-space:nowrap;opacity:0;transition:opacity 0.3s;pointer-events:none;');
   const actBtn = mkEl(touch
-    ? 'position:absolute;right:14.5vh;top:55.5vh;transform:translateY(-50%);width:20vh;height:20vh;border-radius:50%;display:none;align-items:center;justify-content:center;text-align:center;white-space:pre-line;font-size:2.6vh;line-height:1.3;font-weight:bold;color:#fff;background:rgba(255,255,255,0.22);border:0.5vh solid rgba(255,255,255,0.6);box-sizing:border-box;padding:1vh;touch-action:none;cursor:pointer;'
+    ? 'position:absolute;left:50%;bottom:4vh;transform:translateX(-50%);width:20vh;height:20vh;border-radius:50%;display:none;align-items:center;justify-content:center;text-align:center;white-space:pre-line;font-size:2.6vh;line-height:1.3;font-weight:bold;color:#fff;background:rgba(255,255,255,0.22);border:0.5vh solid rgba(255,255,255,0.6);box-sizing:border-box;padding:1vh;touch-action:none;cursor:pointer;'
     : 'position:absolute;left:50%;bottom:calc(4vh + 52px);transform:translateX(-50%);padding:9px 18px;font-size:16px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.5);border:2px solid rgba(255,255,255,0.7);border-radius:999px;white-space:nowrap;display:none;cursor:pointer;');
   actBtn.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); stackAction(); };
   const toast = msg => { cToast.textContent = msg; cToast.style.opacity = '1'; clearTimeout(cToastT); cToastT = setTimeout(() => { cToast.style.opacity = '0'; }, 2200); };
@@ -2599,8 +2598,7 @@ function openGrassland(onClose, opt) {
   const frame = ms => {
     if (closed) return;
     const t = ms / 1000, dt = Math.min(0.05, last ? t - last : 0.016); last = t;
-    P.yaw += ((keys.tl ? 1 : 0) - (keys.tr ? 1 : 0)) * 1.8 * LOOK_SPEED * dt;
-    P.yaw -= sr.x * 2.2 * LOOK_SPEED * dt; P.pitch = Math.max(-1.3, Math.min(1.3, P.pitch - sr.y * 1.6 * LOOK_SPEED * dt)); // 右スティック：視点を動かす
+    look.step(dt, keys, sr); // 視点：矢印キー・右スティック・すべり
     glFrame(dt, t); // 🎙 仲間の姿の同期
     cairnFrame(dt); // 🪨 石の拾得・石積みの演出・操作の表示
     updateAmbient(dt); // 🍃 自然音
@@ -2757,7 +2755,7 @@ function openStairs(onClose, opt) {
   const stopAudio = () => { ambNodes.forEach(n => { try { n.stop(); } catch (e) { /* 何もしない */ } }); ambNodes = []; if (ac) { try { ac.close(); } catch (e) { /* 何もしない */ } ac = null; master = null; rev = null; } };
 
   // ----- 操作・画面の部品 -----
-  const LOOK_SPEED = 0.75, STEP_LEN = 1.3; // STEP_LEN＝足音が鳴る歩幅(m)。大きいほど、足音がゆっくり（1歩ごとに頭も少し上下する）
+  const STEP_LEN = 1.3; // STEP_LEN＝足音が鳴る歩幅(m)。大きいほど、足音がゆっくり（1歩ごとに頭も少し上下する）
   const keys = {}; let sv = { x: 0, y: 0 }, sr = { x: 0, y: 0 }, closed = false, raf = 0, last = 0, nearJ = -1, lampT = 0, flick = 0, bobT = 0;
   const ctl = k => ({ w: 'f', arrowup: 'f', s: 'b', arrowdown: 'b', a: 'l', d: 'r', arrowleft: 'tl', arrowright: 'tr' })[k];
   const glBar = opt.net ? document.getElementById('voiceBar') : null, glBarZ = glBar ? glBar.style.zIndex : ''; if (glBar) glBar.style.zIndex = '450'; // この画面より手前に、マイクのボタンを出す
@@ -3279,10 +3277,7 @@ function openStairs(onClose, opt) {
   const onBlur = () => { Object.keys(keys).forEach(k => { keys[k] = false; }); sv = { x: 0, y: 0 }; sr = { x: 0, y: 0 }; };
   document.addEventListener('keydown', onKeyDown, true); document.addEventListener('keyup', onKeyUp, true); window.addEventListener('blur', onBlur);
   root.addEventListener('pointerdown', () => { if (ac && ac.state === 'suspended' && ac.resume) ac.resume().catch(() => {}); }, true);
-  let lookId = null, lx = 0, ly = 0; // ドラッグで見回す（マウス・指）
-  cv.onpointerdown = ev => { if (lookId !== null) return; lookId = ev.pointerId; lx = ev.clientX; ly = ev.clientY; try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } };
-  cv.onpointermove = ev => { if (ev.pointerId !== lookId) return; P.yaw -= (ev.clientX - lx) * 0.0045 * LOOK_SPEED; P.pitch = Math.max(-1.3, Math.min(1.3, P.pitch - (ev.clientY - ly) * 0.0045 * LOOK_SPEED)); lx = ev.clientX; ly = ev.clientY; };
-  cv.onpointerup = cv.onpointercancel = ev => { if (ev.pointerId === lookId) lookId = null; };
+  const look = createLookControl(cv, P, touch); // 視点操作（ドラッグ・すべり・矢印キー・右スティック）は全部共通の処理
   const btn = document.createElement('div'); btn.textContent = '✕ もどる';
   btn.style.cssText = 'position:absolute;top:12px;right:12px;padding:9px 14px;font-size:16px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.38);border:2px solid rgba(255,255,255,0.7);border-radius:10px;cursor:pointer;';
   btn.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); exit(); }; root.appendChild(btn);
@@ -3441,8 +3436,7 @@ function openStairs(onClose, opt) {
     const t = ms / 1000, dt = Math.min(0.05, last ? t - last : 0.016); last = t;
     if (dead) { renderer.render(scene, camera); raf = requestAnimationFrame(frame); return; } // ゲームオーバー中は動かない
     if (scareLock) { Object.keys(keys).forEach(k => { keys[k] = false; }); sv = { x: 0, y: 0 }; sr = { x: 0, y: 0 }; } // 捕まっている間は、操作できない
-    P.yaw += ((keys.tl ? 1 : 0) - (keys.tr ? 1 : 0)) * 1.8 * LOOK_SPEED * dt;
-    P.yaw -= sr.x * 2.2 * LOOK_SPEED * dt; P.pitch = Math.max(-1.3, Math.min(1.3, P.pitch - sr.y * 1.6 * LOOK_SPEED * dt));
+    look.step(dt, keys, sr); // 視点：矢印キー・右スティック・すべり
     let mf = (keys.f ? 1 : 0) - (keys.b ? 1 : 0) - sv.y, mr = (keys.r ? 1 : 0) - (keys.l ? 1 : 0) + sv.x; const mm = Math.hypot(mf, mr); if (mm > 1) { mf /= mm; mr /= mm; }
     const sp2 = 2.8 * (((keys.shift || sprintBoost) && mf > 0) ? 1.8 : 1) * dt, // ダッシュは、前へ進む時だけ（うしろ・横だけの時は歩く速さ）
          sy = Math.sin(P.yaw), cy = Math.cos(P.yaw), ox = P.x, oz = P.z;
@@ -3571,7 +3565,6 @@ function openPartyHall(onClose, opt) {
   buildRoom();
 
   // ----- 操作 -----
-  const LOOK_SPEED = 0.75; // 視点を動かす速さの倍率（小さいほどゆっくり）
   const P = { x: 0, z: 0, yaw: 0, pitch: -0.04, env: 'room' }, keys = {}; let sv = { x: 0, y: 0 }, sr = { x: 0, y: 0 }, closed = false, raf = 0, last = 0;
   for (let n = 0; n < 60; n++) { const a = Math.random() * 6.2832, rr = 3 + Math.random() * 8, x = Math.cos(a) * rr, z = Math.sin(a) * rr; if (!roomObs.some(o => x > o.x0 - 0.7 && x < o.x1 + 0.7 && z > o.z0 - 0.7 && z < o.z1 + 0.7)) { P.x = x; P.z = z; break; } } // 同時に入った人と重ならないように、家具を避けてずらして出る
   P.yaw = Math.atan2(P.x, P.z); // 真ん中を向いて出る
@@ -3606,11 +3599,7 @@ function openPartyHall(onClose, opt) {
   const onKeyUp = ev => { const c = ctl((ev.key || '').toLowerCase()); keys.shift = ev.shiftKey; if (c) { keys[c] = false; ev.stopPropagation(); } };
   const onBlur = () => { Object.keys(keys).forEach(k => { keys[k] = false; }); sv = { x: 0, y: 0 }; sr = { x: 0, y: 0 }; };
   document.addEventListener('keydown', onKeyDown, true); document.addEventListener('keyup', onKeyUp, true); window.addEventListener('blur', onBlur);
-  let lookId = null, lx = 0, ly = 0; // ドラッグで見回す（マウス・指）
-  cv.onpointerdown = ev => { if (lookId !== null) return; // スマホも、画面をスワイプして見回す（右スティックはなし）
-    lookId = ev.pointerId; lx = ev.clientX; ly = ev.clientY; try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } };
-  cv.onpointermove = ev => { if (ev.pointerId !== lookId) return; P.yaw -= (ev.clientX - lx) * 0.0045 * LOOK_SPEED; P.pitch = Math.max(-1.3, Math.min(1.3, P.pitch - (ev.clientY - ly) * 0.0045 * LOOK_SPEED)); lx = ev.clientX; ly = ev.clientY; };
-  cv.onpointerup = cv.onpointercancel = ev => { if (ev.pointerId === lookId) lookId = null; };
+  const look = createLookControl(cv, P, touch); // 視点操作（ドラッグ・すべり・矢印キー・右スティック）は全部共通の処理
   const btn = document.createElement('div'); btn.textContent = '✕ もどる';
   btn.style.cssText = 'position:absolute;top:12px;right:12px;padding:9px 14px;font-size:16px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.38);border:2px solid rgba(255,255,255,0.7);border-radius:10px;cursor:pointer;';
   btn.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); exit(); }; root.appendChild(btn);
@@ -3695,8 +3684,7 @@ function openPartyHall(onClose, opt) {
   const frame = ms => {
     if (closed) return;
     const t = ms / 1000, dt = Math.min(0.05, last ? t - last : 0.016); last = t;
-    P.yaw += ((keys.tl ? 1 : 0) - (keys.tr ? 1 : 0)) * 1.8 * LOOK_SPEED * dt;
-    P.yaw -= sr.x * 2.2 * LOOK_SPEED * dt; P.pitch = Math.max(-1.3, Math.min(1.3, P.pitch - sr.y * 1.6 * LOOK_SPEED * dt)); // 右スティック：視点を動かす
+    look.step(dt, keys, sr); // 視点：矢印キー・右スティック・すべり
     let mf = (keys.f ? 1 : 0) - (keys.b ? 1 : 0) - sv.y, mr = (keys.r ? 1 : 0) - (keys.l ? 1 : 0) + sv.x; const mm = Math.hypot(mf, mr); if (mm > 1) { mf /= mm; mr /= mm; }
     const sp2 = 4.2 * (keys.shift ? 1.9 : 1) * dt, sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
     if (SIT.cool > 0) SIT.cool -= dt;
@@ -31161,6 +31149,7 @@ const VOICE = {
   space3dTurnVolume: 0.7, // 🕳 交流ルームのダンジョン：通路を回り込んで届く声が、曲がり角1つごとに音量へかける割合。小さいほど、角を曲がった先の声が早く小さくなる（現実の声は、角を曲がるごとに約3dB弱まる）。1で角の影響なし
   space3dTurnCutoff: 0.75, // 🕳 同じく、曲がり角1つごとに上限周波数へかける割合（角を曲がるたびに、高い音から消えてこもる）。1で影響なし
   space3dDungeonReverbBase: 0.12, // 🕳 交流ルームのダンジョン：近くの声にも、石の壁に囲まれた場所らしい響きを少しつける量(0〜1)。0で、近い声は響かない
+  iosNoEchoCancel: true, // 🎙 iPhone・iPadで、立体音響（3D）がオンの時は、マイクの「エコー除去」をオフにして入る。オンだと端末が「通話モード」になり、本体のマイクを選んでもイヤホンの音がモノラルになって、立体音響が効かなくなることがあるため。副作用：スピーカーで聞くと、自分の声が相手に戻ってエコーすることがある（イヤホン前提）。false＝今まで通り、いつもエコー除去あり
   space3dPitch: 1, // 🎙 3Dの広場：視線の上下（pitch）を声の聞こえ方に反映する強さ。0＝反映しない・1＝見ているままに反映（0.5くらいに下げると控えめ）。立体音響（HRTF）オンのときだけ効く
   fullRatio: 0.32,   // この距離(半径＝1)より近いと、最大音量で聞こえる（0.32×半径300＝96px＝3マス以内。1マス＝TILE 32px）
   maxVolume: 1,      // 最大音量(0〜1)。聞こえすぎる時は下げる
@@ -31411,7 +31400,8 @@ class VoiceChat {
       let deviceId;
       try { deviceId = await this._pickMic(); } finally { this._micPicking = false; }
       if (deviceId === null) { this._paintButtons(); return; } // 選ばずに閉じた：マイクはオンにしない
-      const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      const ua0 = navigator.userAgent || '', isIOS0 = /iPhone|iPad|iPod/i.test(ua0) || (/Macintosh/i.test(ua0) && navigator.maxTouchPoints > 1); // iPadOS は Mac と名乗るので、タッチの有無で見分ける
+      const audio = { echoCancellation: !(VOICE.iosNoEchoCancel && isIOS0 && spatialAudioOn), noiseSuppression: true, autoGainControl: true }; // iPhoneで3Dオンの時だけ、エコー除去なし（通話モードにしない）
       if (deviceId) audio.deviceId = { exact: deviceId };
       try {
         this.micStream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
