@@ -31149,7 +31149,6 @@ const VOICE = {
   space3dTurnVolume: 0.7, // 🕳 交流ルームのダンジョン：通路を回り込んで届く声が、曲がり角1つごとに音量へかける割合。小さいほど、角を曲がった先の声が早く小さくなる（現実の声は、角を曲がるごとに約3dB弱まる）。1で角の影響なし
   space3dTurnCutoff: 0.75, // 🕳 同じく、曲がり角1つごとに上限周波数へかける割合（角を曲がるたびに、高い音から消えてこもる）。1で影響なし
   space3dDungeonReverbBase: 0.12, // 🕳 交流ルームのダンジョン：近くの声にも、石の壁に囲まれた場所らしい響きを少しつける量(0〜1)。0で、近い声は響かない
-  iosNoEchoCancel: true, // 🎙 iPhone・iPadで、立体音響（3D）がオンの時は、マイクの「エコー除去」をオフにして入る。オンだと端末が「通話モード」になり、本体のマイクを選んでもイヤホンの音がモノラルになって、立体音響が効かなくなることがあるため。副作用：スピーカーで聞くと、自分の声が相手に戻ってエコーすることがある（イヤホン前提）。false＝今まで通り、いつもエコー除去あり
   space3dPitch: 1, // 🎙 3Dの広場：視線の上下（pitch）を声の聞こえ方に反映する強さ。0＝反映しない・1＝見ているままに反映（0.5くらいに下げると控えめ）。立体音響（HRTF）オンのときだけ効く
   fullRatio: 0.32,   // この距離(半径＝1)より近いと、最大音量で聞こえる（0.32×半径300＝96px＝3マス以内。1マス＝TILE 32px）
   maxVolume: 1,      // 最大音量(0〜1)。聞こえすぎる時は下げる
@@ -31391,17 +31390,25 @@ class VoiceChat {
   }
 
   // ----- マイク（押すたびにオン／オフ。オフにするとマイク自体も止める） -----
+  // 🍎 iPhone・iPadでは、マイクを一度開くと、端末の音声が「通話モード」に切り替わり、マイクを止めても戻らないことがある（イヤホンの音がモノラルになり、立体音響が平らになる）。
+  //   そこで、マイクを使う前に「通話と録音」に、止めたあとは「再生だけ」に、はっきり切り替える（Safari 16.4以降の navigator.audioSession。無い端末では何もしない）。止めたあとは、音の出口の選び直しをうながすため、WebAudioを一瞬とめて再開する
+  _audioSession(type) { try { if (navigator.audioSession) navigator.audioSession.type = type; } catch (x) {} }
+  _audioBack() {
+    if (!navigator.audioSession) return;
+    this._audioSession('playback');
+    const c = this.ctx; if (!c) return;
+    setTimeout(() => { try { if (!this.stopped && !this.micOn && c.state === 'running') c.suspend().then(() => (this.micOn ? null : c.resume())).catch(() => {}); } catch (x) {} }, 400);
+  }
   async toggleMic() {
     if (this.micOn) { this._micStop(); this._paintButtons(); return; }
     if (this._micPicking) return; // マイク選びの最中は、もう一度押しても何もしない
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('unsupported');
-      this._micPicking = true;
+      this._micPicking = true; this._audioSession('play-and-record');
       let deviceId;
       try { deviceId = await this._pickMic(); } finally { this._micPicking = false; }
-      if (deviceId === null) { this._paintButtons(); return; } // 選ばずに閉じた：マイクはオンにしない
-      const ua0 = navigator.userAgent || '', isIOS0 = /iPhone|iPad|iPod/i.test(ua0) || (/Macintosh/i.test(ua0) && navigator.maxTouchPoints > 1); // iPadOS は Mac と名乗るので、タッチの有無で見分ける
-      const audio = { echoCancellation: !(VOICE.iosNoEchoCancel && isIOS0 && spatialAudioOn), noiseSuppression: true, autoGainControl: true }; // iPhoneで3Dオンの時だけ、エコー除去なし（通話モードにしない）
+      if (deviceId === null) { this._audioBack(); this._paintButtons(); return; } // 選ばずに閉じた：マイクはオンにしない
+      const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
       if (deviceId) audio.deviceId = { exact: deviceId };
       try {
         this.micStream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
@@ -31414,7 +31421,7 @@ class VoiceChat {
       this.micOn = true;
       this.peers.forEach(e => { if (e.sender) e.sender.replaceTrack(this.micTrack).catch(() => {}); });
     } catch (err) {
-      this.micOn = false;
+      this.micOn = false; this._audioBack();
       if (this.scene && this.scene.showBanner) this.scene.showBanner('⚠ マイクを使えません（許可されていないか、HTTPSでない可能性があります）', 3500, '#ffb0b0');
     }
     this._paintButtons();
@@ -31485,6 +31492,7 @@ class VoiceChat {
     this.peers.forEach(e => { if (e.sender) e.sender.replaceTrack(null).catch(() => {}); });
     if (this.micStream) this.micStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
     this.micStream = null; this.micTrack = null;
+    this._audioBack(); // 端末の音声を、通話モードから「再生だけ」に戻す
   }
   // ----- イヤホン（オンにすると、他の人の声を聞かない） -----
   toggleDeaf() {
