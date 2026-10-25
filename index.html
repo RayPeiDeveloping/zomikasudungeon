@@ -3764,6 +3764,13 @@ const PARTY_BALLOONS = [[90, 150], [550, 170], [120, 300], [520, 320], [240, 120
 const LOUNGE_NUMBER = '1056194'; // 💬 ダンジョン番号の欄にこれを入れて「ダンジョン」を押すと、交流ルーム（パーティールームと同じ仕組みで、外観がシンプル・メモなし）に入れる。エンディングを見ていなくても、誰でも入れる
 const PARTY_OPEN_TO_ALL = false; // 🧪 テスト用：true の間は、エンディングを見ていない人（endingDone でない人）も、合言葉を入れればパーティールームに入れる。false ＝パーティールームはエンディングを見た人だけ（交流ルームは、これに関係なく誰でも入れる）
 const PARTY_MEMOS_READABLE = true; // 📋 true の間は、パーティールームのメモをプレイヤーが読める（近づいて調べられる）。false にすると読めなくなる
+const PARTY_STATS_MEMO = { i: -8, stat: true, x: 395, y: 432 }; // 🖤 黒いメモ：自分のセーブ数値を見られる（パーティールームの下の壁。交流ルームにはない）
+const PARTY_STATS_LIST = [ // 🖤 黒いメモに出す項目 [セーブのkey, 表示名]
+  ['arms4RitualClears', '天使・調伏の儀の成功回数'], ['angelTamedLobby', 'ホームのボタンからの調伏の儀の成功回数'],
+  ['bossRushBestBosses', 'ボスラッシュの最高撃破ボス数'], ['demonKills', '悪魔を倒した回数'], ['demonMeets', '25階の悪魔に会った回数'],
+  ['frontlineBestSec', '最北戦線の最長生存時間'], ['libraryVisits', '隠し書庫に来た回数'], ['nightmareClears', 'ナイトメアのクリア回数'],
+  ['pvpWins', 'PvPの勝利数'], ['soloClearBestSec', 'ダンジョン（ソロ）の最短クリア時間（0は未クリア）'], ['soloClears', 'ダンジョン（ソロ）の全クリア回数'],
+  ['totalBossKills', 'ボスの累計撃破数'], ['soloTotalKills', '雑魚敵の累計撃破数']];
 const PARTY_PORTAL = { i: -2, portal: true, x: 320, y: 118 }; // 🌿 草原への入口（メモと同じ要領で、近づいて E／タップ）
 const VS_HERO = { // ⚔ 斬り合いの調整値
   duelTiles: 9,        // 自分と敵の間のマス数
@@ -27358,7 +27365,7 @@ class GameScene extends Phaser.Scene {
   // 📖 小屋の本：机に近づくと「本を読む」ボタンが出る（キーボードは E、スマホはボタンをタップ）。読む画面は書庫の本と同じ見た目。読んでいる間はゲームが止まる
   // ============== 🎉 パーティールーム（協力プレイのルームの一種。マップ・移動・他プレイヤーの同期は、ふつうのダンジョンと同じ仕組み） ==============
   setupParty() {
-    this._partyNotes = []; this._partyTarget = null; this._partyLeaving = false;
+    this._partyNotes = this.lounge ? [] : [PARTY_STATS_MEMO]; this._partyTarget = null; this._partyLeaving = false;
     this._partyKey = this.input.keyboard.addKey('E'); // 調べる（メモ・草原の入口）
     const T = this.add.graphics().setDepth(0.6); this._partyStatic = T; // 動かない飾り：テーブル・ケーキ・プレゼント・扉
     T.fillStyle(0x000000, 0.12); T.fillRect(228, 202, 192, 40);
@@ -27384,7 +27391,7 @@ class GameScene extends Phaser.Scene {
     fetchPartyRoomMemos().then(arr => {
       if (!this.sys || !this.sys.isActive) return;
       const guide = arr.length ? [{ i: -1, g: true, x: 320, y: 222, m: arr[0] }] : [];
-      this._partyNotes = guide.concat(arr.slice(1, 1 + PARTY_SLOTS.length).map((m, i) => ({ i, x: PARTY_SLOTS[i][0], y: PARTY_SLOTS[i][1], m })));
+      this._partyNotes = guide.concat(arr.slice(1, 1 + PARTY_SLOTS.length).map((m, i) => ({ i, x: PARTY_SLOTS[i][0], y: PARTY_SLOTS[i][1], m }))).concat([PARTY_STATS_MEMO]);
     }).catch(err => { console.error('パーティールームのメモをFirebaseから読めませんでした:', err); if (this.sys && this.sys.isActive) this.showBanner('⚠ メモを読み込めませんでした（Firebaseに接続できないか、メモがまだありません）', 4500); });
   }
   _drawParty(t) {
@@ -27403,6 +27410,13 @@ class GameScene extends Phaser.Scene {
       if (tg === PP) { g.lineStyle(2, 0xffffff, 1); g.strokeEllipse(px, py, 38, 48); }
     }
     for (const n of this._partyNotes) { // メモ（付箋）
+      if (n.stat) { // 🖤 黒いメモ：ゆっくり光る暗い紫の輪と、黒い紙
+        g.fillStyle(0xb48cff, 0.18 + 0.14 * Math.sin(t * 3)); g.fillCircle(n.x, n.y, 18);
+        g.fillStyle(0x141418, 1); g.fillRect(n.x - 11, n.y - 11, 22, 22); g.lineStyle(1.5, 0x8a7ab8, 1); g.strokeRect(n.x - 11, n.y - 11, 22, 22);
+        g.fillStyle(0xffffff, 0.45); g.fillRect(n.x - 7, n.y - 4, 14, 1.5); g.fillRect(n.x - 7, n.y, 14, 1.5); g.fillRect(n.x - 7, n.y + 4, 9, 1.5);
+        if (n === tg) { g.lineStyle(2, 0xffffff, 1); g.strokeRect(n.x - 13, n.y - 13, 26, 26); }
+        continue;
+      }
       if (n.g) { // 📋 机の上の案内書き：大きめの紙と、ゆっくり光る輪
         g.fillStyle(0xffffff, 0.3 + 0.2 * Math.sin(t * 3)); g.fillCircle(n.x, n.y, 20);
         g.fillStyle(0xfffbe6, 1); g.fillRect(n.x - 14, n.y - 9, 28, 18); g.lineStyle(1.5, 0xe0a850, 1); g.strokeRect(n.x - 14, n.y - 9, 28, 18);
@@ -27441,7 +27455,7 @@ class GameScene extends Phaser.Scene {
         pb.addEventListener('pointerdown', go); pb.addEventListener('touchstart', go, { passive: false });
         document.body.appendChild(pb);
       }
-      const label = (tg.portal ? (tg.hero ? '⚔ 主人公と戦う' : tg.social ? '🎙 交流ルームへ行く' : tg.lgrass ? '🌿 草原へ行く' : tg.ldungeon ? '🕳 ダンジョンへ行く' : tg.lstairs ? '🪜 階段へ行く' : 'ホラーへ行く') : '🔍 メモを読む') + (IS_TOUCH_DEVICE ? '' : '  [E]');
+      const label = (tg.portal ? (tg.hero ? '⚔ 主人公と戦う' : tg.social ? '🎙 交流ルームへ行く' : tg.lgrass ? '🌿 草原へ行く' : tg.ldungeon ? '🕳 ダンジョンへ行く' : tg.lstairs ? '🪜 階段へ行く' : 'ホラーへ行く') : tg.stat ? '黒いメモを読む' : '🔍 メモを読む') + (IS_TOUCH_DEVICE ? '' : '  [E]');
       if (pb.textContent !== label) pb.textContent = label;
       pb._scene = this; pb.style.display = 'block';
       if (this._partyKey && Phaser.Input.Keyboard.JustDown(this._partyKey)) this._partyAct();
@@ -27455,6 +27469,14 @@ class GameScene extends Phaser.Scene {
     if (tg.portal) { // 🌿 草原（3D）へ。入っている間は、この画面を止める（小屋の本を読んでいる間と同じ）
       this._hutReading = true;
       try { const back = () => { this._hutReading = false; }; if (tg.social) openPartyHall(back, { net: this.net, scene: this }); else if (tg.lstairs) openStairs(back, { net: this.net, scene: this }); else openGrassland(back, { net: this.net, scene: this, noHorror: !!tg.lgrass, dungeonOnly: !!tg.ldungeon }); } catch (err) { console.error('草原を開けませんでした:', err); this._hutReading = false; }
+      return;
+    }
+    if (tg.stat) { // 🖤 黒いメモ：今のセーブの数値を「説明：数値」で並べる（読むたびに最新のセーブを見る）
+      let sv = {}; try { sv = loadSave() || {}; } catch (e) { sv = {}; }
+      const lines = PARTY_STATS_LIST.map(([k, label]) => label + '：' + (Number(sv[k]) || 0));
+      let allK = 0; try { allK = allKillCount(sv); } catch (e) { allK = 0; }
+      lines.push('敵の累計撃破数：' + allK); // いちばん下：倒した敵すべて
+      this._partyReadNote('あなたの記録', lines.join('\n'));
       return;
     }
     this._partyReadNote(tg.m.title, tg.m.text);
@@ -31903,7 +31925,8 @@ function askConfirm(message, opts) {
 // 上書きではなく「合流」：最高記録・累計は大きいほう、印はどちらかが立っていれば立てる、装飾品は両方の合計。何度同期しても結果は変わらない（順番も関係ない）。
 // 端末ごとの設定（付けている装飾品・エンディング演出の進行中の印）は同期しない。コードを作っていない人は、何も送らない。
 const SYNC_CODE_KEY = 'zomikasudungeon_synccode';
-const SYNC_MAX = ['soloBestFloor', 'nightmareBestFloor', 'nightmareClears', 'soloTotalKills', 'soloTotalBosses', 'frontlineBestSec', 'pvpWins', 'bossRushBestBosses', 'armorFloor10Fast', 'arms4RitualClears', 'libraryVisits', 'demonMeets', 'soloClears', 'soulColor', 'demonKills', 'totalBossKills', 'angelTamed', 'angelTamedLobby']; // 大きいほうを採用
+const SYNC_MAX = ['soloBestFloor', 'nightmareBestFloor', 'nightmareClears', 'soloTotalKills', 'soloTotalBosses', 'frontlineBestSec', 'pvpWins', 'bossRushBestBosses', 'armorFloor10Fast', 'arms4RitualClears', 'libraryVisits', 'demonMeets', 'soloClears', 'demonKills', 'totalBossKills', 'angelTamed', 'angelTamedLobby']; // 大きいほうを採用
+const SYNC_REMOTE = ['soulColor']; // 🎨 クラウドに値（1〜360）があれば、クラウドの値を優先（データベースで書き換えると、その人の色が変わる）。クラウドに値が無ければ、これまで通りこの端末の値を採用してクラウドに送る
 const SYNC_MIN = ['soloClearBestSec']; // 0（記録なし）を除いて、小さいほうを採用
 const SYNC_OR = ['arms4RitualPlayed', 'arms4RitualCounted', 'libraryReported', 'hutVisited', 'endingDone']; // どちらかが true なら true
 const SYNC_UNION = ['accUnlocked', 'specialAccs', 'titles']; // 両方の合計
@@ -31932,6 +31955,7 @@ function syncView(s) {
   const o = {};
   SYNC_MAX.forEach(k => { const v = Number(s[k]); o[k] = Number.isFinite(v) && v > 0 ? v : 0; });
   SYNC_MIN.forEach(k => { const v = Number(s[k]); o[k] = Number.isFinite(v) && v > 0 ? v : 0; });
+  SYNC_REMOTE.forEach(k => { const v = Math.floor(Number(s[k])); o[k] = Number.isFinite(v) && v > 0 ? Math.min(360, v) : 0; });
   SYNC_OR.forEach(k => { o[k] = !!s[k]; });
   SYNC_UNION.forEach(k => {
     const m = {}, src = (s[k] && typeof s[k] === 'object') ? s[k] : {};
@@ -31944,6 +31968,7 @@ function syncMerge(a, b) {
   const o = {};
   SYNC_MAX.forEach(k => { o[k] = Math.max(a[k], b[k]); });
   SYNC_MIN.forEach(k => { o[k] = (a[k] > 0 && b[k] > 0) ? Math.min(a[k], b[k]) : (a[k] || b[k] || 0); });
+  SYNC_REMOTE.forEach(k => { o[k] = b[k] > 0 ? b[k] : a[k]; }); // a＝この端末／b＝クラウド。クラウドに値があればそちら、無ければこの端末
   SYNC_OR.forEach(k => { o[k] = a[k] || b[k]; });
   SYNC_UNION.forEach(k => { const m = Object.assign({}, a[k], b[k]), s = {}; Object.keys(m).sort().forEach(x => { s[x] = true; }); o[k] = s; });
   return o;
