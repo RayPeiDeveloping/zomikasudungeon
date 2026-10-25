@@ -1761,7 +1761,7 @@ function openGrassland(onClose, opt) {
   const btn = document.createElement('div'); btn.textContent = '✕ もどる';
   btn.style.cssText = 'position:absolute;top:12px;right:12px;padding:9px 14px;font-size:16px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.38);border:2px solid rgba(255,255,255,0.7);border-radius:10px;cursor:pointer;';
   btn.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); exit(); }; root.appendChild(btn);
-  const hint = document.createElement('div'); hint.textContent = touch ? '🌿 左スティック：移動　画面スワイプ：見回す　石を拾って「積む」　深い水では下を向くと潜る' : '🌿 WASD・矢印：移動　Shift：走る　画面ドラッグ：見回す　石に近づくと拾う／E：石を積む　Space：水に潜る　Esc：もどる';
+  const hint = document.createElement('div'); hint.textContent = touch ? '🌿 左スティック：移動　画面スワイプ：見回す　石を拾って「積む」　深い水では下を向くと潜る' : '🌿 WASD・矢印：移動　画面ドラッグ：見回す　石に近づくと拾う／E：石を積む　Space：水に潜る　Esc：もどる';
   hint.style.cssText = 'position:absolute;left:50%;bottom:4vh;transform:translateX(-50%);padding:8px 16px;font-size:15px;color:#fff;background:rgba(0,0,0,0.35);border-radius:999px;white-space:nowrap;transition:opacity 1.5s;pointer-events:none;';
   root.appendChild(hint); setTimeout(() => { hint.style.opacity = '0'; }, 7000);
   if (touch) { // スマホ：2D（書庫・パーティールーム）と同じ位置・大きさのスティック。左＝移動、視点は画面のスワイプ（右は「調べる」ボタンと同じ位置）
@@ -1831,7 +1831,7 @@ function openGrassland(onClose, opt) {
       amNoise = white; // 🌊 水の音のもと
       { const src = c.createBufferSource(), lp = c.createBiquadFilter(), g = amUw = c.createGain(); // 水の中の低い「ゴーッ」（頭が水に入った時だけ）
         src.buffer = brown; src.loop = true; lp.type = 'lowpass'; lp.frequency.value = 190; g.gain.value = 0; src.connect(lp); lp.connect(g); g.connect(amWet); src.start(0, 1); amNodes.push(src); }
-      [[700, 0.8, -0.55], [1500, 1.1, 0.55]].forEach(a => { // 川・池のそばの「さらさら」（近づくほど大きい）
+      [[700, 0.8, -0.55], [1500, 1.1, 0.55]].forEach(a => { // 川のそばの「さらさら」（近づくほど大きい。池では鳴らない）
         const src = c.createBufferSource(), bp = c.createBiquadFilter(), g = c.createGain(), p = pan(a[2]); src.buffer = white; src.loop = true; bp.type = 'bandpass'; bp.frequency.value = a[0]; bp.Q.value = a[1]; g.gain.value = 0;
         src.connect(bp); bp.connect(g); if (p) { g.connect(p); p.connect(amWet); } else g.connect(amWet); src.start(0, Math.random()); amNodes.push(src); amBab.push(g);
       });
@@ -2258,6 +2258,7 @@ function openGrassland(onClose, opt) {
   // 🔊 石の音（録音ではなく、その場で合成する。ここだけの別の AudioContext）：積む＝「カツン」（1個目は低くて鈍い「コト」）、崩れる＝石が着地するたびの「カラカラ」。小さめの音。
   //   音は山が変わった時（setCairn）に鳴らすので、自分が積んだ時も、他の人が積んだ時も同じ道を通る。遠いほど小さく、左右の向きも付く。
   const SND_VOL = 0.22; // 石の音の全体の大きさ（大きくしたい時はここ）
+  const PICK_GAIN = 0.3; // 🔊 石を拾う音だけの大きさ（1で元の大きさ。小さくしたい時はここ）
   let sctx = null, sNoise = null;
   const getCtx = () => {
     if (closed) return null;
@@ -2303,9 +2304,9 @@ function openGrassland(onClose, opt) {
       const t = c.currentTime, o = c.createOscillator(), g = c.createGain(), lp = c.createBiquadFilter(), o2 = c.createOscillator(), g2 = c.createGain();
       lp.type = 'lowpass'; lp.frequency.value = 900;
       o.type = 'sine'; o.frequency.setValueAtTime(190, t); o.frequency.exponentialRampToValueAtTime(400, t + 0.045); o.frequency.exponentialRampToValueAtTime(300, t + 0.16); // ぽ：ふくらむように上がって、こ：すこし戻る
-      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(SND_VOL * 1.5, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(SND_VOL * 1.5 * PICK_GAIN, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
       o2.type = 'sine'; o2.frequency.setValueAtTime(600, t); o2.frequency.exponentialRampToValueAtTime(450, t + 0.08); // 音に丸みを足す、小さな上の音
-      g2.gain.setValueAtTime(0, t); g2.gain.linearRampToValueAtTime(SND_VOL * 0.3, t + 0.004); g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+      g2.gain.setValueAtTime(0, t); g2.gain.linearRampToValueAtTime(SND_VOL * 0.3 * PICK_GAIN, t + 0.004); g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
       o.connect(g); o2.connect(g2); g.connect(lp); g2.connect(lp); lp.connect(c.destination);
       o.start(t); o.stop(t + 0.22); o2.start(t); o2.stop(t + 0.12);
     } catch (e) { /* 何もしない */ }
@@ -2463,19 +2464,36 @@ function openGrassland(onClose, opt) {
   };
   const cairnStop = () => { try { if (sctx) sctx.close(); } catch (e) { /* 何もしない */ } sctx = null; if (cShared) { try { glNet.listenCairn(null); } catch (e) { /* 何もしない */ } } cTimers.forEach(clearTimeout); clearTimeout(cToastT); };
 
+  const SHIFT_DASH = false; // 🏃 草原・ダンジョンの Shift ダッシュ（true で有効に戻る。速さは下の sp2 の数字）
   // ----- 🌊 川と池：水面（ゆれる・空を映す・浅いと透ける・ふちに泡）、水の中（霧が青く濃くなり、視野がせまくなる）、水の音、歩く／泳ぐ／潜る -----
   const WADE = 1.4, FN0 = scene.fog.near, FF0 = scene.fog.far, FOGC0 = new THREE.Color().copy(scene.fog.color), wFogCol = new THREE.Color(); // WADE＝この深さより深いと、足がつかずに泳ぐ（目の高さ1.65mに対して、あごのあたり）
   const WU = { uTime: U.uTime, uPonds: U.uPonds, uPondP: U.uPondP, uFogCol: { value: new THREE.Color().copy(FOGC0) }, uFogNF: { value: new THREE.Vector2(FN0, FF0) }, uSun: { value: sunDir.clone() }, uHor: { value: HORIZON }, uTop: { value: TOP } };
   const WFS = [
     'varying vec3 vW; uniform float uTime; uniform vec3 uFogCol; uniform vec2 uFogNF; uniform vec3 uSun; uniform vec3 uHor; uniform vec3 uTop;',
     HHF,
+    'float pondIn(vec2 p) {', // 池の中へどれだけ入っているか（ふち0 → 中へ向かって1）。川の流れを池の中でゆるめるのに使う
+    '  float r = 0.0;',
+    '  for (int i = 0; i < 16; i++) {',
+    '    vec4 pq = uPonds[i]; if (pq.z <= 0.0) continue;',
+    '    vec2 dp = p - pq.xy; float d2 = length(dp); if (d2 > pq.z * 1.25 + 34.0) continue;',
+    '    vec2 pp = uPondP[i]; float ang = atan(dp.y, dp.x + 0.00001);',
+    '    float Rw = pq.z * (1.0 + 0.16 * sin(3.0 * ang + pp.x) + 0.09 * sin(5.0 * ang + pp.y));',
+    '    r = max(r, smoothstep(0.0, 0.6, 1.0 - d2 / Rw));',
+    '  }',
+    '  return r;',
+    '}',
+    'vec2 rip(vec2 q, float t) {', // さざ波のかたち（座標 q での、水面の傾き）
+    '  float c1 = cos(q.x*0.9 + q.y*0.35 + t*1.3), c2 = cos(q.x*2.3 - q.y*1.7 - t*1.9), c3 = cos(q.x*5.1 + q.y*4.3 + t*3.1), c4 = cos(-q.x*3.7 + q.y*6.1 + t*2.3);',
+    '  return 0.05*vec2(0.9, 0.35)*c1 + 0.025*vec2(2.3, -1.7)*c2 + 0.011*vec2(5.1, 4.3)*c3 + 0.008*vec2(-3.7, 6.1)*c4;',
+    '}',
+    'float uwp(vec2 s, float t) { return 0.5 + 0.5 * sin(s.x*5.0 + t*2.0) * sin(s.y*4.0 - t*1.7); }',
     'void main() {',
     '  vec2 p = vW.xz; float t = uTime;',
     '  float depth = WY - hh(p);', // その場所の水の深さ（地面の高さと同じ式から求める）
     '  float rv = clamp(1.0 - riverD(p) / riverW(p.y), 0.0, 1.0);',
-    '  vec2 q = p - vec2(0.0, t * 1.5) * smoothstep(0.0, 0.2, rv);', // 川では、さざ波が下流（+z）へ流れていく
-    '  float c1 = cos(q.x*0.9 + q.y*0.35 + t*1.3), c2 = cos(q.x*2.3 - q.y*1.7 - t*1.9), c3 = cos(q.x*5.1 + q.y*4.3 + t*3.1), c4 = cos(-q.x*3.7 + q.y*6.1 + t*2.3);',
-    '  vec2 g = 0.05*vec2(0.9, 0.35)*c1 + 0.025*vec2(2.3, -1.7)*c2 + 0.011*vec2(5.1, 4.3)*c3 + 0.008*vec2(-3.7, 6.1)*c4;',
+    '  float fl = smoothstep(0.0, 0.2, rv) * (1.0 - pondIn(p));', // 流れの強さ：川の中ほど強く、池の中へ入るにつれて弱まる（川と池の境目で、波の動きがいきなり変わらないように）
+    '  vec2 q = p - vec2(0.0, t * 1.5);', // 下流（+z）へ流れていく座標
+    '  vec2 g = mix(rip(p, t), rip(q, t), fl);', // 止まった波と流れる波を混ぜる（座標をずらす量を場所で変えると、時間がたつほど波が引き伸ばされてしまうため）
     '  vec3 n = normalize(vec3(-g.x, 1.0, -g.y));',
     '  vec3 V = normalize(cameraPosition - vW); vec3 col; float a;',
     '  if (cameraPosition.y > WY) {', // 水の上から見る：空を映す＋水の色。浅いほど透けて底が見える
@@ -2492,7 +2510,7 @@ function openGrassland(onClose, opt) {
     '    float win = smoothstep(0.60, 0.70, abs(V.y));',
     '    vec3 skyT = mix(uHor, uTop, 0.55) * vec3(0.45, 0.85, 0.95);',
     '    col = mix(uFogCol * 0.7, skyT, win);',
-    '    col += vec3(0.10, 0.22, 0.22) * (0.5 + 0.5 * sin(q.x*5.0 + t*2.0) * sin(q.y*4.0 - t*1.7));',
+    '    col += vec3(0.10, 0.22, 0.22) * mix(uwp(p, t), uwp(q, t), fl);',
     '    a = 1.0;',
     '  }',
     '  float ff = smoothstep(uFogNF.x, uFogNF.y, distance(vW, cameraPosition)); col = mix(col, uFogCol, ff);',
@@ -2519,13 +2537,14 @@ function openGrassland(onClose, opt) {
   const wSplash = (k, big, amp) => { // ジャブッ：k＝深さ（0〜1。浅いと「ぱしゃ」と高く短く、深いと「ざぶっ」と低く長い）、big＝水に入った／出た時の大きな音
     if (!amAc || amAc.state === 'closed' || !amWet || !amNoise) return;
     try {
-      const c = amAc, t0 = c.currentTime + 0.005, dur = 0.14 + 0.32 * k + (big ? 0.28 : 0), am = amp || 1, a = (0.05 + 0.14 * k + (big ? 0.12 : 0)) * am;
-      const src = c.createBufferSource(), bp = c.createBiquadFilter(), g = c.createGain(), p = c.createStereoPanner ? c.createStereoPanner() : null, f0 = (2200 - 1200 * k) * (0.85 + Math.random() * 0.3);
-      src.buffer = amNoise; bp.type = 'bandpass'; bp.Q.value = 0.8; bp.frequency.setValueAtTime(f0, t0); bp.frequency.exponentialRampToValueAtTime(Math.max(180, f0 * 0.3), t0 + dur);
-      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(a, t0 + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-      src.connect(bp); bp.connect(g); if (p) { p.pan.value = (Math.random() - 0.5) * 0.5; g.connect(p); p.connect(amWet); } else g.connect(amWet);
+      const c = amAc, t0 = c.currentTime + 0.005, dur = 0.14 + 0.32 * k + (big ? 0.28 : 0), am = amp || 1, a = (0.04 + 0.11 * k + (big ? 0.1 : 0)) * am * (0.8 + Math.random() * 0.4);
+      const src = c.createBufferSource(), bp = c.createBiquadFilter(), g = c.createGain(), p = c.createStereoPanner ? c.createStereoPanner() : null, f0 = (1500 - 700 * k) * (0.9 + Math.random() * 0.2), hl = c.createBiquadFilter(); // 高いシャーという成分を抑え、水らしい丸い音に
+      hl.type = 'lowpass'; hl.frequency.value = 2800 - 800 * k; hl.Q.value = 0.4;
+      src.buffer = amNoise; bp.type = 'bandpass'; bp.Q.value = 0.5; bp.frequency.setValueAtTime(f0, t0); bp.frequency.exponentialRampToValueAtTime(Math.max(200, f0 * 0.45), t0 + dur);
+      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(a, t0 + 0.02 + 0.03 * k); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      src.connect(bp); bp.connect(hl); hl.connect(g); if (p) { p.pan.value = (Math.random() - 0.5) * 0.5; g.connect(p); p.connect(amWet); } else g.connect(amWet);
       src.start(t0, Math.random() * 1.5, dur + 0.05);
-      if (k > 0.25 || big) { const o = c.createOscillator(), og = c.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(190 + Math.random() * 60, t0); o.frequency.exponentialRampToValueAtTime(65, t0 + 0.22); og.gain.setValueAtTime(0.0001, t0); og.gain.exponentialRampToValueAtTime((0.04 + 0.1 * k) * am, t0 + 0.015); og.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.26); o.connect(og); og.connect(amWet); o.start(t0); o.stop(t0 + 0.3); } // 水のかたまりの「ジャブ」
+      if (k > 0.1 || big) { const nz = c.createBufferSource(), lp = c.createBiquadFilter(), ng = c.createGain(), nd = 0.22 + 0.2 * k + (big ? 0.15 : 0); nz.buffer = amNoise; lp.type = 'lowpass'; lp.Q.value = 0.3; lp.frequency.setValueAtTime(700 + 500 * k, t0); lp.frequency.exponentialRampToValueAtTime(160, t0 + nd); ng.gain.setValueAtTime(0.0001, t0); ng.gain.exponentialRampToValueAtTime((0.05 + 0.1 * k) * am, t0 + 0.05); ng.gain.exponentialRampToValueAtTime(0.0001, t0 + nd); nz.connect(lp); lp.connect(ng); ng.connect(amWet); nz.start(t0, Math.random() * 1.2, nd + 0.05); } // 水のかたまりの「ジャブ」
       const nb = k > 0.4 ? 1 + Math.floor(Math.random() * 3) : (Math.random() < 0.4 ? 1 : 0); // ぽちゃっ：小さな泡
       for (let i = 0; i < nb; i++) { const ts = t0 + 0.03 + Math.random() * 0.22, o = c.createOscillator(), og = c.createGain(), f = 600 + Math.random() * 1100; o.type = 'sine'; o.frequency.setValueAtTime(f, ts); o.frequency.exponentialRampToValueAtTime(f * 1.7, ts + 0.06); og.gain.setValueAtTime(0.0001, ts); og.gain.exponentialRampToValueAtTime(0.035 * am, ts + 0.01); og.gain.exponentialRampToValueAtTime(0.0001, ts + 0.09); o.connect(og); og.connect(amWet); o.start(ts); o.stop(ts + 0.1); }
     } catch (e) { /* 何もしない */ }
@@ -2561,8 +2580,8 @@ function openGrassland(onClose, opt) {
     if (D > 0.05 && wD <= 0.05) { wSplash(Math.min(1, D / 1.2), true, 1); if (!wHint1) { wHint1 = true; toast('🌊 ジャブジャブ…深いほど進みにくい。川には流れがある'); } } // 水に入った：ジャボッ
     if (swim && !wHint2) { wHint2 = true; toast(touch ? '🌊 泳いでいる：下を向くと潜る' : '🌊 泳いでいる：Space か下を向くと潜る'); }
     if (D > 0.05) { // 歩く水音（浅いと「ぱしゃ」、深いと「ざぶ」）／泳ぐ水音
-      if (swim) { if (moved > 0.0005) { wStepAcc += moved; if (wStepAcc > 2.4) { wStepAcc = 0; wSplash(0.7, false, 0.55); } } }
-      else { wStepAcc += moved; if (wStepAcc > 1.7) { wStepAcc = 0; wSplash(Math.min(1, D / 1.3), false, 1); } }
+      if (swim) { if (moved > 0.0005) { wStepAcc += moved; if (wStepAcc > 3.0) { wStepAcc = 0; wSplash(0.7, false, 0.55); } } }
+      else { wStepAcc += moved; if (wStepAcc > 2.2) { wStepAcc = 0; wSplash(Math.min(1, D / 1.3), false, 1); } }
     } else wStepAcc = 0;
     const diving = swim && (keys.dive || P.pitch < -0.75); // 深いところで、Space か、真下ちかくを向くと潜る
     let tgt = bed + 1.65;
@@ -2584,7 +2603,7 @@ function openGrassland(onClose, opt) {
       const ct = amAc.currentTime;
       if (under !== wAudU) { wAudU = under; amOut.frequency.setTargetAtTime(under ? 520 : 20000, ct, 0.06); amAmb.gain.setTargetAtTime(under ? 0.25 : 1, ct, 0.12); amUw.gain.setTargetAtTime(under ? 0.5 : 0, ct, 0.3); } // 水の中：高い音が消えて、こもる
       wAudT -= dt;
-      if (wAudT <= 0) { wAudT = 0.25; const rp = 1 - sstep(0, 45, riverD(P.x, P.z) - riverW(P.z)), lv = 0.05 * rp + 0.012 * pondNear(P.x, P.z); amBab.forEach((g, i) => g.gain.setTargetAtTime(lv * (i ? 0.6 : 0.85) * (0.7 + 0.6 * Math.random()), ct, 0.2)); if (under) amUw.gain.setTargetAtTime(0.3 + 0.35 * dp, ct, 0.4); }
+      if (wAudT <= 0) { wAudT = 0.25; const rp = 1 - sstep(0, 45, riverD(P.x, P.z) - riverW(P.z)), lv = 0.05 * rp; amBab.forEach((g, i) => g.gain.setTargetAtTime(lv * (i ? 0.6 : 0.85) * (0.7 + 0.6 * Math.random()), ct, 0.2)); if (under) amUw.gain.setTargetAtTime(0.3 + 0.35 * dp, ct, 0.4); }
       if (under) { wBubT -= dt; if (wBubT <= 0) { wBubbles(2 + Math.floor(Math.random() * 4)); wBubT = 1.3 + Math.random() * 3; } }
     }
     wVT -= dt; if (wVT <= 0 || under !== wVU) { wVT = 0.25; if (under || wVf) { wVoice(under); wVU = under; } } // 声（ボイスチャット）もこもる
@@ -2603,7 +2622,7 @@ function openGrassland(onClose, opt) {
     cairnFrame(dt); // 🪨 石の拾得・石積みの演出・操作の表示
     updateAmbient(dt); // 🍃 自然音
     let mf = (keys.f ? 1 : 0) - (keys.b ? 1 : 0) - sv.y, mr = (keys.r ? 1 : 0) - (keys.l ? 1 : 0) + sv.x; const mm = Math.hypot(mf, mr); if (mm > 1) { mf /= mm; mr /= mm; }
-    const sp2 = 4.2 * (keys.shift ? 1.9 : 1) * dt, sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
+    const sp2 = 4.2 * (SHIFT_DASH && keys.shift ? 19 : 1) * dt, sy = Math.sin(P.yaw), cy = Math.cos(P.yaw); /* TEST: 走る速度10倍（1.9→19）。テスト後は 19 を 1.9 に戻す */
     if (inDungeon) { waterOff(); dungeonFrame(dt, t, mf, mr, sp2, sy, cy); raf = requestAnimationFrame(frame); return; } // 🕳 ダンジョンの間は、草原は止めておく
     const px0 = P.x, pz0 = P.z, wsl = wSlow(); P.x += (-sy * mf + cy * mr) * sp2 * wsl; P.z += (-cy * mf - sy * mr) * sp2 * wsl; const mvd = Math.hypot(P.x - px0, P.z - pz0); wCurrent(dt); // 🌊 水の中では遅くなる（川では流される）
     cairnPush(); // 🪨 石の山の中には入れない
