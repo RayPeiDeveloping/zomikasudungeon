@@ -3858,17 +3858,15 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   p2IntervalMax: 0.9,      // 同、最長
   p2TestMode: (() => { try { return new URLSearchParams(location.search).has('vsp2') || /vsp2/.test(location.hash); } catch (err) { return false; } })(), // 🧪 テスト用：リンクの最後に ?vsp2（すでに ? がある時は &vsp2）をつけると、敵が自分の斬撃を1発受けた時点で、第2形態へ移行する
   p2BarColor: 0xff2020,    // 第2形態：敵の「向きを示す棒」の色（赤。通常は白）
-  p2SlashColor: 0xc04aff,  // 第2形態のオーラ・演出の色（紫。斬撃の色は変えない）
+  p2SlashColor: 0xff2020,  // 第2形態のオーラ・演出・予告線の色（赤。斬撃の色は変えない）
   // --- 第2形態の攻撃①：扇状（自分の方へ真っ直ぐ＋左右に fanAngleDeg 度の計3本を、同時に直進で撃つ。その場に止まって構える） ---
   fanTelegraph: 0.7,       // 構えの秒数（扇状の予告線が出る）
   fanAngleDeg: 70,         // 左右の斬撃が、真ん中からそれる角度（度）
-  fanSpeed: 1280,          // 3本の斬撃の速さ（px/秒）
   // --- 第2形態の攻撃②：連射（その場に止まって、上下交互に、高速で連続して撃つ） ---
   rapidTelegraph: 0.4,     // 構えの秒数
   rapidCount: 10,          // 撃つ合計数
   rapidInterval: 0.07,     // 1発ごとの間隔（秒）
   rapidSpread: 0.3,        // 自分の方向から、上へ／下へ交互にずらす角度（ラジアン）
-  rapidSpeed: 1500,        // 連射の斬撃の速さ（px/秒）
   // --- 斬撃が地面に残す跡（自分の斬撃も敵の斬撃も、通った道すじに斬られたような傷が残り、だんだん薄れて消える） ---
   scarLife: 5.0,           // 跡が残る秒数（最後の scarFade 秒でだんだん薄くなる）
   scarFade: 2.0,           // 消えていく秒数
@@ -8304,10 +8302,10 @@ class GameScene extends Phaser.Scene {
         try { this.cameras.main.shake(V.p2TransTime * 800, 0.012); this.cameras.main.flash(300, 190, 90, 255); } catch (err) {}
         this._vhBurst(e.gfx.x, e.gfx.y, V.p2SlashColor, 26);
       }
-      const fire = (a, spd) => { // 直進する（追尾しない）敵の斬撃を1本撃つ
-        const col = V.enemySlashColor, fx = e.gfx.x + Math.cos(a) * 14, fy = e.gfx.y + Math.sin(a) * 14;
-        this._vhSlashes.push({ x: fx, y: fy, a, age: 0, owner: 'e', col, spd, turn: 0, homeT: null, committed: true, sp: 0, lx: e.gfx.x, ly: e.gfx.y });
-        this._vhBurst(fx, fy, col, 4);
+      const fire = (a, turn, homeT) => { // 敵の斬撃を1本撃つ処理（通常攻撃も、扇状・連射も、すべてこれを使う）
+        const fx = e.gfx.x + Math.cos(a) * 14, fy = e.gfx.y + Math.sin(a) * 14;
+        this._vhSlashes.push({ x: fx, y: fy, a, age: 0, owner: 'e', col: V.enemySlashColor, spd: V.enemySlashSpeed, turn: turn || 0, homeT: homeT == null ? null : homeT, sp: 0, lx: e.gfx.x, ly: e.gfx.y });
+        this._vhBurst(fx, fy, V.enemySlashColor, 6);
       };
       if (en.trans > 0) { // 形態移行の演出中：その場で力をためる
         en.trans -= dt; en.transT += dt; en.fx -= dt;
@@ -8320,7 +8318,7 @@ class GameScene extends Phaser.Scene {
       } else if (en.rap) { // 連射：その場に止まって、上下交互に高速で撃つ
         en.rap.t -= dt;
         if (en.rap.t <= 0) {
-          fire(Math.atan2(this.player.y - e.gfx.y, this.player.x - e.gfx.x) + en.rap.side * V.rapidSpread, V.rapidSpeed);
+          fire(Math.atan2(this.player.y - e.gfx.y, this.player.x - e.gfx.x) + en.rap.side * V.rapidSpread);
           en.rap.side = -en.rap.side; en.rap.n--; en.rap.t += V.rapidInterval;
           if (en.rap.n <= 0) { en.rap = null; en.hold = false; en.cd = V.p2IntervalMin + Math.random() * (V.p2IntervalMax - V.p2IntervalMin); }
         }
@@ -8329,15 +8327,14 @@ class GameScene extends Phaser.Scene {
         if (en.tele > V.enemyAimLock) { en.tx = this.player.x; en.ty = this.player.y; } // 予告のあいだは自分の方を向き続け、撃つ直前（enemyAimLock秒前）で向きを固定する
         en.ang = Phaser.Math.Angle.Wrap(Math.atan2(en.ty - e.gfx.y, en.tx - e.gfx.x) + (en.off || 0)); // 敵が動き回るので、撃つ直前まで、今の位置から狙い直す
         if (en.tele <= 0) {
-          if (en.atk === 'fan') { // 扇状：真っ直ぐ＋左右に fanAngleDeg 度、3本を同時に直進で撃つ
+          if (en.atk === 'fan') { // 扇状：真っ直ぐ＋左右に fanAngleDeg 度、3本を同時に撃つ（通常の斬撃と同じく追従する）
             const sp = V.fanAngleDeg * Math.PI / 180;
-            fire(en.ang, V.fanSpeed); fire(en.ang + sp, V.fanSpeed); fire(en.ang - sp, V.fanSpeed);
+            fire(en.ang); fire(en.ang + sp); fire(en.ang - sp);
             en.atk = null; en.hold = false; en.cd = V.p2IntervalMin + Math.random() * (V.p2IntervalMax - V.p2IntervalMin);
           } else if (en.atk === 'rapid') { // 連射を始める（1発目はすぐ）
             en.rap = { n: V.rapidCount, t: 0, side: Math.random() < 0.5 ? 1 : -1 }; en.atk = null;
           } else {
-            this._vhSlashes.push({ x: e.gfx.x + Math.cos(en.ang) * 14, y: e.gfx.y + Math.sin(en.ang) * 14, a: en.ang, age: 0, owner: 'e', col: V.enemySlashColor, spd: V.enemySlashSpeed, turn: en.flank ? V.flankTurn : 0, homeT: en.flank ? V.flankHomeTime : null, sp: 0, lx: e.gfx.x, ly: e.gfx.y });
-            this._vhBurst(e.gfx.x + Math.cos(en.ang) * 14, e.gfx.y + Math.sin(en.ang) * 14, V.enemySlashColor, 6);
+            fire(en.ang, en.flank ? V.flankTurn : 0, en.flank ? V.flankHomeTime : null);
             en.cd = V.enemyIntervalMin + Math.random() * (V.enemyIntervalMax - V.enemyIntervalMin);
           }
         }
