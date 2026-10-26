@@ -3856,6 +3856,7 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   p2FirstDelay: 0.6,       // 移行が終わってから、最初に撃つまでの秒数
   p2IntervalMin: 0.5,      // 第2形態：次の攻撃までの間隔（秒）の最短
   p2IntervalMax: 0.9,      // 同、最長
+  p2NormalChance: 0.4,     // 第2形態でも、攻撃のうちこの割合（0〜1）は通常攻撃（直進／回り込み）にする。0＝今まで通り特殊攻撃（扇状・連射）だけ／1＝通常攻撃だけ
   p2TestMode: (() => { try { return new URLSearchParams(location.search).has('vsp2') || /vsp2/.test(location.hash); } catch (err) { return false; } })(), // 🧪 テスト用：リンクの最後に ?vsp2（すでに ? がある時は &vsp2）をつけると、敵が自分の斬撃を1発受けた時点で、第2形態へ移行する
   p2BarColor: 0xff2020,    // 第2形態：敵の「向きを示す棒」の色（赤。通常は白）
   p2SlashColor: 0xff2020,  // 第2形態のオーラ・演出の色（赤。斬撃の色は変えない）
@@ -3868,6 +3869,26 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   rapidCount: 10,          // 撃つ合計数
   rapidInterval: 0.07,     // 1発ごとの間隔（秒）
   rapidTurn: 5.0,          // 連射の斬撃が、自分の方へ曲がる速さ（ラジアン/秒。通常は enemySlashTurn＝2.0、回り込みは flankTurn＝7.6）
+  // --- 第2形態の攻撃③：紫の太い斬撃（通常の3倍の太さ・半分の速さ。曲がりながら飛ぶ。自分の斬撃とぶつかると、そらされずに、紫の通常斬撃3つ［まっすぐ・±purpleSplitDeg度］に分裂する） ---
+  purpleShare: 0.25,       // 第2形態の特殊攻撃（扇状・連射・紫・オレンジ）のうち、紫になる割合（0〜1。紫とオレンジの残りは、扇状と連射で半々）
+  purpleTelegraph: 0.7,    // 構えの秒数（曲がっていく道すじの予告線が出る）
+  purpleThick: 3,          // 通常の斬撃に対する太さ（当たり判定の半径・地面の跡の太さの倍率）
+  purpleSpeedRate: 0.5,    // 通常の敵の斬撃（enemySlashSpeed）に対する速さの倍率（0.5＝半分）
+  purpleColor: 0xb040ff,   // 紫の斬撃の色（分裂してできる通常斬撃も同じ色）
+  purpleAngle: 0.8,        // 撃つ時に、自分の方向から上か下へそれる角度（ラジアン）。そこから自分の方へ曲がる
+  purpleTurn: 3.8,         // 自分の方へ曲がる速さ（ラジアン/秒。速さが半分なので、回り込み flankTurn の半分で同じ曲がり方になる）
+  purpleCommitDist: 130,   // 紫の太い斬撃が、自分にこの距離（px）まで近づき、向きがほぼ合ったら、追尾をやめて直進する（通常は enemyCommitDist＝260）
+  purpleLife: 2.2,         // 消えるまでの秒数（速さが半分なので、enemySlashLife の2倍で同じ距離を飛ぶ）
+  purpleHomeTime: 2.2,     // 自分を追う秒数（purpleLife と同じなら、消えるまでずっと追う）
+  purpleDamage: 20,        // 紫の太い斬撃が当たった時のダメージ
+  purpleClashRadius: 70,   // 自分の斬撃が、この距離（px）まで近づくと、分裂する（太いので clashRadius より大きめ）
+  purpleSplitDeg: 40,      // 分裂した斬撃が、もとの向きから左右にそれる角度（度）
+  // --- 第2形態の攻撃④：オレンジの斬撃（ランダムな方向へ放つ。直進しかせず、壁に着くと跳ね返り、orangeLife 秒たつと消える。速さは通常の敵の斬撃と同じ） ---
+  orangeShare: 0.25,       // 第2形態の特殊攻撃のうち、オレンジになる割合（0〜1）
+  orangeTelegraph: 0.6,    // 構えの秒数（放つ向きの予告線が出る。向きはランダムで、自分は狙わない）
+  orangeCount: 1,          // 1回に放つ本数（2本目以降も、それぞれランダムな向き）
+  orangeColor: 0xff8c1a,   // オレンジの斬撃の色
+  orangeLife: 6,           // 消えるまでの秒数（壁で跳ね返りながら、これだけ飛び続ける）
   rapidSpread: 0.3,        // 自分の方向から、上へ／下へ交互にずらす角度（ラジアン）
   // --- 斬撃が地面に残す跡（自分の斬撃も敵の斬撃も、通った道すじに斬られたような傷が残り、だんだん薄れて消える） ---
   scarLife: 5.0,           // 跡が残る秒数（最後の scarFade 秒でだんだん薄くなる）
@@ -8298,10 +8319,11 @@ class GameScene extends Phaser.Scene {
         try { this.cameras.main.shake(V.p2TransTime * 800, 0.012); this.cameras.main.flash(300, 190, 90, 255); } catch (err) {}
         this._vhBurst(e.gfx.x, e.gfx.y, V.p2SlashColor, 26);
       }
-      const fire = (a, turn, homeT) => { // 敵の斬撃を1本撃つ処理（通常攻撃も、扇状・連射も、すべてこれを使う）
+      const fire = (a, turn, homeT, opt) => { // 敵の斬撃を1本撃つ処理（通常攻撃も、扇状・連射も、すべてこれを使う）
         const fx = e.gfx.x + Math.cos(a) * 14, fy = e.gfx.y + Math.sin(a) * 14;
-        this._vhSlashes.push({ x: fx, y: fy, a, age: 0, owner: 'e', col: V.enemySlashColor, spd: V.enemySlashSpeed, turn: turn || 0, homeT: homeT == null ? null : homeT, sp: 0, lx: e.gfx.x, ly: e.gfx.y });
-        this._vhBurst(fx, fy, V.enemySlashColor, 6);
+        const o = opt || {};
+        this._vhSlashes.push(Object.assign({ x: fx, y: fy, a, age: 0, owner: 'e', col: V.enemySlashColor, spd: V.enemySlashSpeed, turn: turn || 0, homeT: homeT == null ? null : homeT, sp: 0, lx: e.gfx.x, ly: e.gfx.y }, o));
+        this._vhBurst(fx, fy, o.col || V.enemySlashColor, o.big ? 14 : 6);
       };
       if (en.trans > 0) { // 形態移行の演出中：その場で力をためる
         en.trans -= dt; en.transT += dt; en.fx -= dt;
@@ -8321,7 +8343,7 @@ class GameScene extends Phaser.Scene {
       } else if (en.tele > 0) {
         en.tele -= dt;
         if (en.tele > V.enemyAimLock) { en.tx = this.player.x; en.ty = this.player.y; } // 予告のあいだは自分の方を向き続け、撃つ直前（enemyAimLock秒前）で向きを固定する
-        en.ang = Phaser.Math.Angle.Wrap(Math.atan2(en.ty - e.gfx.y, en.tx - e.gfx.x) + (en.off || 0)); // 敵が動き回るので、撃つ直前まで、今の位置から狙い直す
+        en.ang = en.atk === 'orange' ? en.rndA : Phaser.Math.Angle.Wrap(Math.atan2(en.ty - e.gfx.y, en.tx - e.gfx.x) + (en.off || 0)); // 敵が動き回るので、撃つ直前まで、今の位置から狙い直す
         if (en.tele <= 0) {
           if (en.atk === 'fan') { // 扇状：真っ直ぐ＋左右に fanAngleDeg 度、3本を同時に撃つ（通常の斬撃と同じく追従する）
             const sp = V.fanAngleDeg * Math.PI / 180;
@@ -8329,6 +8351,12 @@ class GameScene extends Phaser.Scene {
             en.atk = null; en.hold = false; en.cd = V.p2IntervalMin + Math.random() * (V.p2IntervalMax - V.p2IntervalMin);
           } else if (en.atk === 'rapid') { // 連射を始める（1発目はすぐ）
             en.rap = { n: V.rapidCount, t: 0, side: Math.random() < 0.5 ? 1 : -1 }; en.atk = null;
+          } else if (en.atk === 'purple') { // 紫の太い斬撃：通常の3倍太く、半分の速さで、曲がりながら飛ぶ（自分の斬撃とぶつかると3つに分裂）
+            fire(en.ang, V.purpleTurn, V.purpleHomeTime, { big: true, col: V.purpleColor, spd: V.enemySlashSpeed * V.purpleSpeedRate, rad: V.enemySlashRadius * V.purpleThick, wMul: V.purpleThick, life: V.purpleLife, clashR: V.purpleClashRadius, dmg: V.purpleDamage, commitD: V.purpleCommitDist });
+            en.atk = null; en.flank = false; en.off = 0; en.hold = false; en.cd = V.p2IntervalMin + Math.random() * (V.p2IntervalMax - V.p2IntervalMin);
+          } else if (en.atk === 'orange') { // 🟠 オレンジの斬撃：ランダムな向きへ、追わずに直進。壁で跳ね返り、orangeLife 秒で消える
+            for (let k = 0; k < V.orangeCount; k++) fire(k === 0 ? en.ang : (Math.random() * 2 - 1) * Math.PI, 0, null, { col: V.orangeColor, committed: true, bounce: true, life: V.orangeLife });
+            en.atk = null; en.hold = false; en.cd = V.p2IntervalMin + Math.random() * (V.p2IntervalMax - V.p2IntervalMin);
           } else {
             fire(en.ang, en.flank ? V.flankTurn : 0, en.flank ? V.flankHomeTime : null);
             en.cd = V.enemyIntervalMin + Math.random() * (V.enemyIntervalMax - V.enemyIntervalMin);
@@ -8340,12 +8368,12 @@ class GameScene extends Phaser.Scene {
           en.tx = this.player.x; en.ty = this.player.y;
           en.ang = Math.atan2(en.ty - e.gfx.y, en.tx - e.gfx.x);
           en.atk = null; en.hold = false;
-          if (en.p2) { // 第2形態：扇状か連射のどちらか（同じ攻撃が続きにくい）
-            en.atk = Math.random() < 0.5 ? 'fan' : 'rapid';
-            if (en.last === en.atk && Math.random() < 0.6) en.atk = en.atk === 'fan' ? 'rapid' : 'fan';
+          if (en.p2 && Math.random() >= V.p2NormalChance) { // 第2形態：p2NormalChance の確率で通常攻撃（en.atk=null のまま下の通常攻撃へ）、残りは扇状か連射（同じ特殊攻撃が続きにくい）
+            const r0 = Math.random(), rest = 1 - V.purpleShare - V.orangeShare; en.atk = r0 < V.purpleShare ? 'purple' : (r0 < V.purpleShare + V.orangeShare ? 'orange' : (r0 < V.purpleShare + V.orangeShare + rest / 2 ? 'fan' : 'rapid'));
+            if (en.last === en.atk && Math.random() < 0.6) { const alt = ['fan', 'rapid', 'purple', 'orange'].filter(k => k !== en.atk); en.atk = alt[Math.floor(Math.random() * alt.length)]; }
             en.last = en.atk;
           }
-          if (en.atk) { en.flank = false; en.off = 0; en.tele = en.atk === 'fan' ? V.fanTelegraph : V.rapidTelegraph; en.teleMax = en.tele; en.hold = true; }
+          if (en.atk) { const pp = en.atk === 'purple'; if (en.atk === 'orange') en.rndA = (Math.random() * 2 - 1) * Math.PI; en.flank = pp; en.off = pp ? (Math.random() < 0.5 ? 1 : -1) * V.purpleAngle : 0; en.tele = en.atk === 'fan' ? V.fanTelegraph : (pp ? V.purpleTelegraph : (en.atk === 'orange' ? V.orangeTelegraph : V.rapidTelegraph)); en.teleMax = en.tele; en.hold = true; }
           else {
             en.flank = Math.random() < V.flankChance; // 回り込み：最初は上か下へそれて、大きく曲がりながら自分へ向かう
             en.off = en.flank ? (Math.random() < 0.5 ? 1 : -1) * V.flankAngle : 0; // 回り込みは、狙う向きからそれる角度（敵が動くので、向きは撃つ直前まで計算し直す）
@@ -8364,24 +8392,31 @@ class GameScene extends Phaser.Scene {
       }
       if (s.owner === 'e' && !(s.lock > 0) && !s.committed && !(s.homeT != null && s.age > s.homeT)) { // 敵の斬撃は自分を追うが、近づいて向きが合ったら「直進」に切り替わる（避けられる）
         const d = Phaser.Math.Angle.Wrap(Math.atan2(this.player.y - s.y, this.player.x - s.x) - s.a), m = (s.turn || V.enemySlashTurn) * dt;
-        if (Math.hypot(this.player.x - s.x, this.player.y - s.y) < V.enemyCommitDist && Math.abs(d) < V.enemyCommitAng) s.committed = true;
+        if (Math.hypot(this.player.x - s.x, this.player.y - s.y) < (s.commitD || V.enemyCommitDist) && Math.abs(d) < V.enemyCommitAng) s.committed = true;
         else s.a += Math.max(-m, Math.min(m, d));
       }
       const ox = s.x, oy = s.y;
       s.x += Math.cos(s.a) * (s.spd || V.slashSpeed) * dt; s.y += Math.sin(s.a) * (s.spd || V.slashSpeed) * dt;
+      if (s.bounce && this.circleHitsWall(s.x, s.y, 5)) { // 🟠 壁に着いたら、消えずに跳ね返る（ぶつかった面の向きだけ反転。角なら両方反転）
+        const hx = this.circleHitsWall(s.x, oy, 5), hy = this.circleHitsWall(ox, s.y, 5);
+        let vx = Math.cos(s.a), vy = Math.sin(s.a);
+        if (hx || !hy) vx = -vx; if (hy || !hx) vy = -vy;
+        s.a = Math.atan2(vy, vx); s.x = ox; s.y = oy;
+        this._vhBurst(ox, oy, s.col, 3);
+      }
       if (s.sx === undefined) { s.sx = ox; s.sy = oy; } // 跡：前に線分を足した位置から、scarStepぶん進むたびに、斬撃の道すじに傷を足す（曲がれば、曲がった傷になる）
       if (Math.hypot(s.x - s.sx, s.y - s.sy) >= V.scarStep && !this.circleHitsWall(s.x, s.y, 5)) {
-        this._vhScars.push({ x1: s.sx, y1: s.sy, x2: s.x, y2: s.y, col: s.col, t: 0, w: Math.max(1.5, V.scarWidth * (1 - 0.65 * Math.min(1, s.age / (s.owner === 'e' ? V.enemySlashLife : V.slashLife)))) });
+        this._vhScars.push({ x1: s.sx, y1: s.sy, x2: s.x, y2: s.y, col: s.col, t: 0, w: Math.max(1.5, V.scarWidth * (s.wMul || 1) * (1 - 0.65 * Math.min(1, s.age / (s.life || (s.owner === 'e' ? V.enemySlashLife : V.slashLife))))) });
         s.sx = s.x; s.sy = s.y;
       }
       s.sp = (s.sp || 0) + dt * 140;
-      while (s.sp >= 1) { s.sp -= 1; this._vhWheelSpark(s.x, s.y, s.a, s.col); } // 斬撃の位置＝見えない車輪が地面に触れている所。そこから火花が次々と散る
-      const sLife = s.owner === 'e' ? V.enemySlashLife : V.slashLife; let dead = s.age > sLife || this.circleHitsWall(s.x, s.y, 5) || (s.owner === 'p' && !aim.held); // 自分の斬撃は、スティック（クリック・スペース）から手を離した時点で消える
+      while (s.sp >= 1) { s.sp -= 1; this._vhWheelSpark(s.x, s.y, s.a, s.col); if (s.big) { this._vhWheelSpark(s.x, s.y, s.a, s.col); this._vhWheelSpark(s.x, s.y, s.a, s.col); } } // 斬撃の位置＝見えない車輪が地面に触れている所。そこから火花が次々と散る
+      const sLife = s.life || (s.owner === 'e' ? V.enemySlashLife : V.slashLife); let dead = s.age > sLife || this.circleHitsWall(s.x, s.y, 5) || (s.owner === 'p' && !aim.held); // 自分の斬撃は、スティック（クリック・スペース）から手を離した時点で消える
       if (!dead && s.owner === 'p' && e && Math.hypot(s.x - e.gfx.x, s.y - e.gfx.y) < e.type.radius + V.slashRadius) {
         this.damageEnemy(e, V.slashDamage, s.a, 0); this._vhBurst(s.x, s.y, s.col, 18); this._vhBlood(s.x, s.y, s.a); this._vhHitFeel(false); dead = true;
       }
-      if (!dead && s.owner === 'e' && !this.isGhost && Math.hypot(s.x - this.player.x, s.y - this.player.y) < this.player.radius + V.enemySlashRadius && this.playerInvuln <= 0) {
-        this._vhHurt(V.enemySlashDamage); this._vhBurst(s.x, s.y, s.col, 18); this._vhBlood(s.x, s.y, s.a); this._vhHitFeel(true); dead = true; // 無敵の間は、すり抜ける
+      if (!dead && s.owner === 'e' && !this.isGhost && Math.hypot(s.x - this.player.x, s.y - this.player.y) < this.player.radius + (s.rad || V.enemySlashRadius) && this.playerInvuln <= 0) {
+        this._vhHurt(s.dmg || V.enemySlashDamage); this._vhBurst(s.x, s.y, s.col, 18); this._vhBlood(s.x, s.y, s.a); this._vhHitFeel(true); dead = true; // 無敵の間は、すり抜ける
       }
       if (dead) { if (s.age <= sLife && !s.hitDone) this._vhBurst(s.x, s.y, s.col, 10); s.dead = true; }
     }
@@ -8389,7 +8424,16 @@ class GameScene extends Phaser.Scene {
     for (const a of this._vhSlashes) {
       if (a.dead || a.owner !== 'p' || a.cd > 0) continue;
       for (const b of this._vhSlashes) {
-        if (b.dead || b.owner !== 'e' || b.cd > 0 || Math.hypot(a.x - b.x, a.y - b.y) >= V.clashRadius) continue;
+        if (b.dead || b.owner !== 'e' || b.cd > 0 || Math.hypot(a.x - b.x, a.y - b.y) >= (b.clashR || V.clashRadius)) continue;
+        if (b.big) { // 💜 紫の太い斬撃：そらさずに、紫の通常斬撃3つ（もとの向きにまっすぐ・左右に purpleSplitDeg 度）に分裂する。自分の斬撃も、ここで消える
+          b.dead = true; a.dead = true;
+          const sd = V.purpleSplitDeg * Math.PI / 180;
+          for (const da of [0, sd, -sd]) this._vhSlashes.push({ x: b.x, y: b.y, a: Phaser.Math.Angle.Wrap(b.a + da), age: 0, owner: 'e', col: V.purpleColor, spd: V.enemySlashSpeed * V.purpleSpeedRate, turn: 0, homeT: null, sp: 0, lx: b.x, ly: b.y, cd: V.clashCooldown });
+          this._vhBurst(b.x, b.y, V.purpleColor, V.clashSparks); this._vhBurst(b.x, b.y, 0xffffff, 8);
+          this._vhStopT = Math.max(this._vhStopT || 0, V.clashStop);
+          if (V.clashShake > 0) { try { this.cameras.main.shake(V.clashShakeMs, V.clashShake); } catch (e) {} }
+          break;
+        }
         // 相手が左側にあれば右へ、右側にあれば左へ曲がる（外積で判定）。真正面なら、すれ違う向きにそれぞれ曲がる
         const sideOf = (m, o) => { const cr = Math.cos(m.a) * (o.y - m.y) - Math.sin(m.a) * (o.x - m.x); return Math.abs(cr) < 0.5 ? 0 : (cr > 0 ? -1 : 1); };
         let sa = sideOf(a, b), sb = sideOf(b, a);
@@ -8407,12 +8451,13 @@ class GameScene extends Phaser.Scene {
     g.clear(); gg.clear();
     if (V.telegraphLine && en && en.tele > 0 && e && hh0) { // 予告：敵から、斬撃を放つ向きへ線が伸びる。敵の体も点滅する
       const pu = 0.5 + 0.5 * Math.sin(t * 40), tx = en.tx, ty = en.ty;
-      g.lineStyle(2, V.enemySlashColor, 0.25 + 0.4 * pu);
+      const pp = en.atk === 'purple', pSp = pp ? V.enemySlashSpeed * V.purpleSpeedRate : V.enemySlashSpeed, pTn = pp ? V.purpleTurn : V.flankTurn; // 紫は、太く・遅く・ゆるやかに曲がる
+      g.lineStyle(pp ? 2 * V.purpleThick : 2, pp ? V.purpleColor : (en.atk === 'orange' ? V.orangeColor : V.enemySlashColor), 0.25 + 0.4 * pu);
       if (en.flank) { // 回り込む斬撃：曲がっていく道すじを予告する
         let px = e.gfx.x, py = e.gfx.y, pa = en.ang; g.beginPath(); g.moveTo(px, py);
-        for (let k = 0; k < 44; k++) {
-          const dd = Phaser.Math.Angle.Wrap(Math.atan2(ty - py, tx - px) - pa), mm = V.flankTurn * 0.025;
-          pa += Math.max(-mm, Math.min(mm, dd)); px += Math.cos(pa) * V.enemySlashSpeed * 0.025; py += Math.sin(pa) * V.enemySlashSpeed * 0.025;
+        for (let k = 0; k < (pp ? 88 : 44); k++) {
+          const dd = Phaser.Math.Angle.Wrap(Math.atan2(ty - py, tx - px) - pa), mm = pTn * 0.025;
+          pa += Math.max(-mm, Math.min(mm, dd)); px += Math.cos(pa) * pSp * 0.025; py += Math.sin(pa) * pSp * 0.025;
           g.lineTo(px, py); if (Math.hypot(tx - px, ty - py) < 20) break;
         }
         g.strokePath();
@@ -8421,7 +8466,7 @@ class GameScene extends Phaser.Scene {
     if (this._vhFace && this._vhFace.scene) { // 敵の向きを示す白い棒：構えている間は撃つ向き、それ以外は自分のいる向き
       if (e && e.gfx && e.gfx.scene && e.hp > 0) {
         const fa = (en && en.tele > 0) ? en.ang : Math.atan2(this.player.y - e.gfx.y, this.player.x - e.gfx.x), fd = e.type.radius + V.faceBarGap;
-        this._vhFace.setFillStyle(this._vhEn && this._vhEn.p2 ? V.p2BarColor : 0xffffff).setPosition(e.gfx.x + Math.cos(fa) * fd, e.gfx.y + Math.sin(fa) * fd).setRotation(fa).setVisible(true).setAlpha(e.gfx.alpha);
+        this._vhFace.setFillStyle(this._vhEn && this._vhEn.atk === 'purple' && this._vhEn.tele > 0 ? V.purpleColor : (this._vhEn && this._vhEn.atk === 'orange' && this._vhEn.tele > 0 ? V.orangeColor : (this._vhEn && this._vhEn.p2 ? V.p2BarColor : 0xffffff))).setPosition(e.gfx.x + Math.cos(fa) * fd, e.gfx.y + Math.sin(fa) * fd).setRotation(fa).setVisible(true).setAlpha(e.gfx.alpha);
       } else this._vhFace.setVisible(false);
     }
     if (e && e.gfx && e.gfx.scene) e.gfx.setFillStyle(this._vhFlash > 0 ? 0xffffff : (V.telegraphBlink && en && en.tele > 0 && Math.floor(t * 20) % 2 ? 0xff9a9a : e.type.color));
