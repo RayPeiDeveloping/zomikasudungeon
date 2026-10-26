@@ -3799,6 +3799,8 @@ const PARTY_STATS_LIST = [ // 🖤 黒いメモに出す項目 [セーブのkey,
   ['totalBossKills', 'ボスの累計撃破数'], ['soloTotalKills', '雑魚敵の累計撃破数']];
 const PARTY_PORTAL = { i: -2, portal: true, x: 320, y: 118 }; // 🌿 草原への入口（メモと同じ要領で、近づいて E／タップ）
 const VS_HERO = { // ⚔ 斬り合いの調整値
+  roomTilesW: 22,      // 部屋の横幅（マス）。16:9くらいの画面（平均的な横長。縦12.5マスなら横は約22.2マス）にほぼぴったり収まる広さ。横長の端末ほど左右に壁が見え、縦長の端末ほど左右が切れる
+  roomTilesH: 13,      // 部屋の縦幅（マス）。画面の縦（12.5マス分）にほぼ一致する高さ（奇数なので、真ん中のマスの高さに自分も敵も立てる。上下は、マス半分ほど画面からはみ出る）
   duelTiles: 9,        // 自分と敵の間のマス数
   moveSpeed: 1.0,      // 自由に動く速さ（ふつうの移動速度の何倍か）
   stepDead: 0.2,       // 移動スティックのデッドゾーン（これ未満は動かない）
@@ -3992,10 +3994,11 @@ function carveExit(grid, room, width, height, rand) {
 
 // ボスラッシュ用（ダンジョンのボス階でも使う）：ボスが1体いるだけの1部屋のアリーナ。外周は壁（爆弾で壊されても
 // 最外周は壊れない）。出口は最初は無く、ボスを倒すと開く（exitPos: null）。
-function generateBossArena() {
-  const width = 42, height = 30; // 部屋（36×24）を縦横2倍に。外周の壁3マスは従来どおり
+function generateBossArena(size) { // size＝{ w, h }（マス）を渡すと、その大きさの部屋にする（斬り合い用）。渡さなければ、従来の36×24
+  const rw = size ? size.w : 36, rh = size ? size.h : 24;
+  const width = rw + 6, height = rh + 6; // 部屋（36×24）を縦横2倍に。外周の壁3マスは従来どおり
   const grid = Array.from({ length: height }, () => Array(width).fill(0));
-  const room = { x: 3, y: 3, w: 36, h: 24 };
+  const room = { x: 3, y: 3, w: rw, h: rh };
   for (let y = room.y; y < room.y + room.h; y++) {
     for (let x = room.x; x < room.x + room.w; x++) grid[y][x] = 1;
   }
@@ -7657,7 +7660,7 @@ class GameScene extends Phaser.Scene {
     this.hideClearTime(); // 前の階のクリア時間表示を消す
     const seed = this.baseSeed + this.floor * 7919;
     this.bossFloor = !this.snowfield && !this.hell && !this.sanctuary && !this.bossRush && !this.frontline && !this.pvp && !this.party && this.isBossFloor(this.floor); // ダンジョンの5階ごと（10・15・20…）はボス階
-    const dungeon = this._snowRestore ? this._snowRestore.dungeon : this.sanctuary ? generateSanctuaryMap() : this.hell ? generateHellMap() : this.snowfield ? generateSnowfieldMap(this._godExiled) : (this.bossRush || this.bossFloor) ? generateBossArena() : (this.pvp ? generatePvpMap() : this.party ? generatePartyMap(this.lounge) : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor, { secretLibrary: !this.mp, whiteDoor: !this.mp && !this.isDevMode && isGodFloorSeed(this.baseSeed) && this.floor === 6, ghostFloor: !this.mp && !!this._ghostFloorOn && this.floor === 1 })));
+    const dungeon = this._snowRestore ? this._snowRestore.dungeon : this.sanctuary ? generateSanctuaryMap() : this.hell ? generateHellMap() : this.snowfield ? generateSnowfieldMap(this._godExiled) : (this.bossRush || this.bossFloor) ? generateBossArena(this.vsHero ? { w: VS_HERO.roomTilesW, h: VS_HERO.roomTilesH } : null) : (this.pvp ? generatePvpMap() : this.party ? generatePartyMap(this.lounge) : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor, { secretLibrary: !this.mp, whiteDoor: !this.mp && !this.isDevMode && isGodFloorSeed(this.baseSeed) && this.floor === 6, ghostFloor: !this.mp && !!this._ghostFloorOn && this.floor === 1 })));
     if (this.mp && !this.bossRush && !this.pvp && !this.party && !this.frontline) { addRitualRoom(dungeon); if (this.bossFloor && this.floor >= 25) addDemonRooms(dungeon, Math.min(10, Math.max(4, Object.keys(this.latestPlayers || {}).length + 2))); } // 協力プレイ：調伏の儀の部屋を遠くに足す
     this.rt = null; if (this._rtGfx && this._rtGfx.scene) this._rtGfx.clear(); // 前の階の調伏の儀の進行は持ち越さない
     this.dungeon = dungeon;
@@ -8112,7 +8115,7 @@ class GameScene extends Phaser.Scene {
     const sl = ENEMY_TYPES.find(t => t.key === 'slime');
     const type = this._vsHeroType || (this._vsHeroType = Object.assign({}, sl, { key: 'vshero', isBoss: true, bossLabel: '', displayName: '主人公', color: 0x5bd1ff, radius: TILE * 0.32, hp: 1000, speed: 0, damage: 0, noContactDamage: true, aggroRange: 0 }));
     const room = this.dungeon.rooms[0];
-    const bx = (room.x + room.w - 6 + 0.5) * TILE, by = (room.y + room.h / 2 + 0.5) * TILE; // マスの真ん中に立つ
+    const bx = (room.x + room.w / 2 + VS_HERO.duelTiles / 2) * TILE, by = (room.y + Math.floor(room.h / 2) + 0.5) * TILE; // 部屋の真ん中の高さ。横は、真ん中から右へ duelTiles の半分（自分は左へ半分）
     const gfx = this.add.circle(bx, by, type.radius, type.color).setDepth(4);
     const hpBar = this.add.rectangle(bx, by - type.radius - 10, type.radius * 2, 6, 0xff5b5b).setDepth(4);
     const label = this.add.text(bx, by - type.radius - 22, '', { fontSize: '12px', color: '#ffd54c', fontStyle: 'bold', fontFamily: 'sans-serif' }).setOrigin(0.5).setDepth(4).setVisible(false); // 頭上の名前は出さない（名前は画面上のボス名バナーだけ。他の処理が label を触っても困らないよう、空の文字を持たせて隠してある）
@@ -8171,10 +8174,13 @@ class GameScene extends Phaser.Scene {
       }
     }
   }
-  // ⚔ カメラ：自分と敵の真ん中に固定して、自分を追わない（毎フレーム呼んで、ほかの処理で追従が戻っても固定し直す）
+  // ⚔ カメラ：部屋の真ん中に固定して、自分を追わない（毎フレーム呼んで、ほかの処理で追従が戻っても固定し直す）
   _vhCamLock() {
     const a = this._vhHome, b = this._vhEnemyHome, cam = this.cameras.main; if (!a || !b || !cam) return;
-    cam.stopFollow(); cam.centerOn((a.x + b.x) / 2, (a.y + b.y) / 2);
+    const rm = this.dungeon && this.dungeon.rooms && this.dungeon.rooms[0];
+    cam.stopFollow();
+    if (rm) cam.centerOn((rm.x + rm.w / 2) * TILE, (rm.y + rm.h / 2) * TILE); // カメラは部屋の真ん中に固定（倍率はそのまま。画面の縦は常に12.5マス分が見える）
+    else cam.centerOn((a.x + b.x) / 2, (a.y + b.y) / 2);
   }
   // ⚔ 移動：スティック（または WASD）で、画面の中ならどこでも自由に動ける（壁には、ぶつかって止まる）
   _vhStep(dx, dy, dt) {
