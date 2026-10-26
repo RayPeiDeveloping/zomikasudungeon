@@ -1500,6 +1500,9 @@ function openGrassland(onClose, opt) {
   let renderer;
   const lowSpec = IS_LOW_SPEC, lite = touch || lowSpec; try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: !lite }); } catch (err) { console.error('3Dの草原を作れませんでした:', err); root.remove(); if (onClose) onClose(); return; }
   const basePR = lowSpec ? 1 : Math.min(window.devicePixelRatio || 1, touch ? 1.25 : 1.75); renderer.setPixelRatio(basePR);
+  // 📱 スマホは、アプリを切り替えたりメモリが足りなくなったりすると、3Dの描画（WebGL）がいったん止まる。止まったままだと地面などが描かれず透明になるので、「あとで復帰させる」と伝えておく（これが無いと戻らない）
+  cv.addEventListener('webglcontextlost', ev => { ev.preventDefault(); });
+  cv.addEventListener('webglcontextrestored', () => { try { resize(); } catch (_) { } });
   // ⛰ 交流ルームの「草原」（opt.noHorror）だけ：ところどころに、高さ約12mの高い丘がある。場所は式だけで決まる（乱数なし）ので、全員が同じ場所に同じ丘を見る。出発地点(0,0)のまわり約90mは平ら。最初の丘は約180m先
   const TALL = !!opt.noHorror;
   const tallHill = (x, z) => { const t = 0.5 * Math.sin(x * 0.013 + 1.959) * Math.sin(z * 0.011 + 4.351) + 0.5 * Math.sin(x * 0.007 - z * 0.009 + 5.334), v = Math.min(1, Math.max(0, (t - 0.45) / 0.55)); return 12 * v * v; };
@@ -1993,6 +1996,11 @@ function openGrassland(onClose, opt) {
   };
 
   // ----- 🕳 暗いダンジョン：三回目の影に追いつかれると、ここへワープする。迷路の中を化物が歩き回っていて、見つかると追ってくる。緑の光の出口に入るか、化物に捕まると、草原を出て部屋に戻る -----
+  // ════════════ ここから：ダンジョン（草原とは別の区画） ════════════
+  // ダンジョンの部品は、d○○ という名前（DG・dScene・dMons・dungeonFrame など）と、warpToDungeon / startHeart / stopHeart / dEnd / dScream / dCaught にまとめてある。
+  // ・草原との境目は、次の3つだけ： ①入る＝warpToDungeon（草原の絵を片づけ、setMode('dungeon') で画面を切り替える） ②毎フレーム＝frame の中で inDungeon の時に dungeonFrame だけを動かす ③出る＝dEnd → exit
+  // ・「今どちらか」の旗 inDungeon は setMode でだけ変える。草原の画面（HUD・ボタン）は applyModeUi でだけ出し入れする（ダンジョンのコードから草原の画面を直接触らない）
+  // ・草原と共有しているもの： renderer / camera / P（自分の位置と向き）/ blk（暗転）/ hint / opt / glNet（通信）/ closed / exit
   const DG = { N: 21, TS: 3, H: 3.2, MONSTERS: 5, WALK: 1.8, CHASE: 3.4, SIGHT: 11, CATCH: 1.0, SPAWN_MIN: 9 }; // N＝迷路の大きさ(マス・奇数)／TS＝1マスの大きさ(m)／H＝天井の高さ／MONSTERS＝化物の数／WALK＝徘徊の速さ／CHASE＝追ってくる速さ(自分の歩き4.2より遅いので、走れば逃げられる)／SIGHT＝見つけられる距離(m)／CATCH＝捕まる距離(m)／SPAWN_MIN＝スタートからこのマス数以上はなれた所に化物が出る
   let dStart = [1, 1], dIsHost = false, dSeed = 0, inDungeon = false, dScene = null, dMaze = null, dMons = [], dExitPos = null, dLight = null, dDead = false, dCatch = null, dFlash = null, hbAc = null, hbGain = null, hbT = 0;
   const dSolid = (i, j) => i < 0 || j < 0 || i >= DG.N || j >= DG.N || dMaze[i][j] === 1;
@@ -2101,7 +2109,7 @@ function openGrassland(onClose, opt) {
     { const pl = (opt.scene && opt.scene.latestPlayers) || {}, me = opt.net && opt.net.uid, ids = Object.keys(pl).filter(u => u !== me && pl[u] && pl[u].gl && pl[u].gl.d && pl[u].gl.sd).sort();
       if (ids.length) { const g = pl[ids[0]].gl; dSeed = g.sd; } } // 合流する時も、同じ迷路（同じ番号）に入るだけで、始まる場所はランダム
     buildDungeon(dSeed, si, sj); si = dStart[0]; sj = dStart[1]; if (dSolid(si, sj)) { si = 1; sj = 1; spawnYaw = null; }
-    startHeart(); inDungeon = true; // 草原の草・木・空はもう描かないので、先に片づける（グラフィックのメモリをあける）
+    startHeart(); setMode('dungeon'); // 草原の草・木・空はもう描かないので、先に片づける（グラフィックのメモリをあける）
     scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); [trunkGeo, leafGeo, trunkMat, leafMat, shTex].forEach(o => o.dispose()); while (scene.children.length) scene.remove(scene.children[0]);
     dDead = false; dCatch = null; if (dFlash) dFlash.style.opacity = '0'; camera.fov = 70; camera.updateProjectionMatrix(); shadow.visible = false;
     P.x = si * DG.TS; P.z = sj * DG.TS; P.pitch = 0; P.yaw = spawnYaw != null ? spawnYaw : (() => { const od = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(d => !dSolid(si + d[0], sj + d[1])); const d = od.length ? od[Math.floor(Math.random() * od.length)] : [1, 0]; return Math.atan2(-d[0], -d[1]); })(); // 開いている方を向いて始まる（先にいる人の近くなら、その人と同じ向き）
@@ -2200,6 +2208,7 @@ function openGrassland(onClose, opt) {
   // ----- 🎙 一緒にいる人の姿の同期（広場と同じ仕組み）：自分の位置は updateOwnState({ gl: {...} }) で0.06秒ごとに配る（広場の g3 とは別のキー）。
   //   影が出る時・ダンジョンへワープする時は人それぞれ（同期しない）。ただし、先にダンジョンにいる人がいれば、その人と同じ迷路・その人の近くにワープする。
   //   gl = { x, z, r（向き）, p（上下の向き）, d（1＝ダンジョンの中）, sd（ダンジョンの迷路の番号） }。草原にいる人は草原だけ、ダンジョンにいる人は同じ迷路の人だけが見える。
+  // ════════════ ここまで：ダンジョン ════════════
   const glNet = opt.net || null, glSc = opt.scene || null, glRem = new Map(); let glAcc = 0;
   const glBodyGeo = new THREE.CylinderGeometry(0.27, 0.33, 1.05, 10), glHeadGeo = new THREE.SphereGeometry(0.25, 12, 10), glNoseGeo = new THREE.BoxGeometry(0.1, 0.1, 0.5);
   glBodyGeo.translate(0, 0.62, 0); glHeadGeo.translate(0, 1.42, 0); glNoseGeo.translate(0, 0, -0.5);
@@ -2304,6 +2313,15 @@ function openGrassland(onClose, opt) {
   actBtn.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); stackAction(); };
   const toast = msg => { cToast.textContent = msg; cToast.style.opacity = '1'; clearTimeout(cToastT); cToastT = setTimeout(() => { cToast.style.opacity = '0'; }, 2200); };
   const setHeld = n => { held = n; stoneHud.textContent = '🪨 × ' + held; };
+  // 🔀 モード切り替え（草原 ⇄ ダンジョン）。「今どちらにいるか」の旗 inDungeon は、setMode だけで変える。草原専用の画面（石カウンター・最高記録・トースト・積むボタン・水中の幕・言葉ボタン）の出し入れは、applyModeUi だけで行う。
+  // （草原の画面を増やす時は、ここの草原用リストに足す。ダンジョン側の処理には、草原の画面を触るコードを書かない）
+  const applyModeUi = () => {
+    const grass = !inDungeon;
+    [stoneHud, bestHud, cToast].forEach(e => { e.style.display = grass ? '' : 'none'; });
+    if (!grass) { actTxt = ''; actBtn.style.display = 'none'; uwOv.style.display = 'none'; }
+    if (emoBtn) { const dsp = grass ? (touch ? 'flex' : 'block') : 'none'; emoDisp = dsp; emoBtn.style.display = dsp; if (!grass) emoShowMenu(false); }
+  };
+  const setMode = m => { inDungeon = (m === 'dungeon'); applyModeUi(); };
   const hid = str => { let h = 0; for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 9973; return h + 1; }; // 山の名前（キー）から、石の形のもとになる数を作る（全員同じ形になる）
 
 
@@ -8202,6 +8220,14 @@ class GameScene extends Phaser.Scene {
     if (this._vhStopT > 0) { this._vhStopT -= dt; ts = V.hitStopScale; }
     this._vhTsEff = ts; dt *= ts; // 以降の動きは、遅くなった時間で進む
     this._vhTick(t, dt);
+    { // 🩸 主人公のHPバーを、HPが変わった時に合わせる（上のバーとずれない）。HPが0以下になったら、撃破の後片付けを呼ぶ（これが無いとHP0のまま残り、クリア画面へ行かない）
+      const he = this.enemies && this.enemies.find(x => x.type && x.type.key === 'vshero');
+      if (he && he._vhBarHp !== he.hp) { // HPが変わった時だけ（毎フレームはやらない）
+        he._vhBarHp = he.hp;
+        if (he.hpBar && he.hpBar.scene && he.maxHp > 0) he.hpBar.width = Math.max(0, Math.min(1, he.hp / he.maxHp)) * he.type.radius * 2;
+        if (he.hp <= 0 && !he._removed) this.cleanupDeadEnemies();
+      }
+    }
     const e = this.enemies && this.enemies.find(x => x.type && x.type.key === 'vshero');
     if (!e || !e.gfx || !e.gfx.scene || !this.player) return;
     const face = Math.atan2(this.player.y - e.gfx.y, this.player.x - e.gfx.x);
