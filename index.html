@@ -3856,6 +3856,7 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   p2FirstDelay: 0.6,       // 移行が終わってから、最初に撃つまでの秒数
   p2IntervalMin: 0.5,      // 第2形態：次の攻撃までの間隔（秒）の最短
   p2IntervalMax: 0.9,      // 同、最長
+  p2TestMode: (() => { try { return new URLSearchParams(location.search).has('vsp2') || /vsp2/.test(location.hash); } catch (err) { return false; } })(), // 🧪 テスト用：リンクの最後に ?vsp2（すでに ? がある時は &vsp2）をつけると、敵が自分の斬撃を1発受けた時点で、第2形態へ移行する
   p2BarColor: 0xff2020,    // 第2形態：敵の「向きを示す棒」の色（赤。通常は白）
   p2SlashColor: 0xc04aff,  // 第2形態のオーラ・演出の色（紫。斬撃の色は変えない）
   // --- 第2形態の攻撃①：扇状（自分の方へ真っ直ぐ＋左右に fanAngleDeg 度の計3本を、同時に直進で撃つ。その場に止まって構える） ---
@@ -8296,7 +8297,7 @@ class GameScene extends Phaser.Scene {
     const en = this._vhEn, eh = this._vhEnemyHome, hh0 = this._vhHome;
     if (e && en && eh && hh0 && this.playerHp > 0 && !this.isGhost && !this.isDowned && !this.transitioning) {
       const eHpMax = e.maxHp || e.type.hp;
-      if (!en.p2 && e.hp > 0 && e.hp <= eHpMax * V.p2HpRatio) { // 💀 HPが1/3以下：第2形態へ移行（今ある敵の斬撃は消え、少しのあいだ動きが止まる）
+      if (!en.p2 && e.hp > 0 && (e.hp <= eHpMax * V.p2HpRatio || (V.p2TestMode && e.hp < eHpMax))) { // 💀 HPが1/3以下：第2形態へ移行（今ある敵の斬撃は消え、少しのあいだ動きが止まる）
         en.p2 = true; en.trans = V.p2TransTime; en.transT = 0; en.fx = 0; en.tele = 0; en.rap = null; en.atk = null; en.hold = true;
         for (const q of this._vhSlashes) if (!q.dead && q.owner === 'e') { q.dead = true; this._vhBurst(q.x, q.y, V.enemySlashColor, 3); }
         this._vhStopT = Math.max(this._vhStopT, V.p2StopTime);
