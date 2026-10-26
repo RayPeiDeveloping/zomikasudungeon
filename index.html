@@ -184,6 +184,10 @@
   body.rush #banner { top: 13vh; }
   /* ボスラッシュ中は、左上のHP・武器などの表示を左下に置く */
   body.rush #ui, body.frontline #ui { top: auto; right: auto; bottom: 2.5vh; left: 2.5vh; }
+  /* ⚔ 斬り合い（主人公戦）中は、左下のパネルを消して、HPバーだけを画面中央の下に出す */
+  body.vshero #ui { top: auto; right: auto; bottom: 2.5vh; left: 50%; transform: translateX(-50%); background: none; border: none; padding: 0; min-width: 0; }
+  body.vshero #ui > :not(#hpBarBg) { display: none !important; }
+  body.vshero #hpBarBg { margin-top: 0; }
   /* 最北戦線：画面上部中央に、守る対象（発信機）のHPバーを出す */
   #txHud {
     position: fixed; top: 1.6vh; left: 50%; transform: translateX(-50%);
@@ -5924,6 +5928,7 @@ const PLAYER_TITLES = [
   { key: 'deadline',     name: '死線',       color: '#e03c3c', desc: 'ルーレット：赤でダンジョンをクリアする' },
   { key: 'judge',        name: '審判者',     color: '#e8e8ff', desc: 'ボスを累計1000体倒す' },
   { key: 'end',          name: '終焉',       color: '#ff7a1a', desc: '敵を累計10万体倒す' },
+  { key: 'soulslash',    name: '離魂斬り',   color: '#ffffff', outline: '#ff2030', desc: '斬り合いで主人公を倒す' }, // 白い字＋赤いふち（主人公の赤い目の色）
 ];
 function playerTitleByKey(k) { return (typeof k === 'string' && PLAYER_TITLES.find(t => t.key === k)) || null; }
 // 称号の光（text-shadow用）：他の称号と同じ1重の光。色は、outline があればそれ、無ければ color
@@ -6498,6 +6503,7 @@ class GameScene extends Phaser.Scene {
     this._mpResultStarted = false;
     this._resultOpen = false;
     document.body.classList.toggle('rush', this.bossRush);
+    document.body.classList.toggle('vshero', !!this.vsHero); // ⚔ 斬り合い：HUDはHPバーだけ（画面中央下）
     document.body.classList.toggle('frontline', this.frontline);
     this.bossBag = [];          // ボスラッシュで次に出すボスの残り（種類をシャッフルして順番に出す）
     this.lastBossKey = null;
@@ -29906,7 +29912,7 @@ class GameScene extends Phaser.Scene {
       this._ritualNewAcc = []; // 前回の挑戦で入手した装飾品を、次のリザルトに引きずらない
       this.runStats = { time: 0, kills: 0, bosses: 0 };
       this.playerInvuln = 0; this.isDowned = false; this.isGhost = false;
-      this.bossGroupCounts = {}; this._rushCleared = false; this._snakeRage = {}; this._lootClaimed = {};
+      this.bossGroupCounts = {}; this._rushCleared = false; this._vsHeroWon = false; this._snakeRage = {}; this._lootClaimed = {};
       this.hideBossUi();
       this.playerHp = this.playerMaxHp;
       this.interruptBandage();
@@ -30170,6 +30176,16 @@ class GameScene extends Phaser.Scene {
     }
     if (!this.mp) this.runStats.bosses++; // リザルト用：倒したボス数
     if (gid != null) (this._bossDone || (this._bossDone = {}))[String(gid)] = pos ? [Math.round(pos.x), Math.round(pos.y)] : [0, 0]; // 💾 倒したボスを控える（中断セーブ用）
+    if (this.vsHero && !this.mp) { // ⚔ 斬り合い：主人公を倒したら、出口も宝箱も出さず、暗転していってリザルト画面へ
+      if (this._vsHeroWon || this._resultOpen) return;
+      this._vsHeroWon = true;
+      if (!this.isDevMode) this.earnTitle('soulslash', 2200); // 🏷 称号「離魂斬り」：暗転が終わってリザルトが出る頃にバナーを出す（デベロッパーモードは除く）
+      this.hideBossUi();
+      this.transitioning = true; // 敵の攻撃・次の処理を止める
+      this.cameras.main.fadeOut(2000, 0, 0, 0); // 2秒かけて暗転（長さはここで変えられる）
+      this.cameras.main.once('camerafadeoutcomplete', () => { this.showResult(); });
+      return;
+    }
     if (this.frontline) {
       // 最北戦線：確率で宝箱（HPは回復しない）。次のボスは倒してから bossInterval 秒後に出る
       this.hideBossUi();
