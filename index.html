@@ -284,6 +284,15 @@
   .lobbyGrid > .lobbyBox.lobbySide { flex: 1; justify-content: center; }
   .lobbyGrid > .lobbyBox.lobbySide.lobbyRight { justify-content: center; gap: 1.6vh; }
   .lobbyCenter h1 { font-size: 3.2vh; margin: 0 0 1.8vh; }
+  /* 🌀 タイトルの左隣の緑のポータル：押すと交流ルームへ */
+  #titleRow { display: flex; align-items: flex-end; justify-content: center; gap: 1.6vh; margin: 0 0 1.8vh; }
+  #titleRow h1 { margin: 0; }
+  #loungePortalBtn { flex: none; width: 2.6vh; height: 3.8vh; min-width: 0; padding: 0; margin: 0; position: relative; top: 0.5vh; border: 0.2vh solid #a8e8bf; border-radius: 50%; cursor: pointer; /* top＝下げる量（大きいほど下） */
+    background: radial-gradient(ellipse at 50% 50%, #d8f5e1 0%, #6fdc92 30%, #1fa850 62%, #0b5a28 100%);
+    box-shadow: 0 0 0.7vh rgba(61,255,130,0.7), 0 0 1.5vh rgba(61,255,130,0.3), inset 0 0 0.8vh rgba(255,255,255,0.35);
+    animation: loungePortalGlow 2.2s ease-in-out infinite; }
+  #loungePortalBtn:disabled { filter: grayscale(0.8) brightness(0.6); animation: none; cursor: default; }
+  @keyframes loungePortalGlow { 0%, 100% { transform: scaleY(1); filter: brightness(1); } 50% { transform: scaleY(1.03); filter: brightness(1.12); } }
   .lobbyCenter label { width: 100%; }
   .lobbyCenter #accPicker { justify-content: center; }
   /* 左右のボタン（.lobbyBox button）と同じ font-size / padding を使う。ここで vh 指定すると
@@ -591,7 +600,10 @@
       <div id="lobbyStatus"></div>
     </div>
     <div class="lobbyBox lobbyCenter">
-      <h1>ゾミカスダンジョン</h1>
+      <div id="titleRow">
+        <button type="button" id="loungePortalBtn" title="交流ルームへ" aria-label="交流ルームへ"></button>
+        <h1>ゾミカスダンジョン</h1>
+      </div>
       <div id="titlePickBtn" title="称号を選ぶ">称号：なし</div>
       <label>
         <input type="text" id="nameInput" maxlength="20">
@@ -3144,7 +3156,7 @@ function openStairs(onClose, opt) {
       head.position.set(0, 2.8, 0); head.rotation.z = 0.12; g.add(head); // あたま（少しかしげている）
       add(new THREE.SphereGeometry(0.11, 12, 10), faceM, 0, 0, 0, head).scale.set(1, 1.4, 0.95); // 青白い、のっぺりした顔（前＝+z）
       [-0.04, 0.04].forEach(x => add(new THREE.SphereGeometry(0.02, 6, 5), voidM, x, 0.04, 0.095, head).scale.set(1, 1.6, 0.6)); // まっ黒な目
-      add(new THREE.BoxGeometry(0.07, 0.008, 0.01), voidM, 0, -0.07, 0.1, head); // 細い口
+      add(new THREE.SphereGeometry(0.02, 6, 5), voidM, 0, -0.07, 0.095, head).scale.set(1, 1.6, 0.6); // まっ黒な口：目と同じ大きさ・形の穴（以前は細い線）
       g.position.set(mx, sy, mz); g.rotation.y = Math.atan2(P.x - mx, P.z - mz); scene.add(g);
       const hitSnd = () => { if (ac && master) { try { const t0 = ac.currentTime; burst(t0, 0.18, 3200, 0.7, 0.55); burst(t0, 0.3, 140, 0.6, 0.9, 'lowpass'); } catch (e) { /* 何もしない */ } } spScreech(0.1); stairThud(1.0); }; // ダメージのたびに鳴る、短くて低い「ドスッ」（ノイズ＋低い響き）
       const fp = new THREE.Vector3(); // 顔の位置を画面の座標に直すための入れもの
@@ -3791,7 +3803,6 @@ function openPartyHall(onClose, opt) {
 //   部屋の中の座標は「ピクセル」で、PARTY_SLOTS などはその座標。マップは generatePartyMap()、飾りと調べる操作は GameScene の setupParty / _updateParty / _drawParty。
 const PARTY_SLOTS = [[60, 40], [130, 40], [200, 40], [440, 40], [510, 40], [580, 40], [16, 150], [16, 300], [624, 150], [624, 300], [110, 390], [530, 390], [16, 225], [16, 375], [624, 225], [624, 375], [60, 432], [190, 432], [450, 432], [580, 432]]; // メモを貼る場所（最大20枚。13枚目以降は左右の壁の間と下の壁に貼る）
 const PARTY_BALLOONS = [[90, 150], [550, 170], [120, 300], [520, 320], [240, 120], [60, 235]];
-const LOUNGE_NUMBER = '1056194'; // 💬 ダンジョン番号の欄にこれを入れて「ダンジョン」を押すと、交流ルーム（パーティールームと同じ仕組みで、外観がシンプル・メモなし）に入れる。エンディングを見ていなくても、誰でも入れる
 const PARTY_OPEN_TO_ALL = false; // 🧪 テスト用：true の間は、エンディングを見ていない人（endingDone でない人）も、合言葉を入れればパーティールームに入れる。false ＝パーティールームはエンディングを見た人だけ（交流ルームは、これに関係なく誰でも入れる）
 const PARTY_MEMOS_READABLE = true; // 📋 true の間は、パーティールームのメモをプレイヤーが読める（近づいて調べられる）。false にすると読めなくなる
 const PARTY_STATS_MEMO = { i: -8, stat: true, x: 395, y: 432 }; // 🖤 黒いメモ：自分のセーブ数値を見られる（パーティールームの下の壁。交流ルームにはない）
@@ -3934,10 +3945,10 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   moveSmooth: 0.05         // 動き出し・止まりのなめらかさ（秒。0＝すぐ最高速／止まる。大きいほどぬるっと動く）
 };
 const PARTY_PORTAL_HERO = { i: -4, portal: true, hero: true, x: 220, y: 118 }; // ⚔ 斬り合いへの入口（入るとボス部屋へ飛ぶ。装飾品は全部持っていけない）
-const PARTY_PORTAL_LGRASS = { i: -5, portal: true, lgrass: true, x: 260, y: 118 }; // 💬 交流ルーム：🌿 草原（ホラーの影が出ない。何も起こらない）
-const PARTY_PORTAL_LDUNGEON = { i: -6, portal: true, ldungeon: true, x: 340, y: 118 }; // 💬 交流ルーム：🕳 ダンジョン（ホラーで影に追いつかれてワープした直後から始まる）
-const PARTY_PORTAL_LSTAIRS = { i: -7, portal: true, lstairs: true, x: 220, y: 118 }; // 💬 交流ルーム：🪜 階段（無限に続く暗い階段を上っていく。踊り場ごとに階数の数字とドアがある）
-const PARTY_PORTAL_SOCIAL = { i: -3, portal: true, social: true, x: 420, y: 118 }; // 🎙 みんなの広場（洋室）への入口（同じ部屋の人と一緒に入って、歩き回りながらボイスチャット）
+const PARTY_PORTAL_LGRASS = { i: -5, portal: true, lgrass: true, x: 280, y: 118 }; // 💬 交流ルーム：🌿 草原（ホラーの影が出ない。何も起こらない）
+const PARTY_PORTAL_LDUNGEON = { i: -6, portal: true, ldungeon: true, x: 360, y: 118 }; // 💬 交流ルーム：🕳 ダンジョン（ホラーで影に追いつかれてワープした直後から始まる）
+const PARTY_PORTAL_LSTAIRS = { i: -7, portal: true, lstairs: true, x: 200, y: 118 }; // 💬 交流ルーム：🪜 階段（無限に続く暗い階段を上っていく。踊り場ごとに階数の数字とドアがある）
+const PARTY_PORTAL_SOCIAL = { i: -3, portal: true, social: true, x: 440, y: 118 }; // 🎙 みんなの広場（洋室）への入口（同じ部屋の人と一緒に入って、歩き回りながらボイスチャット）
 function generatePartyMap(lounge) { // lounge＝true：交流ルーム（同じ形のまま、見た目だけシンプルにするための印をつける）
   const width = 20, height = 15; // 640×480（部屋は640×448。いちばん下の1行は扉の裏）
   const grid = Array.from({ length: height }, () => new Array(width).fill(0));
@@ -32543,7 +32554,7 @@ function setLobbyStatus(msg) { document.getElementById('lobbyStatus').textConten
 
 // ルーム作成・参加の通信中は他のロビー操作を一切できないようにする。
 // （連打での二重作成や、入力途中でのボタン誤操作を防ぐため）
-const LOBBY_CONTROL_IDS = ['soloBtn', 'endingTestBtn', 'endingFullTestBtn', 'hutWarpBtn', 'hellTestBtn', 'arms4RitualBtn', 'bossRushBtn', 'frontlineBtn', 'nightmareBtn', 'createRoomBtn', 'createFrontlineRoomBtn', 'createPvpRoomBtn', 'pvpTestBtn', 'joinRoomBtn', 'roomCodeInput', 'nameInput', 'soloSeedInput'];
+const LOBBY_CONTROL_IDS = ['loungePortalBtn', 'soloBtn', 'endingTestBtn', 'endingFullTestBtn', 'hutWarpBtn', 'hellTestBtn', 'arms4RitualBtn', 'bossRushBtn', 'frontlineBtn', 'nightmareBtn', 'createRoomBtn', 'createFrontlineRoomBtn', 'createPvpRoomBtn', 'pvpTestBtn', 'joinRoomBtn', 'roomCodeInput', 'nameInput', 'soloSeedInput'];
 // ロビーの上に出る短いバナー（ゲーム画面のバナーとは別）
 function showLobbyBanner(text, ms) {
   let el = document.getElementById('lobbyBanner');
@@ -32728,6 +32739,7 @@ async function enterPartyRoom(lounge) { // 💬 lounge＝true：交流ルーム�
     setLobbyStatus('入室できませんでした: ' + (err && err.message ? err.message : err)); setLobbyBusy(false);
   } finally { partyOpen = false; }
 }
+document.getElementById('loungePortalBtn').addEventListener('click', () => { if (partyBusy || partyOpen) return; enterPartyRoom(true); }); // 🌀 タイトルの左の緑のポータル：交流ルームへ
 document.getElementById('soloBtn').addEventListener('click', async () => {
   if (partyBusy || partyOpen) return;
   const rlEffect = getRouletteEffect(); // 🎰 ルーレットで当たった色の効果。次にダンジョンが始まる時だけ使って、そのあと消す
@@ -32735,7 +32747,6 @@ document.getElementById('soloBtn').addEventListener('click', async () => {
   if (!raw) { clearSoloBtnBorder(); startGame('solo', { soloSeed: readSoloSeed(), rouletteEffect: rlEffect }); return; } // 空欄なら、今までどおりすぐ始める
   partyBusy = true;
   try {
-    if (raw === LOUNGE_NUMBER) { document.getElementById('soloSeedInput').value = ''; enterPartyRoom(true); return; } // 💬 交流ルーム：番号は入力欄にも残さない
     if (!(await waitWithMessage(waitPartyNumber))) return; // 合言葉を読めなかった：始めずに、もう一度押してもらう
     let endingSeen = false; try { endingSeen = !!loadSave().endingDone; } catch (e) { /* 読めなければ、見ていない扱い */ }
     const party = (endingSeen || PARTY_OPEN_TO_ALL) && !PARTY_NOFB && PARTY_NUM != null && PARTY_NUM !== '' && PARTY_NUM === raw; // エンディングを見た（endingDone）人だけが入れる。見ていない人が合言葉を入れても、ふつうのダンジョン番号として扱う
