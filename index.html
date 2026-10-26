@@ -3944,7 +3944,7 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   shakeHurtMs: 160,        // 　その揺れの長さ（ミリ秒）
   moveSmooth: 0.05         // 動き出し・止まりのなめらかさ（秒。0＝すぐ最高速／止まる。大きいほどぬるっと動く）
 };
-const PARTY_PORTAL_HERO = { i: -4, portal: true, hero: true, x: 220, y: 118 }; // ⚔ 斬り合いへの入口（入るとボス部屋へ飛ぶ。装飾品は全部持っていけない）
+const PARTY_PORTAL_HERO = { i: -4, portal: true, hero: true, x: 320, y: 118 }; // ⚔ 斬り合いへの入口（入るとボス部屋へ飛ぶ。装飾品は全部持っていけない）
 const PARTY_PORTAL_LGRASS = { i: -5, portal: true, lgrass: true, x: 280, y: 118 }; // 💬 交流ルーム：🌿 草原（ホラーの影が出ない。何も起こらない）
 const PARTY_PORTAL_LDUNGEON = { i: -6, portal: true, ldungeon: true, x: 360, y: 118 }; // 💬 交流ルーム：🕳 ダンジョン（ホラーで影に追いつかれてワープした直後から始まる）
 const PARTY_PORTAL_LSTAIRS = { i: -7, portal: true, lstairs: true, x: 200, y: 118 }; // 💬 交流ルーム：🪜 階段（無限に続く暗い階段を上っていく。踊り場ごとに階数の数字とドアがある）
@@ -27566,8 +27566,7 @@ class GameScene extends Phaser.Scene {
     this._partyTitle = this.lounge ? null : tx(320, 30, '🎉 PARTY ROOM 🎉', 18, '#ffffff', { c: '#9c4f6a', w: 4 }); // 交流ルームは、題名の飾りも出さない
     tx(320, 432, '⭐', 14, '#ffffff');
     if (this.lounge) { tx(PARTY_PORTAL_LGRASS.x, 119, '🌿', 14, '#ffffff'); tx(PARTY_PORTAL_LGRASS.x, 151, '草原', 11, '#ffffff', { c: '#2f7a49', w: 3 }); tx(PARTY_PORTAL_LDUNGEON.x, 119, '🕳', 14, '#ffffff'); tx(PARTY_PORTAL_LDUNGEON.x, 151, 'ダンジョン', 11, '#ffffff', { c: '#4a3a7a', w: 3 }); tx(PARTY_PORTAL_LSTAIRS.x, 119, '🪜', 14, '#ffffff'); tx(PARTY_PORTAL_LSTAIRS.x, 151, '階段', 11, '#ffffff', { c: '#8a5a2a', w: 3 }); } // 💬 交流ルーム：草原とダンジョンの2つの入口（斬り合いの入口はない）
-    else tx(320, 151, 'ホラー', 11, '#ffffff', { c: '#2f7a49', w: 3 });
-    tx(PARTY_PORTAL_SOCIAL.x, 119, '🎙', 14, '#ffffff'); tx(PARTY_PORTAL_SOCIAL.x, 151, '交流ルーム', 11, '#ffffff', { c: '#2f5f9a', w: 3 });
+    if (this.lounge) { tx(PARTY_PORTAL_SOCIAL.x, 119, '🎙', 14, '#ffffff'); tx(PARTY_PORTAL_SOCIAL.x, 151, '交流ルーム', 11, '#ffffff', { c: '#2f5f9a', w: 3 }); } // パーティールームには、ホラーと交流ルームの入口はない（斬り合いだけ）
     if (!this.lounge) { tx(PARTY_PORTAL_HERO.x, 119, '⚔', 14, '#ffffff'); tx(PARTY_PORTAL_HERO.x, 151, '斬り合い', 11, '#ffffff', { c: '#9a2f2f', w: 3 }); }
     this.player.x += (Math.random() - 0.5) * 80; // 同時に入った人と重ならないように
     if (!this.lounge) this._partyLoadMemos(); // 💬 交流ルームには、メモがない
@@ -27622,7 +27621,7 @@ class GameScene extends Phaser.Scene {
       c.fillStyle(hsl(hash(i + 3) % 360, 0.5, 0.66), 1); c.fillRect(x, y, 4, 3);
     }
   }
-  _partyPortals() { return this.lounge ? [PARTY_PORTAL_LGRASS, PARTY_PORTAL_LDUNGEON, PARTY_PORTAL_LSTAIRS, PARTY_PORTAL_SOCIAL] : [PARTY_PORTAL, PARTY_PORTAL_SOCIAL, PARTY_PORTAL_HERO]; } // 入口の一覧（交流ルームは、斬り合いがなく、ホラーが「草原」「ダンジョン」に分かれる）
+  _partyPortals() { return this.lounge ? [PARTY_PORTAL_LGRASS, PARTY_PORTAL_LDUNGEON, PARTY_PORTAL_LSTAIRS, PARTY_PORTAL_SOCIAL] : [PARTY_PORTAL_HERO]; } // 入口の一覧（交流ルームは、斬り合いがなく、ホラーが「草原」「ダンジョン」に分かれる）
   _updateParty(t) {
     if (!this._partyFx || !this._partyFx.scene || !this.player) return;
     const p = this.player;
