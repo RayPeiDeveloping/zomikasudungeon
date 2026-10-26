@@ -738,6 +738,8 @@
 window.moveVector = { x: 0, y: 0 };
 // タッチ操作可能な端末かどうか（ジョイスティック表示・画面サイズ固定の両方で使う）
 const IS_TOUCH_DEVICE = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+// 🔧 低スペック端末（学校のChromebookなど）：ChromeOS、またはCPUコアが4以下、またはメモリが4GB以下。草原・ボイスチャットを軽くする
+const IS_LOW_SPEC = (() => { try { return /CrOS/i.test(navigator.userAgent || '') || (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 4; } catch (e) { return false; } })();
 
 // ============== スマホでの拡大操作（ダブルタップ／ピンチ）を完全に無効化 ==============
 // viewportのuser-scalable=noだけではブラウザによってダブルタップ拡大が
@@ -1488,8 +1490,8 @@ function openGrassland(onClose, opt) {
   const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;';
   root.appendChild(cv); document.body.appendChild(root);
   let renderer;
-  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: !touch }); } catch (err) { console.error('3Dの草原を作れませんでした:', err); root.remove(); if (onClose) onClose(); return; }
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, touch ? 1.25 : 1.75));
+  const lowSpec = IS_LOW_SPEC, lite = touch || lowSpec; try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: !lite }); } catch (err) { console.error('3Dの草原を作れませんでした:', err); root.remove(); if (onClose) onClose(); return; }
+  const basePR = lowSpec ? 1 : Math.min(window.devicePixelRatio || 1, touch ? 1.25 : 1.75); renderer.setPixelRatio(basePR);
   // ⛰ 交流ルームの「草原」（opt.noHorror）だけ：ところどころに、高さ約12mの高い丘がある。場所は式だけで決まる（乱数なし）ので、全員が同じ場所に同じ丘を見る。出発地点(0,0)のまわり約90mは平ら。最初の丘は約180m先
   const TALL = !!opt.noHorror;
   const tallHill = (x, z) => { const t = 0.5 * Math.sin(x * 0.013 + 1.959) * Math.sin(z * 0.011 + 4.351) + 0.5 * Math.sin(x * 0.007 - z * 0.009 + 5.334), v = Math.min(1, Math.max(0, (t - 0.45) / 0.55)); return 12 * v * v; };
@@ -1639,10 +1641,11 @@ function openGrassland(onClose, opt) {
     const RO = 120, V = 12, AMP = 6.5, WK = 4.2, base0 = bp.array.slice(), nrm = bg.attributes.normal, baseN = nrm.array.slice(), zf = -L / 2 + 4, zd = -L * 0.2;
     const wave = (z, ph) => { const t = (L / 2 - z) / L, w = Math.max(0, (t - 0.3) / 0.7); return AMP * w * w * Math.sin(ph - WK * t); }; // 体の上下のうねり：頭(t<0.3)は動かさず、尾にかけて大きくなる。波は頭から尾へ進む
     g.rotation.order = 'YXZ';
-    g.userData.update = now => {
+    g.userData.update = (now, inView) => {
       const a = now * V / RO, ph = now * Math.PI * 2 / 6, dx = -RO * Math.sin(a), dz = RO * Math.cos(a), dy = 16 * Math.cos(2 * a + 1);
       g.position.set(RO + RO * Math.cos(a), WY0 + 8 * Math.sin(2 * a + 1), RO * Math.sin(a));
       g.rotation.set(-Math.atan2(dy, Math.hypot(dx, dz)), Math.atan2(dx, dz), 0.15); // 進む向き（上下の傾きつき）＋旋回の内側へ少し傾く
+      if (inView === false || now - (g.userData._hv || 0) < 0.066) return; g.userData._hv = now; /* 🔧 体の変形（約1万頂点の再計算とGPUへの再送信）は毎秒約15回まで。画面の外にいる間はしない */
       const open = 0.5 - 0.5 * Math.cos(now * Math.PI * 2 / 14); // 👄 口の開き具合：14秒で1回、ゆっくり「閉じる→開く→閉じる」をくり返す（時刻だけで決まるので、全員が同じ口の開き方を見る）
       jawRot(bp0, base0, bn0, baseN, open); jawRot(ip0, ip.array, in0, inn.array, open); ip.needsUpdate = true; inn.needsUpdate = true;
       for (let n = 0; n < lk.length; n++) { const src = lf[n] ? ip.array : base0, k = lk[n] * 3; lipP.setXYZ(n, src[k], src[k + 1], src[k + 2]); } lipP.needsUpdate = true; rg.computeVertexNormals(); // 唇の厚みの帯も、あごについていく
@@ -1659,7 +1662,7 @@ function openGrassland(onClose, opt) {
   })() : null;
 
   // ----- 地面（丘）：平らな板を足元に置き、高さ・色・法線は頂点シェーダーで世界の座標から計算する。板は4mごとの格子にそろえて自分についてくるので、どこまで歩いても地面が続く -----
-  const U = { uTime: { value: 0 }, uCam: { value: new THREE.Vector2() }, uGC: { value: new THREE.Vector2() } };
+  const U = { uTime: { value: 0 }, uCam: { value: new THREE.Vector2() }, uGC: { value: new THREE.Vector2() }, uCamDir: { value: new THREE.Vector2(0, -1) }, uCone: { value: -1 } };
   U.uPonds = { value: Array.from({ length: 16 }, () => new THREE.Vector4()) }; U.uPondP = { value: Array.from({ length: 16 }, () => new THREE.Vector2()) }; // 近くの池（x, z, 半径, 深さ）と、ふちのうねりの位相
   const HBF = TALL
     ? 'float hb(vec2 p){ float t = 0.5*sin(p.x*0.013+1.959)*sin(p.y*0.011+4.351) + 0.5*sin(p.x*0.007-p.y*0.009+5.334); float v = clamp((t-0.45)/0.55, 0.0, 1.0); return 1.6*sin(p.x*0.045)*cos(p.y*0.04) + 0.9*sin(p.x*0.11+1.3)*sin(p.y*0.09) + 12.0*v*v; }\n' // 高い丘つき（JSの hh と同じ式）
@@ -1690,35 +1693,44 @@ function openGrassland(onClose, opt) {
     ''
   ].join('\n');
   const HHF = HBF + WGL;
-  const GS = 4, GSZ = TALL ? 360 : 200, GSEG = GSZ / (touch ? 2 : 1), gGeo = new THREE.PlaneGeometry(GSZ, GSZ, GSEG, GSEG); gGeo.rotateX(-Math.PI / 2); // 川の幅（約3m〜）が写るように、地面の格子を細かくした（デスクトップ1m・スマホ2m。板は霧で見えなくなる距離よりひとまわり大きい）
+  const GS = 4, GSZ = TALL ? 330 : 200, GSEG = GSZ / (lite ? 2 : 1); // 川の幅（約3m〜）が写るように、地面の格子を細かくした（デスクトップ1m・スマホ2m。板は霧で見えなくなる距離よりひとまわり大きい）
   const groundMat = new THREE.MeshLambertMaterial();
   groundMat.onBeforeCompile = sh => {
     sh.uniforms.uGC = U.uGC; sh.uniforms.uPonds = U.uPonds; sh.uniforms.uPondP = U.uPondP;
     sh.vertexShader = 'uniform vec2 uGC; varying vec3 vGC;\n' + HHF + sh.vertexShader
-      .replace('#include <beginnormal_vertex>', 'vec2 gw = position.xz + uGC; vec3 objectNormal = normalize(vec3(-(hh(gw + vec2(1.0, 0.0)) - hh(gw - vec2(1.0, 0.0))) * 0.5, 1.0, -(hh(gw + vec2(0.0, 1.0)) - hh(gw - vec2(0.0, 1.0))) * 0.5));')
-      .replace('#include <begin_vertex>', 'vec3 transformed = vec3(position.x, hh(gw), position.z); float gn = 0.5 + 0.5 * sin(gw.x * 0.7 + sin(gw.y * 0.3) * 2.0) * sin(gw.y * 0.6); float gl = clamp((transformed.y + 2.5) / 5.0, 0.0, 1.0); vGC = vec3(0.27 + 0.12 * gn + 0.08 * gl, 0.52 + 0.14 * gn + 0.08 * gl, 0.2 + 0.06 * gn); float wa = transformed.y - WY; vGC = mix(vGC, vec3(0.74, 0.66, 0.46) * (0.9 + 0.2 * gn), 1.0 - smoothstep(0.5, 0.95, wa)); vGC = mix(vGC, vec3(0.2, 0.25, 0.2), smoothstep(0.0, 1.6, -wa));');
+      .replace('#include <beginnormal_vertex>', 'vec2 gw = position.xz + uGC; float hC = hh(gw); vec3 objectNormal = normalize(vec3(-(hh(gw + vec2(1.0, 0.0)) - hC), 1.0, -(hh(gw + vec2(0.0, 1.0)) - hC)));')
+      .replace('#include <begin_vertex>', 'vec3 transformed = vec3(position.x, hC, position.z); float gn = 0.5 + 0.5 * sin(gw.x * 0.7 + sin(gw.y * 0.3) * 2.0) * sin(gw.y * 0.6); float gl = clamp((transformed.y + 2.5) / 5.0, 0.0, 1.0); vGC = vec3(0.27 + 0.12 * gn + 0.08 * gl, 0.52 + 0.14 * gn + 0.08 * gl, 0.2 + 0.06 * gn); float wa = transformed.y - WY; vGC = mix(vGC, vec3(0.74, 0.66, 0.46) * (0.9 + 0.2 * gn), 1.0 - smoothstep(0.5, 0.95, wa)); vGC = mix(vGC, vec3(0.2, 0.25, 0.2), smoothstep(0.0, 1.6, -wa));');
     sh.fragmentShader = 'varying vec3 vGC;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb *= vGC;');
   };
-  const ground = new THREE.Mesh(gGeo, groundMat); ground.frustumCulled = false; scene.add(ground);
+  // 🔧 地面は5×5のかたまりに分けて作る。画面の外のかたまりは、three.jsが自動で描かない（以前は1枚の大きな板で、背後や横の頂点も毎フレーム計算していた）。格子の位置は以前と同じなので、つなぎ目は出ない
+  const ground = new THREE.Group(); scene.add(ground);
+  { const GN = 5, cs = GSZ / GN, sg = GSEG / GN;
+    for (let ix = 0; ix < GN; ix++) for (let iz = 0; iz < GN; iz++) {
+      const cx = -GSZ / 2 + cs * (ix + 0.5), cz = -GSZ / 2 + cs * (iz + 0.5), cg = new THREE.PlaneGeometry(cs, cs, sg, sg); cg.rotateX(-Math.PI / 2); cg.translate(cx, 0, cz);
+      cg.boundingSphere = new THREE.Sphere(new THREE.Vector3(cx, 0, cz), cs * 0.7072 + 40); // 高さ（約-4〜+14m）は頂点シェーダーで決まるので、そのぶん余裕を持たせた判定の球
+      ground.add(new THREE.Mesh(cg, groundMat));
+    } }
 
   // ----- 草と花（風でそよぐ。自分の周りにタイル状に並ぶ） -----
-  const GLSL = 'uniform float uTime; uniform vec2 uCam;\n' + HHF + 'float hs(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }\n';
-  const TILE = 'vec2 ip = vec2(instanceMatrix[3].x, instanceMatrix[3].z); vec2 wp = mod(ip - uCam + 35.0, 70.0) - 35.0 + uCam; float hw = hh(wp); float fd = (1.0 - smoothstep(23.0, 33.0, length(wp - uCam))) * smoothstep(0.55, 1.0, hw - WY); float r = hs(ip); float sw = sin(uTime * 1.7 + wp.x * 0.6 + wp.y * 0.5);\n';
-  const patch = (mat, body) => { mat.onBeforeCompile = sh => { sh.uniforms.uTime = U.uTime; sh.uniforms.uCam = U.uCam; sh.uniforms.uPonds = U.uPonds; sh.uniforms.uPondP = U.uPondP; sh.vertexShader = GLSL + sh.vertexShader.replace('#include <begin_vertex>', 'vec3 transformed = vec3(position);\n' + TILE + body); }; };
+  const GLSL = 'uniform float uTime; uniform vec2 uCam; uniform vec2 uCamDir; uniform float uCone;\n' + HHF + 'float hs(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }\n';
+  const TILE = 'vec2 ip = vec2(instanceMatrix[3].x, instanceMatrix[3].z); vec2 wp = mod(ip - uCam + 35.0, 70.0) - 35.0 + uCam; vec2 dv = wp - uCam; float dcam = length(dv); bool gv = dcam < 33.0 && (dcam < 10.0 || dot(dv, uCamDir) > dcam * uCone); float hw = 0.0; float fd = 0.0; if (gv) { hw = hh(wp); fd = (1.0 - smoothstep(23.0, 33.0, dcam)) * smoothstep(0.55, 1.0, hw - WY); } float r = hs(ip); float sw = sin(uTime * 1.7 + wp.x * 0.6 + wp.y * 0.5);\n';
+  const patch = (mat, body) => { mat.onBeforeCompile = sh => { sh.uniforms.uTime = U.uTime; sh.uniforms.uCam = U.uCam; sh.uniforms.uCamDir = U.uCamDir; sh.uniforms.uCone = U.uCone; sh.uniforms.uPonds = U.uPonds; sh.uniforms.uPondP = U.uPondP; sh.vertexShader = GLSL + sh.vertexShader.replace('#include <begin_vertex>', 'vec3 transformed = vec3(position);\n' + TILE + body); }; };
   const bladeGeo = new THREE.ConeGeometry(0.06, 1, 3, 1, true); bladeGeo.translate(0, 0.5, 0);
   const grassMat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
-  patch(grassMat, 'float a = r * 6.2831; transformed.xz = mat2(cos(a), -sin(a), sin(a), cos(a)) * transformed.xz; transformed.y *= (0.35 + 0.7 * r) * fd; float s2 = sw * 0.14 * position.y; transformed.x += s2; transformed.z += s2 * 0.6; transformed.xz += wp - ip; transformed.y += hw;');
-  const NG = touch ? 16000 : 26000, grass = new THREE.InstancedMesh(bladeGeo, grassMat, NG), m4 = new THREE.Matrix4(), cc = new THREE.Color();
-  for (let i = 0; i < NG; i++) { m4.makeTranslation((Math.random() - 0.5) * 70, 0, (Math.random() - 0.5) * 70); grass.setMatrixAt(i, m4); cc.setHSL(0.24 + Math.random() * 0.06, 0.55 + Math.random() * 0.2, 0.3 + Math.random() * 0.16); grass.setColorAt(i, cc); }
+  patch(grassMat, 'float a = r * 6.2831; transformed.xz = mat2(cos(a), -sin(a), sin(a), cos(a)) * transformed.xz; transformed.y *= (0.35 + 0.7 * r) * fd; float s2 = sw * 0.14 * position.y; transformed.x += s2; transformed.z += s2 * 0.6; transformed.xz += wp - ip; transformed.y += hw; if (!gv) transformed = vec3(wp.x - ip.x, 0.0, wp.y - ip.y);');
+  const NG = lowSpec ? 9000 : touch ? 16000 : 26000, grass = new THREE.InstancedMesh(bladeGeo, grassMat, NG), m4 = new THREE.Matrix4(), cc = new THREE.Color();
+  const gN = Math.ceil(Math.sqrt(NG)), gR = Math.ceil(NG / gN); /* 🔧 草は70m四方を格子状に分けて、1マスに1本ずつランダムにずらして置く（番号が近い草は場所も近い→遠い草の計算省略がGPUで効く） */
+  for (let i = 0; i < NG; i++) { m4.makeTranslation((((i % gN) + Math.random()) / gN - 0.5) * 70, 0, ((((i / gN) | 0) + Math.random()) / gR - 0.5) * 70); grass.setMatrixAt(i, m4); cc.setHSL(0.24 + Math.random() * 0.06, 0.55 + Math.random() * 0.2, 0.3 + Math.random() * 0.16); grass.setColorAt(i, cc); }
   grass.frustumCulled = false; scene.add(grass);
   const flowerMat = new THREE.MeshLambertMaterial();
   patch(flowerMat, 'transformed *= fd; transformed.x += sw * 0.05; transformed.xz += wp - ip; transformed.y += hw + 0.45 + 0.35 * r;');
   const NF = touch ? 420 : 700, flowers = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.1, 0), flowerMat, NF), fcols = [0xffffff, 0xff9ec4, 0xffe36b, 0xc9a8ff, 0xffb27a];
   for (let i = 0; i < NF; i++) { m4.makeTranslation((Math.random() - 0.5) * 70, 0, (Math.random() - 0.5) * 70); flowers.setMatrixAt(i, m4); cc.setHex(fcols[i % fcols.length]); flowers.setColorAt(i, cc); }
   flowers.frustumCulled = false; scene.add(flowers);
+  if (lowSpec) { grass.visible = false; flowers.visible = false; } // 🔧 低スペック端末では、草と花は描かない（地形の計算が重いため）
 
   // ----- 木：40m四方のマスごとに、場所と大きさが「マスの番号」から必ず同じに決まる（何も保存しなくても、同じ場所に同じ木が出る）。自分の周り±3マス（約120m）のマスだけ木を作り、離れたマスの木は消す -----
-  const CELL = 40, TR = TALL ? 4 : 3, trees = new Map(); // 交流ルームの草原は、霧が遠くまで薄いので、木も遠く（±4マス＝160m以上）まで作る
+  const CELL = 40, TR = lowSpec ? 3 : TALL ? 4 : 3, trees = new Map(); // 交流ルームの草原は、霧が遠くまで薄いので、木も遠く（±4マス＝160m以上）まで作る
   let tcx = NaN, tcz = NaN;
   const trunkGeo = new THREE.CylinderGeometry(0.25, 0.38, 2.6, 6), leafGeo = new THREE.IcosahedronGeometry(1.8, 0), trunkMat = new THREE.MeshLambertMaterial({ color: 0x7a5230 }), leafMat = new THREE.MeshLambertMaterial({ color: 0x3f9a4a });
   const h2 = (a, b, k) => { const v = Math.sin(a * 127.1 + b * 311.7 + k * 74.7) * 43758.5453; return v - Math.floor(v); };
@@ -1859,7 +1871,7 @@ function openGrassland(onClose, opt) {
     const c = amAc, pan = c.createPanner(), air = c.createBiquadFilter(), dry = c.createGain(), conv = c.createConvolver(), wet = c.createGain(), dl = c.createDelay(2), fb = c.createGain(), fl = c.createBiquadFilter(), eg = c.createGain();
     pan.panningModel = 'HRTF'; pan.distanceModel = 'inverse'; pan.refDistance = 40; pan.rolloffFactor = 1.5; pan.maxDistance = 10000; // クジラは巨大で遠いので、70mまでは減らず、その先はゆるやかに小さくなる
     air.type = 'lowpass'; air.frequency.value = 6000; air.Q.value = 0.4; // 遠いほど高い音が空気に吸われて、こもる
-    const sr = c.sampleRate, len = Math.floor(sr * 8), ir = c.createBuffer(2, len, sr); // 残響のもと：7秒かけて、だんだん暗く・小さく消えていくノイズ（左右で別の乱数＝ひろがり）
+    const sr = c.sampleRate, len = Math.floor(sr * (IS_LOW_SPEC ? 3.5 : 8)), ir = c.createBuffer(2, len, sr); /* 🔧 低スペック端末は、響きを短くして軽くする */ // 残響のもと：7秒かけて、だんだん暗く・小さく消えていくノイズ（左右で別の乱数＝ひろがり）
     for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); let lp = 0; for (let i = 0; i < len; i++) { const t = i / len; lp += (0.04 + 0.5 * Math.pow(1 - t, 2)) * ((Math.random() * 2 - 1) - lp); d[i] = lp * Math.pow(1 - t, 2.6) * (i < sr * 0.04 ? i / (sr * 0.04) : 1); } }
     conv.buffer = ir; wet.gain.value = 1.3;
     dl.delayTime.value = 0.8; fb.gain.value = 0.5; fl.type = 'lowpass'; fl.frequency.value = 1500; eg.gain.value = 0.4; // こだま：遅れて、暗くなりながら返ってくる
@@ -1878,7 +1890,7 @@ function openGrassland(onClose, opt) {
     [[0, 2.6, [1300, 1300, 1280, 1220]]],
     [[0, 3.4, [1700, 1690, 1640, 1560]]]
   ];
-  let whBuf = null, whBufTried = false; // whBuf＝録音を音に戻したもの（置き場所 WHALE_VOICE_B64 が空なら null のまま＝合成の声を使う）
+  let whBuf = null, whBufTried = false, whPre = false; // whBuf＝録音を音に戻したもの（置き場所 WHALE_VOICE_B64 が空なら null のまま＝合成の声を使う）
   const whaleLoad = () => { // 録音の文字列を音に戻す（最初に1回。デコードに少し時間がかかるので、歌う前の早めに始める）
     if (whBufTried || !amAc) return; whBufTried = true;
     try { if (typeof WHALE_VOICE_B64 === 'undefined' || !WHALE_VOICE_B64) return; const bin = atob(WHALE_VOICE_B64), by = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) by[i] = bin.charCodeAt(i); amAc.decodeAudioData(by.buffer, b => { whBuf = b; }, () => { /* 読めなかった時は合成の声のまま */ }); } catch (e) { /* 何もしない */ }
@@ -1918,9 +1930,9 @@ function openGrassland(onClose, opt) {
     amWindBus.gain.value = 1 + 1.3 * Math.max(0, Math.min(1, hh(P.x, P.z) / 12)); // 高い丘の上ほど風が強い（開放感）
     amGustT -= dt; if (amGustT <= 0 && amGust) { const t = amAc.currentTime, pk = 0.55 + Math.random() * 0.45; amGust.gain.cancelScheduledValues(t); amGust.gain.setTargetAtTime(pk, t, 1.3); amGust.gain.setTargetAtTime(0.03, t + 3.5 + Math.random() * 2, 1.8); amGustT = 14 + Math.random() * 22; } // 14〜36秒に一度、ふわっと吹いて静まる
     amBirdT -= dt; if (amBirdT <= 0) { birdCall(); amBirdT = 5 + Math.random() * 11; }
-    if (whale && whale.visible) { whaleLoad(); const ns = Date.now() / 1000, sl = Math.floor(ns / 60); if (sl > whDone) { const r = seedRng(sl), tc = sl * 60 + 20 + 22 * r(); if (ns >= tc) { whDone = sl; if (ns - tc < 4) whaleCall(r); } } if (whWho) whaleSpatial(); } // 🐋 1分ごとの枠のなかの20〜42秒めに歌う（つぎの歌まで約40〜80秒＝平均1分）。歌いはじめを逃したら、その枠はお休み
+    if (whale && whale.visible) { whaleLoad(); if (!whPre && amAc) { whPre = true; setTimeout(() => { try { if (amAc && amAc.state !== 'closed' && amMaster && !whWho) whWho = whaleBus(); } catch (e) {} }, 1500); } /* 🔧 クジラの声の響きは、最初の歌の瞬間ではなく、始まって少ししたあとに作っておく（歌う瞬間のカクつき防止） */ const ns = Date.now() / 1000, sl = Math.floor(ns / 60); if (sl > whDone) { const r = seedRng(sl), tc = sl * 60 + 20 + 22 * r(); if (ns >= tc) { whDone = sl; if (ns - tc < 4) whaleCall(r); } } if (whWho) whaleSpatial(); } // 🐋 1分ごとの枠のなかの20〜42秒めに歌う（つぎの歌まで約40〜80秒＝平均1分）。歌いはじめを逃したら、その枠はお休み
   };
-  const stopAmbient = () => { whWho = null; whBuf = null; whBufTried = false; amNodes.forEach(n => { try { n.stop(); } catch (e) { /* 何もしない */ } }); amNodes = []; if (amAc) { try { amAc.close(); } catch (e) { /* 何もしない */ } amAc = null; } };
+  const stopAmbient = () => { whWho = null; whBuf = null; whBufTried = false; whPre = false; amNodes.forEach(n => { try { n.stop(); } catch (e) { /* 何もしない */ } }); amNodes = []; if (amAc) { try { amAc.close(); } catch (e) { /* 何もしない */ } amAc = null; } };
   if (!opt.dungeonOnly) startAmbient(); // 交流ルームの「ダンジョン」（草原を歩かない）では鳴らさない
   const blk = document.createElement('div'); blk.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity 0.6s;'; root.appendChild(blk); // 暗転用の黒い幕
   const thump = v => { if (!ac) return; try { const t0 = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(120, t0); o.frequency.exponentialRampToValueAtTime(32, t0 + 0.25); g.gain.setValueAtTime(v, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.32); o.connect(g); g.connect(chMaster); o.start(t0); o.stop(t0 + 0.35); } catch (e) { /* 何もしない */ } }; // ドンという足音
@@ -2614,9 +2626,22 @@ function openGrassland(onClose, opt) {
     try { if (amAc && amAc.state !== 'closed' && amUw) { const ct = amAc.currentTime; amUw.gain.setTargetAtTime(0, ct, 0.1); amBab.forEach(g => g.gain.setTargetAtTime(0, ct, 0.1)); amOut.frequency.setTargetAtTime(20000, ct, 0.05); amAmb.gain.setTargetAtTime(1, ct, 0.1); } } catch (e) { /* 何もしない */ }
   };
 
+  // 🔧 クジラが画面（視錐台）に入っているか。体の長さの半分（約55m）に余裕を足した球で判定する
+  const wFr = new THREE.Frustum(), wPM = new THREE.Matrix4(), wSp = new THREE.Sphere();
+  const whaleInView = () => { try { wPM.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); wFr.setFromProjectionMatrix(wPM); wSp.center.copy(whale.position); wSp.radius = 75; return wFr.intersectsSphere(wSp); } catch (e) { return true; } };
+  // 🔧 動的な軽量化：約2秒の平均が30fpsを下回る状態が2回続いたら、草と花をやめる→それでも重ければ解像度を少しずつ下げる（最小0.6倍）。自動では戻さない（行ったり来たりしないため）
+  let adS = 1, adAcc = 0, adN = 0, adBad = 0;
+  const adaptRes = raw => {
+    if (raw > 0.5) return;
+    adAcc += raw; adN++;
+    if (adAcc < 2) return;
+    const avg = adAcc / adN; adAcc = 0; adN = 0;
+    // 🔧 重い状態が続いたら、まず草と花を描くのをやめる。それでも重ければ、解像度を下げる
+    if (avg > 0.036 && (grass.visible || adS > 0.6)) { if (++adBad >= 2) { adBad = 0; if (grass.visible) { grass.visible = false; flowers.visible = false; } else { adS = Math.max(0.6, adS - 0.12); renderer.setPixelRatio(basePR * adS); resize(); } } } else adBad = 0;
+  };
   const frame = ms => {
     if (closed) return;
-    const t = ms / 1000, dt = Math.min(0.05, last ? t - last : 0.016); last = t;
+    const t = ms / 1000, raw = last ? t - last : 0.016, dt = Math.min(0.05, raw); last = t; adaptRes(raw);
     look.step(dt, keys, sr); // 視点：矢印キー・右スティック・すべり
     glFrame(dt, t); // 🎙 仲間の姿の同期
     cairnFrame(dt); // 🪨 石の拾得・石積みの演出・操作の表示
@@ -2628,8 +2653,9 @@ function openGrassland(onClose, opt) {
     cairnPush(); // 🪨 石の山の中には入れない
     syncTrees(); ground.position.set(Math.round(P.x / GS) * GS, 0, Math.round(P.z / GS) * GS); U.uGC.value.set(ground.position.x, ground.position.z); // 歩ける範囲に制限はない（木と地面は自分についてくる）
     waterFrame(dt, t, mvd); camera.position.set(P.x, P.ey, P.z); /* 🌊 目の高さ P.ey（歩く／浮かぶ／潜る） */ camera.rotation.set(P.pitch, P.yaw, 0); camera.updateMatrixWorld(); if (!opt.noHorror) updateShadow(dt, t); // 👁 黒い影（opt.noHorror＝交流ルームの「草原」：影は出ず、何も起こらない）
-    sky.position.copy(camera.position); clouds.rotation.y += dt * 0.004; if (whale && whale.visible && !inDungeon) whale.userData.update(Date.now() / 1000);
+    sky.position.copy(camera.position); clouds.rotation.y += dt * 0.004; if (whale && whale.visible && !inDungeon) whale.userData.update(Date.now() / 1000, whaleInView());
     U.uTime.value = t; U.uCam.value.set(P.x, P.z);
+    { const hf = 2 * Math.atan(Math.tan(camera.fov * Math.PI / 360) * camera.aspect), lim = Math.min(3.0, hf / 2 + 0.6); U.uCamDir.value.set(-sy, -cy); U.uCone.value = Math.cos(lim); } // 🔧 草と花：横の見える範囲＋約34°の余裕より外（と、10mより遠く）は計算しない
     renderer.render(scene, camera); raf = requestAnimationFrame(frame);
   };
   if (opt.dungeonOnly) { blk.style.transition = 'none'; blk.style.opacity = '1'; void blk.offsetWidth; warpToDungeon(); } // 🕳 交流ルームの「ダンジョン」：草原は歩かず、影に追いつかれてワープした直後（暗いダンジョン）から始まる
@@ -3807,6 +3833,7 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   telegraphLine: false,    // 敵が構えている間、撃つ向きを示す予告線を出すか（true＝出す、false＝出さない）。敵の白い棒は、この値に関係なく出る
   telegraphBlink: false,   // 敵が構えている間、体を点滅させるか（true＝させる、false＝させない）
   enemySlashSpeed: 1280,    // 敵の斬撃の速さ（px/秒）
+  enemySlashLife: 1.1,     // 敵の斬撃が消えるまでの秒数（自分の斬撃は slashLife。スローモーション中は、遅くなった時間で数える）
   enemySlashTurn: 2.0,     // 敵の斬撃が、撃ったあとも、ずっと自分の方へ向きを変え続ける速さ（ラジアン/秒。大きいほど追ってくる。予告線の向きには縛られない）
   flankChance: 0.35,       // 敵の攻撃のうち、大きく回り込んで上や下から来る斬撃になる割合（0〜1）
   flankAngle: 0.8,         // 回り込む斬撃が、最初に自分の方向から上か下へそれる角度（ラジアン）
@@ -3822,6 +3849,25 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   clashCooldown: 0.35,     // 弾き合ったあと、この秒数のあいだは、同じ斬撃どうしで再びぶつからない
   clashLock: 0.45,         // 弾き合ったあと、この秒数のあいだは、曲がった向きを保つ（スティック・追尾で向きが戻らない）
   invuln: 0.6,             // 被弾したあとの無敵の秒数
+  // --- 💀 形態移行（敵のHPが 1/3 以下になると、一度だけ第2形態になる） ---
+  p2HpRatio: 0.3334,       // 敵のHPが最大HPのこの割合以下になったら、第2形態へ移行する
+  p2TransTime: 1.8,        // 形態移行の演出の秒数（この間、敵は動かず撃たない）
+  p2StopTime: 0.25,        // 移行の瞬間に、全体が止まる秒数（ヒットストップ）
+  p2FirstDelay: 0.6,       // 移行が終わってから、最初に撃つまでの秒数
+  p2IntervalMin: 0.5,      // 第2形態：次の攻撃までの間隔（秒）の最短
+  p2IntervalMax: 0.9,      // 同、最長
+  p2BarColor: 0xff2020,    // 第2形態：敵の「向きを示す棒」の色（赤。通常は白）
+  p2SlashColor: 0xc04aff,  // 第2形態のオーラ・演出の色（紫。斬撃の色は変えない）
+  // --- 第2形態の攻撃①：扇状（自分の方へ真っ直ぐ＋左右に fanAngleDeg 度の計3本を、同時に直進で撃つ。その場に止まって構える） ---
+  fanTelegraph: 0.7,       // 構えの秒数（扇状の予告線が出る）
+  fanAngleDeg: 70,         // 左右の斬撃が、真ん中からそれる角度（度）
+  fanSpeed: 1280,          // 3本の斬撃の速さ（px/秒）
+  // --- 第2形態の攻撃②：連射（その場に止まって、上下交互に、高速で連続して撃つ） ---
+  rapidTelegraph: 0.4,     // 構えの秒数
+  rapidCount: 10,          // 撃つ合計数
+  rapidInterval: 0.07,     // 1発ごとの間隔（秒）
+  rapidSpread: 0.3,        // 自分の方向から、上へ／下へ交互にずらす角度（ラジアン）
+  rapidSpeed: 1500,        // 連射の斬撃の速さ（px/秒）
   // --- 斬撃が地面に残す跡（自分の斬撃も敵の斬撃も、通った道すじに斬られたような傷が残り、だんだん薄れて消える） ---
   scarLife: 5.0,           // 跡が残る秒数（最後の scarFade 秒でだんだん薄くなる）
   scarFade: 2.0,           // 消えていく秒数
@@ -8092,6 +8138,22 @@ class GameScene extends Phaser.Scene {
     if (!e || !e.gfx || !e.gfx.scene || !this.player) return;
     const face = Math.atan2(this.player.y - e.gfx.y, this.player.x - e.gfx.x);
     ACC_FX.serialkiller(g, { face, gt: g }, e.gfx.x, e.gfx.y, t, dt, e.gfx.alpha);
+    const en = this._vhEn, tt = this.time.now / 1000;
+    if (en && en.p2 && e.hp > 0) { // 💀 第2形態：紫のオーラがゆらめく
+      g.lineStyle(2, V.p2SlashColor, 0.4 + 0.2 * Math.sin(tt * 6)); g.strokeCircle(e.gfx.x, e.gfx.y, e.type.radius + 9 + 3 * Math.sin(tt * 5));
+      g.lineStyle(1, 0xffffff, 0.25); g.strokeCircle(e.gfx.x, e.gfx.y, e.type.radius + 15 + 4 * Math.sin(tt * 4 + 1));
+      if (en.trans > 0) { // 形態移行：まわりから光の輪が、敵へ吸い込まれていく
+        const pr = Math.min(1, en.transT / V.p2TransTime);
+        for (let k = 0; k < 4; k++) { const f = (pr * 3 + k / 4) % 1; g.lineStyle(3, k % 2 ? 0xffffff : V.p2SlashColor, 0.85 * (1 - f)); g.strokeCircle(e.gfx.x, e.gfx.y, 20 + (1 - f) * 170); }
+        g.fillStyle(V.p2SlashColor, 0.25 * pr); g.fillCircle(e.gfx.x, e.gfx.y, e.type.radius + 10 + 30 * pr);
+      }
+    }
+    if (en && en.tele > 0 && en.atk && e.hp > 0) { // 新しい攻撃の予告線（構えが進むほど濃くなる）
+      const al = 0.2 + 0.6 * (1 - en.tele / (en.teleMax || 1)), ln = (a, len) => { g.beginPath(); g.moveTo(e.gfx.x, e.gfx.y); g.lineTo(e.gfx.x + Math.cos(a) * len, e.gfx.y + Math.sin(a) * len); g.strokePath(); };
+      g.lineStyle(2, V.p2SlashColor, al);
+      if (en.atk === 'fan') { const sp = V.fanAngleDeg * Math.PI / 180; ln(en.ang, 520); ln(en.ang + sp, 520); ln(en.ang - sp, 520); }
+      else { ln(en.ang + V.rapidSpread, 420); ln(en.ang - V.rapidSpread, 420); }
+    }
   }
   // ⚔ カメラ：自分と敵の真ん中に固定して、自分を追わない（毎フレーム呼んで、ほかの処理で追従が戻っても固定し直す）
   _vhCamLock() {
@@ -8229,31 +8291,76 @@ class GameScene extends Phaser.Scene {
     }
     this._vhWasHeld = aim.held;
     const e = this.enemies && this.enemies.find(x => x.type && x.type.key === 'vshero' && x.hp > 0 && x.gfx && x.gfx.scene);
-    if (e && !this.transitioning) this._vhEnemyMove(e, dt); // 🏃 敵：画面内を動き回り、まっすぐ来る斬撃は避ける
+    if (e && !this.transitioning && !(this._vhEn && (this._vhEn.trans > 0 || this._vhEn.hold))) this._vhEnemyMove(e, dt); // 🏃 敵：画面内を動き回り、まっすぐ来る斬撃は避ける
     // ⚔ 敵の攻撃：間隔をあけて狙うマスを決める → 予告（そのマスが赤く光る）→ その方向へ斬撃を撃つ
     const en = this._vhEn, eh = this._vhEnemyHome, hh0 = this._vhHome;
     if (e && en && eh && hh0 && this.playerHp > 0 && !this.isGhost && !this.isDowned && !this.transitioning) {
-      if (en.tele > 0) {
+      const eHpMax = e.maxHp || e.type.hp;
+      if (!en.p2 && e.hp > 0 && e.hp <= eHpMax * V.p2HpRatio) { // 💀 HPが1/3以下：第2形態へ移行（今ある敵の斬撃は消え、少しのあいだ動きが止まる）
+        en.p2 = true; en.trans = V.p2TransTime; en.transT = 0; en.fx = 0; en.tele = 0; en.rap = null; en.atk = null; en.hold = true;
+        for (const q of this._vhSlashes) if (!q.dead && q.owner === 'e') { q.dead = true; this._vhBurst(q.x, q.y, V.enemySlashColor, 3); }
+        this._vhStopT = Math.max(this._vhStopT, V.p2StopTime);
+        try { this.cameras.main.shake(V.p2TransTime * 800, 0.012); this.cameras.main.flash(300, 190, 90, 255); } catch (err) {}
+        this._vhBurst(e.gfx.x, e.gfx.y, V.p2SlashColor, 26);
+      }
+      const fire = (a, spd) => { // 直進する（追尾しない）敵の斬撃を1本撃つ
+        const col = V.enemySlashColor, fx = e.gfx.x + Math.cos(a) * 14, fy = e.gfx.y + Math.sin(a) * 14;
+        this._vhSlashes.push({ x: fx, y: fy, a, age: 0, owner: 'e', col, spd, turn: 0, homeT: null, committed: true, sp: 0, lx: e.gfx.x, ly: e.gfx.y });
+        this._vhBurst(fx, fy, col, 4);
+      };
+      if (en.trans > 0) { // 形態移行の演出中：その場で力をためる
+        en.trans -= dt; en.transT += dt; en.fx -= dt;
+        if (en.fx <= 0) { en.fx = 0.1; this._vhBurst(e.gfx.x + (Math.random() - 0.5) * 36, e.gfx.y + (Math.random() - 0.5) * 36, V.p2SlashColor, 4); }
+        if (en.trans <= 0) {
+          en.hold = false; en.cd = V.p2FirstDelay;
+          this._vhBurst(e.gfx.x, e.gfx.y, V.p2SlashColor, 30); this._vhBurst(e.gfx.x, e.gfx.y, 0xffffff, 10);
+          try { this.cameras.main.shake(260, 0.016); } catch (err) {}
+        }
+      } else if (en.rap) { // 連射：その場に止まって、上下交互に高速で撃つ
+        en.rap.t -= dt;
+        if (en.rap.t <= 0) {
+          fire(Math.atan2(this.player.y - e.gfx.y, this.player.x - e.gfx.x) + en.rap.side * V.rapidSpread, V.rapidSpeed);
+          en.rap.side = -en.rap.side; en.rap.n--; en.rap.t += V.rapidInterval;
+          if (en.rap.n <= 0) { en.rap = null; en.hold = false; en.cd = V.p2IntervalMin + Math.random() * (V.p2IntervalMax - V.p2IntervalMin); }
+        }
+      } else if (en.tele > 0) {
         en.tele -= dt;
         if (en.tele > V.enemyAimLock) { en.tx = this.player.x; en.ty = this.player.y; } // 予告のあいだは自分の方を向き続け、撃つ直前（enemyAimLock秒前）で向きを固定する
         en.ang = Phaser.Math.Angle.Wrap(Math.atan2(en.ty - e.gfx.y, en.tx - e.gfx.x) + (en.off || 0)); // 敵が動き回るので、撃つ直前まで、今の位置から狙い直す
         if (en.tele <= 0) {
-          this._vhSlashes.push({ x: e.gfx.x + Math.cos(en.ang) * 14, y: e.gfx.y + Math.sin(en.ang) * 14, a: en.ang, age: 0, owner: 'e', col: V.enemySlashColor, spd: V.enemySlashSpeed, turn: en.flank ? V.flankTurn : 0, homeT: en.flank ? V.flankHomeTime : null, sp: 0, lx: e.gfx.x, ly: e.gfx.y });
-          this._vhBurst(e.gfx.x + Math.cos(en.ang) * 14, e.gfx.y + Math.sin(en.ang) * 14, V.enemySlashColor, 6);
-          en.cd = V.enemyIntervalMin + Math.random() * (V.enemyIntervalMax - V.enemyIntervalMin);
+          if (en.atk === 'fan') { // 扇状：真っ直ぐ＋左右に fanAngleDeg 度、3本を同時に直進で撃つ
+            const sp = V.fanAngleDeg * Math.PI / 180;
+            fire(en.ang, V.fanSpeed); fire(en.ang + sp, V.fanSpeed); fire(en.ang - sp, V.fanSpeed);
+            en.atk = null; en.hold = false; en.cd = V.p2IntervalMin + Math.random() * (V.p2IntervalMax - V.p2IntervalMin);
+          } else if (en.atk === 'rapid') { // 連射を始める（1発目はすぐ）
+            en.rap = { n: V.rapidCount, t: 0, side: Math.random() < 0.5 ? 1 : -1 }; en.atk = null;
+          } else {
+            this._vhSlashes.push({ x: e.gfx.x + Math.cos(en.ang) * 14, y: e.gfx.y + Math.sin(en.ang) * 14, a: en.ang, age: 0, owner: 'e', col: V.enemySlashColor, spd: V.enemySlashSpeed, turn: en.flank ? V.flankTurn : 0, homeT: en.flank ? V.flankHomeTime : null, sp: 0, lx: e.gfx.x, ly: e.gfx.y });
+            this._vhBurst(e.gfx.x + Math.cos(en.ang) * 14, e.gfx.y + Math.sin(en.ang) * 14, V.enemySlashColor, 6);
+            en.cd = V.enemyIntervalMin + Math.random() * (V.enemyIntervalMax - V.enemyIntervalMin);
+          }
         }
       } else {
         en.cd -= dt;
         if (en.cd <= 0) { // 自分の斬撃と同じように、自分（プレイヤー）の方へ向けて放つ（場所は狙わない）
           en.tx = this.player.x; en.ty = this.player.y;
           en.ang = Math.atan2(en.ty - e.gfx.y, en.tx - e.gfx.x);
-          en.flank = Math.random() < V.flankChance; // 回り込み：最初は上か下へそれて、大きく曲がりながら自分へ向かう
-          en.off = en.flank ? (Math.random() < 0.5 ? 1 : -1) * V.flankAngle : 0; // 回り込みは、狙う向きからそれる角度（敵が動くので、向きは撃つ直前まで計算し直す）
-          en.ang = Phaser.Math.Angle.Wrap(en.ang + en.off);
-          en.tele = V.enemyTelegraph;
+          en.atk = null; en.hold = false;
+          if (en.p2) { // 第2形態：扇状か連射のどちらか（同じ攻撃が続きにくい）
+            en.atk = Math.random() < 0.5 ? 'fan' : 'rapid';
+            if (en.last === en.atk && Math.random() < 0.6) en.atk = en.atk === 'fan' ? 'rapid' : 'fan';
+            en.last = en.atk;
+          }
+          if (en.atk) { en.flank = false; en.off = 0; en.tele = en.atk === 'fan' ? V.fanTelegraph : V.rapidTelegraph; en.teleMax = en.tele; en.hold = true; }
+          else {
+            en.flank = Math.random() < V.flankChance; // 回り込み：最初は上か下へそれて、大きく曲がりながら自分へ向かう
+            en.off = en.flank ? (Math.random() < 0.5 ? 1 : -1) * V.flankAngle : 0; // 回り込みは、狙う向きからそれる角度（敵が動くので、向きは撃つ直前まで計算し直す）
+            en.ang = Phaser.Math.Angle.Wrap(en.ang + en.off);
+            en.tele = V.enemyTelegraph;
+          }
         }
       }
-    } else if (en) en.tele = 0;
+    } else if (en) { en.tele = 0; en.rap = null; en.atk = null; en.hold = false; }
     for (let i = this._vhSlashes.length - 1; i >= 0; i--) {
       const s = this._vhSlashes[i]; if (s.dead) continue; s.age += dt;
       if (s.cd > 0) s.cd -= dt; if (s.lock > 0) s.lock -= dt;
@@ -8270,19 +8377,19 @@ class GameScene extends Phaser.Scene {
       s.x += Math.cos(s.a) * (s.spd || V.slashSpeed) * dt; s.y += Math.sin(s.a) * (s.spd || V.slashSpeed) * dt;
       if (s.sx === undefined) { s.sx = ox; s.sy = oy; } // 跡：前に線分を足した位置から、scarStepぶん進むたびに、斬撃の道すじに傷を足す（曲がれば、曲がった傷になる）
       if (Math.hypot(s.x - s.sx, s.y - s.sy) >= V.scarStep && !this.circleHitsWall(s.x, s.y, 5)) {
-        this._vhScars.push({ x1: s.sx, y1: s.sy, x2: s.x, y2: s.y, col: s.col, t: 0, w: Math.max(1.5, V.scarWidth * (1 - 0.65 * Math.min(1, s.age / V.slashLife))) });
+        this._vhScars.push({ x1: s.sx, y1: s.sy, x2: s.x, y2: s.y, col: s.col, t: 0, w: Math.max(1.5, V.scarWidth * (1 - 0.65 * Math.min(1, s.age / (s.owner === 'e' ? V.enemySlashLife : V.slashLife)))) });
         s.sx = s.x; s.sy = s.y;
       }
       s.sp = (s.sp || 0) + dt * 140;
       while (s.sp >= 1) { s.sp -= 1; this._vhWheelSpark(s.x, s.y, s.a, s.col); } // 斬撃の位置＝見えない車輪が地面に触れている所。そこから火花が次々と散る
-      let dead = s.age > V.slashLife || this.circleHitsWall(s.x, s.y, 5) || (s.owner === 'p' && !aim.held); // 自分の斬撃は、スティック（クリック・スペース）から手を離した時点で消える
+      const sLife = s.owner === 'e' ? V.enemySlashLife : V.slashLife; let dead = s.age > sLife || this.circleHitsWall(s.x, s.y, 5) || (s.owner === 'p' && !aim.held); // 自分の斬撃は、スティック（クリック・スペース）から手を離した時点で消える
       if (!dead && s.owner === 'p' && e && Math.hypot(s.x - e.gfx.x, s.y - e.gfx.y) < e.type.radius + V.slashRadius) {
         this.damageEnemy(e, V.slashDamage, s.a, 0); this._vhBurst(s.x, s.y, s.col, 18); this._vhBlood(s.x, s.y, s.a); this._vhHitFeel(false); dead = true;
       }
       if (!dead && s.owner === 'e' && !this.isGhost && Math.hypot(s.x - this.player.x, s.y - this.player.y) < this.player.radius + V.enemySlashRadius && this.playerInvuln <= 0) {
         this._vhHurt(V.enemySlashDamage); this._vhBurst(s.x, s.y, s.col, 18); this._vhBlood(s.x, s.y, s.a); this._vhHitFeel(true); dead = true; // 無敵の間は、すり抜ける
       }
-      if (dead) { if (s.age <= V.slashLife && !s.hitDone) this._vhBurst(s.x, s.y, s.col, 10); s.dead = true; }
+      if (dead) { if (s.age <= sLife && !s.hitDone) this._vhBurst(s.x, s.y, s.col, 10); s.dead = true; }
     }
     // 斬撃どうしがぶつかったら、消えずに、お互いが外側へ大きく向きをそらす（三角形が大きく立ち上がる）
     for (const a of this._vhSlashes) {
@@ -8320,7 +8427,7 @@ class GameScene extends Phaser.Scene {
     if (this._vhFace && this._vhFace.scene) { // 敵の向きを示す白い棒：構えている間は撃つ向き、それ以外は自分のいる向き
       if (e && e.gfx && e.gfx.scene && e.hp > 0) {
         const fa = (en && en.tele > 0) ? en.ang : Math.atan2(this.player.y - e.gfx.y, this.player.x - e.gfx.x), fd = e.type.radius + V.faceBarGap;
-        this._vhFace.setPosition(e.gfx.x + Math.cos(fa) * fd, e.gfx.y + Math.sin(fa) * fd).setRotation(fa).setVisible(true).setAlpha(e.gfx.alpha);
+        this._vhFace.setFillStyle(this._vhEn && this._vhEn.p2 ? V.p2BarColor : 0xffffff).setPosition(e.gfx.x + Math.cos(fa) * fd, e.gfx.y + Math.sin(fa) * fd).setRotation(fa).setVisible(true).setAlpha(e.gfx.alpha);
       } else this._vhFace.setVisible(false);
     }
     if (e && e.gfx && e.gfx.scene) e.gfx.setFillStyle(this._vhFlash > 0 ? 0xffffff : (V.telegraphBlink && en && en.tele > 0 && Math.floor(t * 20) % 2 ? 0xff9a9a : e.type.color));
@@ -8732,7 +8839,7 @@ class GameScene extends Phaser.Scene {
       else this._demonEnding();
     });
   }
-  hasSpecial(key) { if (this.mp && specialAccByKey(key)) return false; if (this.vsHero && specialAccByKey(key)) return false; /* 斬り合い：悪魔の装飾品も使えない */ /* 通信プレイ（協力・PvPなど）では、悪魔の装飾品は全部使えない */ if (this.arms4Ritual && !this._endingRun && specialAccByKey(key)) return false; /* ホームの天使・調伏の儀（通常）：悪魔の装飾品は使えない（エンディング演出の調伏の儀だけは使う） */ if (this._godAccGone && specialAccByKey(key)) return false; /* 宇宙が割れて聖域に戻ったあと：悪魔の装飾は外れている */ if (ENDING_STATE.run && specialAccByKey(key)) return true; /* エンディング演出中：悪魔の装飾は全部オン */ const sv = loadSave(); return !!((sv.specialAccs[key] && sv.specialOn[key]) || (this._tmpSpecial || {})[key]); } // その特別な装飾品を、いま付けているか（デベロッパーモードでもらった分は、このゲームの間だけ）
+  hasSpecial(key) { if (this.vsHero && specialAccByKey(key)) return false; /* 斬り合い：悪魔の装飾品も使えない */ /* 🔧 通信プレイ（協力・PvP）でも付けられる。PvPでは見た目だけで、効果は止める（翼＝刺さない／ネックレス＝出さない／紋章＝回復しない。this.pvp で判定） */ if (this.arms4Ritual && !this._endingRun && specialAccByKey(key)) return false; /* ホームの天使・調伏の儀（通常）：悪魔の装飾品は使えない（エンディング演出の調伏の儀だけは使う） */ if (this._godAccGone && specialAccByKey(key)) return false; /* 宇宙が割れて聖域に戻ったあと：悪魔の装飾は外れている */ if (ENDING_STATE.run && specialAccByKey(key)) return true; /* エンディング演出中：悪魔の装飾は全部オン */ const sv = loadSave(); return !!((sv.specialAccs[key] && sv.specialOn[key]) || (this._tmpSpecial || {})[key]); } // その特別な装飾品を、いま付けているか（デベロッパーモードでもらった分は、このゲームの間だけ）
   _giveSpecialAcc(sp) { // 台本の item が特別な装飾品の key だった時：入手済みにして、付けた状態にする（ホーム画面に出る）。限定武器なら、その武器に持ち替えて固定する
     { // デベロッパーモードでも、通常と同じように記録に残す（ホーム画面にも出る）
       const sv = loadSave(); sv.specialAccs[sp.key] = true; sv.specialOn[sp.key] = true;
@@ -8741,7 +8848,7 @@ class GameScene extends Phaser.Scene {
       writeSave(sv);
     }
     this.showBanner('🎁 ' + sp.icon + sp.name + 'を手に入れた！', 3500, '#ffd54c', true);
-    if (sp.key === 'demoncollar' && !this.mp) this._spWings = true; // 通信プレイでは翼は出ない
+    if (sp.key === 'demoncollar') this._spWings = true; // 通信プレイでも翼は出る（PvPでは見た目だけ）
     const base = limitedWeaponBase(sp.key);
     if (base) { this.limitedKey = sp.key; this.weaponLevels = this.weaponLevels || {}; const lv = this.weaponLevels[base.key] || 1; this.weaponLevels[base.key] = lv; this.weapon = applyWeaponLevel(base, lv); this.reloading = false; this.reloadTimer = 0; this.resetAmmoForWeapon(this.weapon); this.updateHud(); } // それまでの武器のレベルは引き継がない（限定武器は、その武器自身のレベル。最初はLv.1）
   }
@@ -14575,7 +14682,7 @@ class GameScene extends Phaser.Scene {
         if (r.cd <= 0) { // 射程に入っている、いちばん近い敵を刺す（同じ敵は1本まで）
           let best = null, bd = Infinity;
           for (const e of this.enemies) {
-            if (!e.gfx || !e.type || e.hp <= 0 || e._removed || e._pvp || e._wingBy || (e._wingRemote && (!this.net || e._wingRemote !== this.net.uid)) || this._endingRun || this._rootsOff) continue; // エンディング演出中は、翼は敵を刺さない／エンディングの続きで雪原へ行ったあとも、根は自動で敵を掴まない（_rootsOff）
+            if (this.pvp || !e.gfx || !e.type || e.hp <= 0 || e._removed || e._pvp || e._wingBy || (e._wingRemote && (!this.net || e._wingRemote !== this.net.uid)) || this._endingRun || this._rootsOff) continue; // エンディング演出中は、翼は敵を刺さない／エンディングの続きで雪原へ行ったあとも、根は自動で敵を掴まない（_rootsOff）
             const d = Math.hypot(e.gfx.x - px, e.gfx.y - py);
             if ((!unl && d > reach + e.type.radius) || d >= bd) continue;
             if (!unl && tier < 1 && !this.meleeCanReach(e.gfx.x, e.gfx.y, e.type.radius)) continue; // 壁の向こうには届かない（エンディングの続きだけは、壁越しでも掴む）
@@ -26027,9 +26134,9 @@ class GameScene extends Phaser.Scene {
   }
   _specialAccUpdate(dt) {
     this._spT = (this._spT || 0) - dt;
-    if (this._spT <= 0) { this._spT = 0.5; const wasUndead = this._spUndead; this._spUndead = this.hasSpecial('undeadcrest'); this._spNeck = this.hasSpecial('goldsilvernecklace'); this._spWings = !this.mp && (this.hasSpecial('demoncollar') || !!this._rootReviveOn); /* 通信プレイ（協力・PvPなど）では悪魔の翼は使えない */ /* 🌹 エンディングの最後：根が復活している間は消さない */ if (wasUndead !== this._spUndead) this.updateHud(); }
+    if (this._spT <= 0) { this._spT = 0.5; const wasUndead = this._spUndead; this._spUndead = this.hasSpecial('undeadcrest'); this._spNeck = this.hasSpecial('goldsilvernecklace'); this._spWings = (this.hasSpecial('demoncollar') || !!this._rootReviveOn); /* 通信プレイ（協力・PvP）でも悪魔の翼は出る。PvPでは見た目だけ（下の、敵を刺す処理で止めている） */ /* 🌹 エンディングの最後：根が復活している間は消さない */ if (wasUndead !== this._spUndead) this.updateHud(); }
     if (this.isGhost || this.isDowned || !(this.playerHp > 0)) { this._crestQ = null; this._crestLast = null; return; } // 倒れた時は回復しない（復活したら、その時のHPから数え直す）
-    if (!this._spUndead) { this._crestQ = null; this._crestLast = null; }
+    if (!this._spUndead || this.pvp) { this._crestQ = null; this._crestLast = null; } // 🔧 PvPでは回復しない（見た目だけ）
     else { // ♾️ 不死の紋章：ダメージを受けるたびに、そのぶんを0.2秒後に回復する（連続で受けても、1回ごとに0.2秒で戻る。待たされない）
       this._crestQ = this._crestQ || [];
       if (this._crestLast != null && this.playerHp < this._crestLast) this._crestQ.push({ amt: this._crestLast - this.playerHp, t: ACC_UNDEAD.delay });
@@ -26045,7 +26152,7 @@ class GameScene extends Phaser.Scene {
     }
     // 📿 金銀のネックレス：階層を移動した時に（暗転が明けた最初のフレームで）、周りに回復と宝箱を円形に出す。階の記録は、付けていない間も取り続ける（付けた瞬間に出ないように）
     const _nf = this.floor, _moved = (this._neckFloor != null && _nf !== this._neckFloor) || (this._neckFloor == null && _nf === 1); this._neckFloor = _nf; // 1階（挑戦の最初）からも発動する
-    if (this._spNeck && _moved && this.player && this.player.scene) {
+    if (this._spNeck && !this.pvp && _moved && this.player && this.player.scene) { // 🔧 PvPでは出さない（見た目だけ）
       {
         const kinds = ['potion', 'chest']; // 回復と宝箱は最低1つずつ、残りは半々
         while (kinds.length < ACC_GOLDSILVER.count) kinds.push(Math.random() < 0.5 ? 'potion' : 'chest');
@@ -31290,7 +31397,7 @@ const VOICE = {
 
 // 立体音響（イヤホン向け）：ボイスバーの「3D」ボタンでオン/オフ。選んだ状態は覚えておく（初期はオン。以前のチェックボックスの設定は引き継がず、保存キーも新しくした）
 let spatialAudioOn = true;
-try { spatialAudioOn = localStorage.getItem('spatialAudioBtn') !== '0'; } catch (x) {}
+try { const sv = localStorage.getItem('spatialAudioBtn'); spatialAudioOn = sv === null ? !IS_LOW_SPEC : sv !== '0'; } catch (x) {} // 🔧 低スペック端末は、初期状態を「立体音響オフ」にする（ボタンでオンにできる）
 { const sb = document.getElementById('voiceSpatialBtn'); if (sb) { const paintSp = () => { sb.classList.toggle('on', spatialAudioOn); sb.setAttribute('aria-pressed', spatialAudioOn ? 'true' : 'false'); }; paintSp(); sb.onclick = () => { spatialAudioOn = !spatialAudioOn; try { localStorage.setItem('spatialAudioBtn', spatialAudioOn ? '1' : '0'); } catch (x) {} paintSp(); sb.blur(); }; } }
 
 class VoiceChat {
@@ -31311,15 +31418,19 @@ class VoiceChat {
 
   start() {
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (AC) { this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = this.deaf ? 0 : 1; this.master.connect(this.ctx.destination); try { const o = this.ctx.createOscillator(), tg = this.ctx.createGain(); o.type = 'sine'; o.frequency.value = VOICE.tinnitusHz; tg.gain.value = 0; o.connect(tg); tg.connect(this.master); o.start(); this.tinGain = tg; } catch (err) { this.tinGain = null; } try { this._makeReverb(); } catch (err) { this.revTaps = null; } try { this._makeEcho(); } catch (err) { this.echoIn = null; } }
+    if (AC) { this.ctx = IS_LOW_SPEC ? new AC({ latencyHint: 'playback' }) : new AC(); this.master = this.ctx.createGain(); this.master.gain.value = this.deaf ? 0 : 1; this.master.connect(this.ctx.destination); try { const o = this.ctx.createOscillator(), tg = this.ctx.createGain(); o.type = 'sine'; o.frequency.value = VOICE.tinnitusHz; tg.gain.value = 0; o.connect(tg); tg.connect(this.master); o.start(); this.tinGain = tg; } catch (err) { this.tinGain = null; } try { this._makeReverb(); } catch (err) { this.revTaps = null; } try { this._makeEcho(); } catch (err) { this.echoIn = null; } }
     // ブラウザは、操作する前の音を止めるので、最初の操作で音を出せる状態にする
     this._resume = () => { if (this.ctx && this.ctx.state !== 'running') this.ctx.resume().catch(() => {}); };
     ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, this._resume, true));
+    // 🔧 画面ロック・アプリ切り替え・着信などで止まった音声を、操作を待たずに自動で再開する
+    this._onVis = () => { if (document.visibilityState === 'visible') this._resume(); };
+    document.addEventListener('visibilitychange', this._onVis);
+    if (this.ctx) this.ctx.onstatechange = () => { if (!this.stopped && this.ctx && this.ctx.state !== 'running') setTimeout(() => { if (!this.stopped) this._resume(); }, 300); };
     this.micBtn.onclick = () => { this._resume(); this.toggleMic(); this.micBtn.blur(); };
     this.deafBtn.onclick = () => { this._resume(); this.toggleDeaf(); this.deafBtn.blur(); };
     this._paintButtons();
     this.bar.classList.add('show');
-    this.timer = setInterval(() => this.tick(), VOICE.tick);
+    this.timer = setInterval(() => this.tick(), IS_LOW_SPEC ? Math.max(VOICE.tick, 200) : VOICE.tick);
   }
 
   stop() {
@@ -31327,6 +31438,8 @@ class VoiceChat {
     this.stopped = true;
     clearInterval(this.timer);
     ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.removeEventListener(ev, this._resume, true));
+    if (this._onVis) document.removeEventListener('visibilitychange', this._onVis);
+    if (this.ctx) this.ctx.onstatechange = null;
     for (const uid of Array.from(this.peers.keys())) this._close(uid, true);
     this._micStop();
     this.bar.classList.remove('show');
@@ -31484,6 +31597,7 @@ class VoiceChat {
       }
       this.micTrack = this.micStream.getAudioTracks()[0];
       this.micOn = true;
+      this._watchMic(this.micTrack);
       this.peers.forEach(e => { if (e.sender) e.sender.replaceTrack(this.micTrack).catch(() => {}); });
     } catch (err) {
       this.micOn = false; this._audioBack();
@@ -31552,6 +31666,32 @@ class VoiceChat {
       back.appendChild(box); document.body.appendChild(back);
     });
   }
+  // 🔧 マイクが途中で切れた（Bluetoothの切り替え、他アプリがマイクを使った等）時は、自動で取り直して相手への送信に差し替える
+  _watchMic(track) {
+    if (!track || !track.addEventListener) return;
+    track.addEventListener('ended', () => { if (!this.stopped && this.micOn && this.micTrack === track) this._micRecover(); });
+  }
+  async _micRecover() {
+    if (this._micRecovering) return;
+    this._micRecovering = true;
+    try {
+      for (let i = 0; i < 4 && !this.stopped && this.micOn; i++) {
+        try {
+          if (this.micStream) this.micStream.getTracks().forEach(t => { try { t.stop(); } catch (x) {} });
+          const st = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+          if (this.stopped || !this.micOn) { st.getTracks().forEach(t => { try { t.stop(); } catch (x) {} }); return; }
+          this.micStream = st; this.micTrack = st.getAudioTracks()[0];
+          this.peers.forEach(e => { if (e.sender) e.sender.replaceTrack(this.micTrack).catch(() => {}); });
+          this._watchMic(this.micTrack);
+          return;
+        } catch (err) { await new Promise(r => setTimeout(r, 2000)); }
+      }
+      if (!this.stopped && this.micOn) {
+        this._micStop(); this._paintButtons();
+        if (this.scene && this.scene.showBanner) this.scene.showBanner('⚠ マイクが切れました。もう一度マイクをONにしてください', 3500, '#ffb0b0');
+      }
+    } finally { this._micRecovering = false; }
+  }
   _micStop() {
     this.micOn = false;
     this.peers.forEach(e => { if (e.sender) e.sender.replaceTrack(null).catch(() => {}); });
@@ -31571,6 +31711,7 @@ class VoiceChat {
     if (this.stopped) return;
     const net = this.net, sc = this.scene;
     if (!net.roomId || net._leftRoom || net.roomId !== this.roomId) { this.stop(); return; }
+    { const t0 = Date.now(); if (t0 - (this._wdAt || 0) > 1000) { this._wdAt = t0; this._watchdog(); } }
     if (this.tinGain && this.ctx) this.tinGain.gain.setTargetAtTime((sc && sc.isDowned) ? VOICE.tinnitusVolume : 0, this.ctx.currentTime, 0.4); // 🔔 ダウン中：耳鳴りがじわっと鳴り、起き上がると消える
     const players = (sc && sc.latestPlayers) || {};
     const now = Date.now();
@@ -31673,7 +31814,7 @@ class VoiceChat {
       if (heaven) { v = VOICE.heavenVolume; cut = VOICE.nearCutoff; pv = 0; bass = VOICE.heavenBassDb; ux = 0; uy = 0; uz = 0; hd = 0; }
       if (sc.isDowned) { cut = Math.min(cut, VOICE.downCutoff); v *= VOICE.downVolume; } // ダウン中：周りの声が水の中のようにくぐもって、少し小さく聞こえる
       if (e.lp) e.lp.frequency.setTargetAtTime(cut, ct, 0.08);
-      if (e.wg) { e.wg.gain.setTargetAtTime(wt, ct, 0.12); e.dg.gain.setTargetAtTime(1 - wt, ct, 0.12); } // 🫧 水の外の声⇄ブクブクの声
+      if (e.wg) { e.wg.gain.setTargetAtTime(wt, ct, 0.12); e.dg.gain.setTargetAtTime(1 - wt, ct, 0.12); if (e.bhp) { const wantW = wt > 0.001 || e.wg.gain.value > 0.01; if (e.wOn !== wantW) { e.wOn = wantW; try { if (wantW) e.shelf.connect(e.bhp); else e.shelf.disconnect(e.bhp); } catch (x) {} } } } // 🫧 水の外の声⇄ブクブクの声
       if (e.shelf) e.shelf.gain.setTargetAtTime(bass, ct, 0.1);
       e.gain.gain.setTargetAtTime(v * VOICE.maxVolume, ct, 0.08);
       if (e.pan) e.pan.pan.setTargetAtTime(pv, ct, 0.08);
@@ -31693,11 +31834,27 @@ class VoiceChat {
   }
 
   // ----- 接続（全員と1本ずつ。uidが小さい方がofferを出す） -----
+  // 🔧 1秒ごとの見張り：止まった音声の再開と、止まった受信用の音声要素の再生
+  _watchdog() {
+    if (this.ctx && this.ctx.state !== 'running') this._resume();
+    this.peers.forEach(e => { try { if (e.audioEl && e.audioEl.srcObject && e.audioEl.paused) e.audioEl.play().catch(() => {}); } catch (x) {} });
+  }
+  // 🔧 繋ぎ直し：offerを出す側は、すぐ新しいofferを出す。答える側は、ふだんどおり黙って閉じて、相手の新しいofferを待つ（古いofferには答えない）
+  _reconnect(uid) {
+    const e = this.peers.get(uid);
+    if (this.stopped || !e) return;
+    const iAmOfferer = this.myUid < uid;
+    if (!iAmOfferer) { this._deadGen = this._deadGen || {}; this._deadGen[uid] = e.gen; }
+    this._close(uid, !iAmOfferer);
+    this.lastTry[uid] = 0;
+  }
   _base(uid) {
     const off = this.myUid < uid ? this.myUid : uid, ans = this.myUid < uid ? uid : this.myUid;
     return this.db.ref(`rooms/${this.roomId}/rtc/v_${off}_${ans}`);
   }
   _makePc(e, asAnswerer) {
+    if (e._dcTimer) { clearTimeout(e._dcTimer); e._dcTimer = null; }
+    if (e._cnTimer) { clearTimeout(e._cnTimer); e._cnTimer = null; }
     if (e.pc) { try { e.pc.close(); } catch (x) {} }
     if (e.gain) { try { e.gain.disconnect(); } catch (x) {} e.gain = null; }
     if (e.lp) { try { e.lp.disconnect(); } catch (x) {} e.lp = null; }
@@ -31717,9 +31874,16 @@ class VoiceChat {
       if (this.micTrack) e.sender.replaceTrack(this.micTrack).catch(() => {});
     }
     pc.ontrack = (ev) => this._attach(e, ev.streams[0] || new MediaStream([ev.track]));
+    // 🔧 15秒たってもつながらない時は、作り直す
+    e._cnTimer = setTimeout(() => { e._cnTimer = null; if (!this.stopped && e.pc === pc && pc.connectionState !== 'connected') this._reconnect(e.uid); }, 15000);
     pc.onconnectionstatechange = () => {
       if (e.pc !== pc) return;
-      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') this._close(e.uid);
+      const st = pc.connectionState;
+      if (st === 'connected') { if (e._dcTimer) { clearTimeout(e._dcTimer); e._dcTimer = null; } if (e._cnTimer) { clearTimeout(e._cnTimer); e._cnTimer = null; } return; }
+      if (st === 'closed') { this._close(e.uid); return; }
+      if (st === 'failed') { this._reconnect(e.uid); return; }
+      // 🔧 一時的な切断（disconnected）：4秒待って戻らなければ繋ぎ直す（以前は何もせず、failedになるまで無音のままだった）
+      if (st === 'disconnected' && !e._dcTimer) e._dcTimer = setTimeout(() => { e._dcTimer = null; if (!this.stopped && e.pc === pc && pc.connectionState !== 'connected') this._reconnect(e.uid); }, 4000);
     };
     return pc;
   }
@@ -31763,12 +31927,12 @@ class VoiceChat {
       const blp = this.ctx.createBiquadFilter(); blp.type = 'lowpass'; blp.frequency.value = 700; blp.Q.value = 5;
       const ba = this.ctx.createGain(); ba.gain.value = 0.6; const wg = this.ctx.createGain(); wg.gain.value = 0;
       const bl = this._bubLfo(); bl.f.connect(blp.frequency); bl.a.connect(ba.gain);
-      shelf.connect(bhp); bhp.connect(blp); blp.connect(ba); ba.connect(wg); wg.connect(g);
+      bhp.connect(blp); /* 🔧 shelf→bhp は、相手が水の中にいる間だけ tick でつなぐ（普段は処理しない） */ blp.connect(ba); ba.connect(wg); wg.connect(g);
       if (pan) { g.connect(pan); pan.connect(this.master); } else g.connect(this.master);
       let sends = null; // 響き（短い・中くらい・長い）へ送る量（距離と場所で変わる）。左右の振り分けの前から送るので、響きは方向を持たず広がる（声は方向がはっきり、響きはぼんやり）
       if (this.revTaps) sends = this.revTaps.map((tap) => { const sg = this.ctx.createGain(); sg.gain.value = 0; lp.connect(sg); sg.connect(tap); return sg; });
       let es = null; if (this.echoIn) { es = this.ctx.createGain(); es.gain.value = 0; lp.connect(es); es.connect(this.echoIn); } // 🗣 天の声のエコーへ送る量（普段は0）
-      e.dg = dg; e.wg = wg; e.src = src; e.lp = lp; e.shelf = shelf; e.gain = g; e.pan = pan; e.sends = sends; e.es = es; e.pn = null; this._applySpatial(e);
+      e.dg = dg; e.wg = wg; e.bhp = bhp; e.wOn = false; e.src = src; e.lp = lp; e.shelf = shelf; e.gain = g; e.pan = pan; e.sends = sends; e.es = es; e.pn = null; this._applySpatial(e);
     } catch (err) {}
   }
   _addCand(pc, pending, c) {
@@ -31779,7 +31943,7 @@ class VoiceChat {
   _flush(pc, pending) { while (pending.length) pc.addIceCandidate(new RTCIceCandidate(pending.shift())).catch(() => {}); }
 
   async _connect(uid) {
-    const e = { uid, pc: null, sender: null, gain: null, src: null, audioEl: null, refs: [], gen: null };
+    const e = { uid, pc: null, sender: null, gain: null, src: null, audioEl: null, refs: [], gen: (this._deadGen && this._deadGen[uid]) || null };
     this.peers.set(uid, e);
     const base = this._base(uid);
     const iAmOfferer = this.myUid < uid;
@@ -31841,6 +32005,8 @@ class VoiceChat {
     const e = this.peers.get(uid);
     if (!e) return;
     this.peers.delete(uid);
+    if (e._dcTimer) { clearTimeout(e._dcTimer); e._dcTimer = null; }
+    if (e._cnTimer) { clearTimeout(e._cnTimer); e._cnTimer = null; }
     e.refs.forEach(f => { try { f(); } catch (x) {} });
     (e.candRefs || []).forEach(f => { try { f(); } catch (x) {} });
     try { if (e.pc) e.pc.close(); } catch (x) {}
