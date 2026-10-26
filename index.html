@@ -1560,7 +1560,7 @@ function openGrassland(onClose, opt) {
     c.position.set(Math.sin(az) * Math.cos(el) * 165, Math.sin(el) * 165, -Math.cos(az) * Math.cos(el) * 165); c.lookAt(0, 0, 0); clouds.add(c);
   }
 
-  // ----- 🐋 空を泳ぐ巨大クジラ（交流ルームの草原だけ）。今は見た目だけ：スポーン地点(0,0)の真上で静止している。形はすべてコードで作り（モデルの読み込みなし）、全員が同じ場所に同じものを見る -----
+  // ----- 🐋 空を泳ぐ巨大クジラ（交流ルームの草原だけ）。スポーン地点の真上を通る大きな輪を、ゆっくり飛びながら泳ぐ（位置・姿勢・泳ぎ・口の開きは「時刻」だけで決まる）。形はすべてコードで作り（モデルの読み込みなし）、全員が同じ場所に同じものを見る -----
   const whale = TALL ? (() => {
     const L = 110, R = 10, WY0 = 95, g = new THREE.Group(); // L＝全長(m)、R＝いちばん太いところの半径(m)、WY0＝高さ(m)
     const rAt = t => R * Math.sin(Math.PI * Math.pow(t, 0.75)); // 鼻先(t=0)から尾(t=1)までの太さ：頭はまるく、尾にかけて細くなる
@@ -3878,7 +3878,7 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   purpleSpeedRate: 0.5,    // 通常の敵の斬撃（enemySlashSpeed）に対する速さの倍率（0.5＝半分）
   purpleColor: 0xb040ff,   // 紫の斬撃の色（分裂してできる通常斬撃も同じ色）
   purpleAngle: 0.8,        // 撃つ時に、自分の方向から上か下へそれる角度（ラジアン）。そこから自分の方へ曲がる
-  purpleTurn: 3.8,         // 自分の方へ曲がる速さ（ラジアン/秒。速さが半分なので、回り込み flankTurn の半分で同じ曲がり方になる）
+  purpleTurn: 5.7,         // 自分の方へ曲がる速さ（ラジアン/秒。大きいほど、よく曲がって追ってくる。以前は 3.8）
   purpleCommitDist: 130,   // 紫の太い斬撃が、自分にこの距離（px）まで近づき、向きがほぼ合ったら、追尾をやめて直進する（通常は enemyCommitDist＝260）
   purpleLife: 2.2,         // 消えるまでの秒数（速さが半分なので、enemySlashLife の2倍で同じ距離を飛ぶ）
   purpleHomeTime: 2.2,     // 自分を追う秒数（purpleLife と同じなら、消えるまでずっと追う）
