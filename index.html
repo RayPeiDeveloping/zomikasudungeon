@@ -3897,7 +3897,7 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   // --- 斬撃が地面に残す跡（自分の斬撃も敵の斬撃も、通った道すじに斬られたような傷が残り、だんだん薄れて消える） ---
   scarLife: 5.0,           // 跡が残る秒数（最後の scarFade 秒でだんだん薄くなる）
   scarFade: 2.0,           // 消えていく秒数
-  scarWidth: 3.6,          // 跡の太さ（px。そのまま描かれる太さ。斬撃が出た所が最も太く、だんだん細くなる）
+  scarWidth: 3.6,          // 斬撃・跡の太さ（px。そのまま描かれる太さ。細くならない。斬撃ごとの倍率は wMul）
   scarMax: 2600,           // 跡の線分の最大数（これを超えたら古い順に消す）
   scarStep: 5,             // 何px進むごとに跡の線分を1つ足すか（小さいほどなめらかだが重くなる）
   // --- スローモーション（敵の斬撃が自分に近づくと、全体がゆっくりになる） ---
@@ -8184,10 +8184,10 @@ class GameScene extends Phaser.Scene {
     if (rm) cam.centerOn((rm.x + rm.w / 2) * TILE, (rm.y + rm.h / 2) * TILE); // カメラは部屋の真ん中に固定（倍率はそのまま。画面の縦は常に12.5マス分が見える）
     else cam.centerOn((a.x + b.x) / 2, (a.y + b.y) / 2);
   }
-  // ⚔ 斬撃の見た目の太さ（px）：地面の跡の太さと同じ計算。斬撃が出た所が最も太く、寿命が進むほど細くなる。敵の斬撃がプレイヤーに当たる判定は、この太さの半分を半径にする（見た目のまま）
+  // ⚔ 斬撃の見た目の太さ（px）：地面の跡の太さと同じ計算。寿命が進んでも細くならない（ずっと同じ太さ）。敵の斬撃がプレイヤーに当たる判定は、この太さの半分を半径にする（見た目のまま）
   _vhSlashW(s) {
     const V = VS_HERO;
-    return Math.max(0.9, V.scarWidth * (s.wMul || 1) * (1 - 0.65 * Math.min(1, s.age / (s.life || (s.owner === 'e' ? V.enemySlashLife : V.slashLife)))));
+    return V.scarWidth * (s.wMul || 1);
   }
   // ⚔ いま見えている範囲：カメラの worldView は最初の描画が終わるまで正しい値にならず、最初の入場だけ位置が別の場所に寄せられていたため、部屋の真ん中に固定したカメラから、自分で計算する
   _vhView() {
@@ -8514,11 +8514,14 @@ class GameScene extends Phaser.Scene {
     if (sg && sg.scene) {
       sg.clear();
       const SC = this._vhScars, life = V.scarLife, fade = Math.max(0.01, V.scarFade);
-      for (let i = SC.length - 1; i >= 0; i--) {
+      for (let i = SC.length - 1; i >= 0; i--) { // ①黒い傷を、先に全部描く
         const c = SC[i]; c.t += dt;
         if (c.t >= life) { SC.splice(i, 1); continue; }
-        const al = Math.min(1, (life - c.t) / fade), glow = Math.max(0, 1 - c.t / 0.9); // 光は、出てすぐだけ強い
+        const al = Math.min(1, (life - c.t) / fade);
         sg.lineStyle(c.w, 0x000000, 0.6 * al); sg.lineBetween(c.x1, c.y1, c.x2, c.y2); // 黒い傷：同じ太さの1本線（縁なし）。scarLife のあいだ残る
+      }
+      for (let i = SC.length - 1; i >= 0; i--) { // ②斬撃の色の線を、そのあとで全部描く（どの跡よりも上になる）
+        const c = SC[i], al = Math.min(1, (life - c.t) / fade), glow = Math.max(0, 1 - c.t / 0.9); // 光は、出てすぐだけ強い
         if (glow > 0) { sg.lineStyle(c.w, c.col, 0.85 * glow * al); sg.lineBetween(c.x1, c.y1, c.x2, c.y2); } // 斬撃の色：同じ太さで黒の上に重ね、出てすぐ薄れて、黒だけが残る
       }
       if (SC.length > V.scarMax) SC.splice(0, SC.length - V.scarMax);
