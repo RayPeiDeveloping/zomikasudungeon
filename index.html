@@ -3858,14 +3858,16 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   p2IntervalMax: 0.9,      // 同、最長
   p2TestMode: (() => { try { return new URLSearchParams(location.search).has('vsp2') || /vsp2/.test(location.hash); } catch (err) { return false; } })(), // 🧪 テスト用：リンクの最後に ?vsp2（すでに ? がある時は &vsp2）をつけると、敵が自分の斬撃を1発受けた時点で、第2形態へ移行する
   p2BarColor: 0xff2020,    // 第2形態：敵の「向きを示す棒」の色（赤。通常は白）
-  p2SlashColor: 0xff2020,  // 第2形態のオーラ・演出・予告線の色（赤。斬撃の色は変えない）
+  p2SlashColor: 0xff2020,  // 第2形態のオーラ・演出の色（赤。斬撃の色は変えない）
   // --- 第2形態の攻撃①：扇状（自分の方へ真っ直ぐ＋左右に fanAngleDeg 度の計3本を、同時に直進で撃つ。その場に止まって構える） ---
   fanTelegraph: 0.7,       // 構えの秒数（扇状の予告線が出る）
+  fanTurn: 5.0,            // 扇状の斬撃が、自分の方へ曲がる速さ（ラジアン/秒。通常は enemySlashTurn＝2.0、回り込みは flankTurn＝7.6）
   fanAngleDeg: 70,         // 左右の斬撃が、真ん中からそれる角度（度）
   // --- 第2形態の攻撃②：連射（その場に止まって、上下交互に、高速で連続して撃つ） ---
   rapidTelegraph: 0.4,     // 構えの秒数
   rapidCount: 10,          // 撃つ合計数
   rapidInterval: 0.07,     // 1発ごとの間隔（秒）
+  rapidTurn: 5.0,          // 連射の斬撃が、自分の方へ曲がる速さ（ラジアン/秒。通常は enemySlashTurn＝2.0、回り込みは flankTurn＝7.6）
   rapidSpread: 0.3,        // 自分の方向から、上へ／下へ交互にずらす角度（ラジアン）
   // --- 斬撃が地面に残す跡（自分の斬撃も敵の斬撃も、通った道すじに斬られたような傷が残り、だんだん薄れて消える） ---
   scarLife: 5.0,           // 跡が残る秒数（最後の scarFade 秒でだんだん薄くなる）
@@ -8138,7 +8140,7 @@ class GameScene extends Phaser.Scene {
     const face = Math.atan2(this.player.y - e.gfx.y, this.player.x - e.gfx.x);
     ACC_FX.serialkiller(g, { face, gt: g }, e.gfx.x, e.gfx.y, t, dt, e.gfx.alpha);
     const en = this._vhEn, tt = this.time.now / 1000;
-    if (en && en.p2 && e.hp > 0) { // 💀 第2形態：紫のオーラがゆらめく
+    if (en && en.p2 && e.hp > 0) { // 💀 第2形態：赤いオーラがゆらめく
       g.lineStyle(2, V.p2SlashColor, 0.4 + 0.2 * Math.sin(tt * 6)); g.strokeCircle(e.gfx.x, e.gfx.y, e.type.radius + 9 + 3 * Math.sin(tt * 5));
       g.lineStyle(1, 0xffffff, 0.25); g.strokeCircle(e.gfx.x, e.gfx.y, e.type.radius + 15 + 4 * Math.sin(tt * 4 + 1));
       if (en.trans > 0) { // 形態移行：まわりから光の輪が、敵へ吸い込まれていく
@@ -8146,12 +8148,6 @@ class GameScene extends Phaser.Scene {
         for (let k = 0; k < 4; k++) { const f = (pr * 3 + k / 4) % 1; g.lineStyle(3, k % 2 ? 0xffffff : V.p2SlashColor, 0.85 * (1 - f)); g.strokeCircle(e.gfx.x, e.gfx.y, 20 + (1 - f) * 170); }
         g.fillStyle(V.p2SlashColor, 0.25 * pr); g.fillCircle(e.gfx.x, e.gfx.y, e.type.radius + 10 + 30 * pr);
       }
-    }
-    if (en && en.tele > 0 && en.atk && e.hp > 0) { // 新しい攻撃の予告線（構えが進むほど濃くなる）
-      const al = 0.2 + 0.6 * (1 - en.tele / (en.teleMax || 1)), ln = (a, len) => { g.beginPath(); g.moveTo(e.gfx.x, e.gfx.y); g.lineTo(e.gfx.x + Math.cos(a) * len, e.gfx.y + Math.sin(a) * len); g.strokePath(); };
-      g.lineStyle(2, V.p2SlashColor, al);
-      if (en.atk === 'fan') { const sp = V.fanAngleDeg * Math.PI / 180; ln(en.ang, 520); ln(en.ang + sp, 520); ln(en.ang - sp, 520); }
-      else { ln(en.ang + V.rapidSpread, 420); ln(en.ang - V.rapidSpread, 420); }
     }
   }
   // ⚔ カメラ：自分と敵の真ん中に固定して、自分を追わない（毎フレーム呼んで、ほかの処理で追従が戻っても固定し直す）
@@ -8318,7 +8314,7 @@ class GameScene extends Phaser.Scene {
       } else if (en.rap) { // 連射：その場に止まって、上下交互に高速で撃つ
         en.rap.t -= dt;
         if (en.rap.t <= 0) {
-          fire(Math.atan2(this.player.y - e.gfx.y, this.player.x - e.gfx.x) + en.rap.side * V.rapidSpread);
+          fire(Math.atan2(this.player.y - e.gfx.y, this.player.x - e.gfx.x) + en.rap.side * V.rapidSpread, V.rapidTurn, V.flankHomeTime);
           en.rap.side = -en.rap.side; en.rap.n--; en.rap.t += V.rapidInterval;
           if (en.rap.n <= 0) { en.rap = null; en.hold = false; en.cd = V.p2IntervalMin + Math.random() * (V.p2IntervalMax - V.p2IntervalMin); }
         }
@@ -8329,7 +8325,7 @@ class GameScene extends Phaser.Scene {
         if (en.tele <= 0) {
           if (en.atk === 'fan') { // 扇状：真っ直ぐ＋左右に fanAngleDeg 度、3本を同時に撃つ（通常の斬撃と同じく追従する）
             const sp = V.fanAngleDeg * Math.PI / 180;
-            fire(en.ang); fire(en.ang + sp); fire(en.ang - sp);
+            fire(en.ang, V.fanTurn, V.flankHomeTime); fire(en.ang + sp, V.fanTurn, V.flankHomeTime); fire(en.ang - sp, V.fanTurn, V.flankHomeTime);
             en.atk = null; en.hold = false; en.cd = V.p2IntervalMin + Math.random() * (V.p2IntervalMax - V.p2IntervalMin);
           } else if (en.atk === 'rapid') { // 連射を始める（1発目はすぐ）
             en.rap = { n: V.rapidCount, t: 0, side: Math.random() < 0.5 ? 1 : -1 }; en.atk = null;
