@@ -8121,7 +8121,7 @@ class GameScene extends Phaser.Scene {
   //   ★まだ動かない・攻撃しない（動きは今後ここに足す）。HPバーとボス名だけ出る。
   spawnVsHero() {
     const sl = ENEMY_TYPES.find(t => t.key === 'slime');
-    const type = this._vsHeroType || (this._vsHeroType = Object.assign({}, sl, { key: 'vshero', isBoss: true, bossLabel: '', displayName: '主人公', color: 0x5bd1ff, radius: TILE * 0.32, hp: 1000, speed: 0, damage: 0, noContactDamage: true, aggroRange: 0 }));
+    const type = this._vsHeroType || (this._vsHeroType = Object.assign({}, sl, { key: 'vshero', isBoss: true, bossLabel: '', displayName: '主人公', color: 0x5bd1ff, radius: TILE * 0.32, hp: 1500, speed: 0, damage: 0, noContactDamage: true, aggroRange: 0 })); // hp＝主人公の最大HP（1000の3/2倍＝1500）
     const room = this.dungeon.rooms[0];
     const bx = (room.x + room.w / 2 + VS_HERO.duelTiles / 2) * TILE, by = (room.y + Math.floor(room.h / 2) + 0.5) * TILE; // 部屋の真ん中の高さ。横は、真ん中から右へ duelTiles の半分（自分は左へ半分）
     const gfx = this.add.circle(bx, by, type.radius, type.color).setDepth(4);
