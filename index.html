@@ -1489,12 +1489,12 @@ function zoneStubOf(p) {
   if (q.gl) q.gl = { d: q.gl.d, sd: q.gl.sd };
   return q;
 }
-// 🕳 ダンジョン（草原とは別の関数）：暗い迷路・追ってくる化物・心拍音・捕まった時の演出。草原（openGrassland）が createDungeon(env) で作って使う。
-//  ・草原から受け取るもの（env）： P（自分の位置と向き）・blk（暗転）・camera・hint・root・renderer・opt・glNet・glSc・exit・setMode・glClearRemotes・isClosed・disposeGrass
-//  ・草原へ返すもの： warp（入る）・frame（毎フレーム）・stopHeart（心拍音を止める）・scene/seed/mons/isHost/wallTiles/voicePath（通信・ボイスで使う読み取り専用の値）
-//  ・「今どちらにいるか」の旗 inDungeon と、草原の画面（HUD）の出し入れは、草原側の setMode / applyModeUi が持つ。ここから草原の画面や中身を直接触らない
+// 🕳 ダンジョン本体（草原とは別の関数）：暗い迷路・追ってくる化物・心拍音・捕まった時の演出。ダンジョンの画面（openDungeon）が createDungeon(env) で作って使う。草原（openGrassland）は使わない。
+//  ・openDungeon から受け取るもの（env）： P（自分の位置と向き）・blk（暗転）・camera・hint・root・renderer・opt・glNet・glSc・exit・glClearRemotes・isClosed
+//  ・openDungeon へ返すもの： warp（入る）・frame（毎フレーム）・stopHeart（心拍音を止める）・scene/seed/mons/isHost/wallTiles/voicePath（通信・ボイスで使う読み取り専用の値）
+//  ・画面（canvas・操作・「もどる」ボタン）と、仲間の姿の同期は openDungeon が持つ。ここからは直接触らない
 const createDungeon = (env) => {
-  const { P, blk, camera, hint, root, renderer, opt, glNet, glSc, disposeGrass, isClosed, exit, setMode, glClearRemotes } = env;
+  const { P, blk, camera, hint, root, renderer, opt, glNet, glSc, isClosed, exit, glClearRemotes } = env;
   const DG = { N: 21, TS: 3, H: 3.2, MONSTERS: 5, WALK: 1.8, CHASE: 3.4, SIGHT: 11, CATCH: 1.0, SPAWN_MIN: 9 }; // N＝迷路の大きさ(マス・奇数)／TS＝1マスの大きさ(m)／H＝天井の高さ／MONSTERS＝化物の数／WALK＝徘徊の速さ／CHASE＝追ってくる速さ(自分の歩き4.2より遅いので、走れば逃げられる)／SIGHT＝見つけられる距離(m)／CATCH＝捕まる距離(m)／SPAWN_MIN＝スタートからこのマス数以上はなれた所に化物が出る
   let dStart = [1, 1], dIsHost = false, dSeed = 0, dScene = null, dMaze = null, dMons = [], dExitPos = null, dLight = null, dDead = false, dCatch = null, dFlash = null, hbAc = null, hbGain = null, hbT = 0;
   const dSolid = (i, j) => i < 0 || j < 0 || i >= DG.N || j >= DG.N || dMaze[i][j] === 1;
@@ -1603,15 +1603,14 @@ const createDungeon = (env) => {
     { const pl = (opt.scene && opt.scene.latestPlayers) || {}, me = opt.net && opt.net.uid, ids = Object.keys(pl).filter(u => u !== me && pl[u] && pl[u].gl && pl[u].gl.d && pl[u].gl.sd).sort();
       if (ids.length) { const g = pl[ids[0]].gl; dSeed = g.sd; } } // 合流する時も、同じ迷路（同じ番号）に入るだけで、始まる場所はランダム
     buildDungeon(dSeed, si, sj); si = dStart[0]; sj = dStart[1]; if (dSolid(si, sj)) { si = 1; sj = 1; spawnYaw = null; }
-    startHeart(); setMode('dungeon'); // 草原の草・木・空はもう描かないので、先に片づける（グラフィックのメモリをあける）
-    disposeGrass(); // 🌿 草原の絵・メモリの片づけは、草原側の関数に任せる（ダンジョンは草原の中身を知らない）
+    startHeart();
     dDead = false; dCatch = null; if (dFlash) dFlash.style.opacity = '0'; camera.fov = 70; camera.updateProjectionMatrix();
     P.x = si * DG.TS; P.z = sj * DG.TS; P.pitch = 0; P.yaw = spawnYaw != null ? spawnYaw : (() => { const od = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(d => !dSolid(si + d[0], sj + d[1])); const d = od.length ? od[Math.floor(Math.random() * od.length)] : [1, 0]; return Math.atan2(-d[0], -d[1]); })(); // 開いている方を向いて始まる（先にいる人の近くなら、その人と同じ向き）
     renderer.setClearColor(0x000000, 1);
     blk.style.transition = 'opacity 2.4s'; blk.style.opacity = '0'; // 暗闇からゆっくり見えてくる
     hint.textContent = '暗い…どこかで何かが歩いている。壁のどこかに、明るい扉があるはずだ'; hint.style.transition = 'opacity 1.5s'; hint.style.opacity = '1'; setTimeout(() => { hint.style.opacity = '0'; }, 8000);
   };
-  const dEnd = ms => { dDead = true; blk.style.transition = 'opacity 0.3s'; blk.style.opacity = '1'; setTimeout(exit, ms); }; // 画面を暗くして、草原を出る
+  const dEnd = ms => { dDead = true; blk.style.transition = 'opacity 0.3s'; blk.style.opacity = '1'; setTimeout(exit, ms); }; // 画面を暗くして、ダンジョンを出る
   // 😱 捕まった時の恐怖演出：化物がぐわっと顔の前に迫り、画面が白く光って赤くちらつき、カメラが激しく揺れる。同時に、ブラウザで作ったでかい悲鳴＋爆音が鳴る
   const dScream = () => { // 驚かし音：ノイズの爆発＋ひずんだ金切り声＋腹に響く重低音（音声ファイルは使わない）。最後に圧縮して音割れ寸前の大音量にする
     try {
@@ -1632,7 +1631,7 @@ const createDungeon = (env) => {
       const b = c.createOscillator(), bg = c.createGain(); b.type = 'sine'; b.frequency.setValueAtTime(110, t0); b.frequency.exponentialRampToValueAtTime(28, t0 + 0.5); bg.gain.setValueAtTime(1.4, t0); bg.gain.exponentialRampToValueAtTime(0.001, t0 + 0.9); b.connect(bg); bg.connect(out); b.start(t0); b.stop(t0 + 1);
     } catch (e) { /* 何もしない */ }
   };
-  const dCaught = m => { // 捕まった：演出をはじめて、1.5秒後に真っ暗、2.6秒後に草原を出る
+  const dCaught = m => { // 捕まった：演出をはじめて、1.5秒後に真っ暗、2.6秒後にダンジョンを出る
     dDead = true; dCatch = { t: 0, m }; hint.style.opacity = '0';
     if (!dFlash) { dFlash = document.createElement('div'); dFlash.style.cssText = 'position:absolute;inset:0;pointer-events:none;opacity:0;'; root.insertBefore(dFlash, blk); }
     if (dLight) dLight.color.set(0xff2a10);
@@ -1692,11 +1691,11 @@ const createDungeon = (env) => {
         if (d > 0.3) { const k = Math.min(d, sp * dt) / d; dMove(m, dx * k, dz * k, 0.4); m.g.rotation.y = Math.atan2(dx, dz); }
       }
       m.g.position.set(m.x, 0, m.z); m.blobs.forEach(b => b.mesh.scale.setScalar(b.r * (1 + 0.13 * Math.sin(t * 3.2 + b.ph)))); // 球がそれぞれ、ぶくぶくとふくらんだり縮んだりする
-      if (!dDead && Math.hypot(P.x - m.x, P.z - m.z) < DG.CATCH) dCaught(m); // 捕まった：恐怖演出＋大音量の悲鳴、そのあと暗転して草原を出る
+      if (!dDead && Math.hypot(P.x - m.x, P.z - m.z) < DG.CATCH) dCaught(m); // 捕まった：恐怖演出＋大音量の悲鳴、そのあと暗転してダンジョンを出る
     });
     // 💓 化物に見つかっている間は、心臓の音がする（近いほど大きく、はやくなる）
     if (hbGain && !dCatch) { if (found) { const near = 1 - Math.min(nearD, DG.SIGHT) / DG.SIGHT; hbT -= dt; if (hbT <= 0) { const v = 0.55 + 0.55 * near; hbThump(v, 62, 0.16); setTimeout(() => hbThump(v * 0.7, 50, 0.2), 150 - 40 * near); hbT = 0.95 - 0.5 * near; } } else hbT = 0; }
-    if (!dDead && Math.hypot(P.x - dExitPos.x, P.z - dExitPos.z) < 1.2) dEnd(900); // 扉に入った：明るく…ではなく暗転して、草原を出る
+    if (!dDead && Math.hypot(P.x - dExitPos.x, P.z - dExitPos.z) < 1.2) dEnd(900); // 扉に入った：明るく…ではなく暗転して、ダンジョンを出る
     renderer.render(dScene, camera);
   };
   // ----- 🎙 一緒にいる人の姿の同期（広場と同じ仕組み）：自分の位置は updateOwnState({ gl: {...} }) で0.06秒ごとに配る（広場の g3 とは別のキー）。
@@ -1707,6 +1706,142 @@ const createDungeon = (env) => {
     get scene() { return dScene; }, get seed() { return dSeed; }, get mons() { return dMons; }, get isHost() { return dIsHost; }
   };
 };
+
+// 🕳 ダンジョン（3D）：交流ルームの「ダンジョン」の入口から入る。草原（openGrassland）や階段（openStairs）とは別の処理（草原のコードは使っていない）。three.js は草原と同じ r128。
+// 迷路・化物・心拍音・捕まった時の演出は createDungeon が持つ。ここは「画面・操作・仲間の姿の同期・出入り」だけを受け持つ。
+// 開くとすぐ暗転した状態でダンジョンへ入る（dun.warp）。緑の光の出口に入るか、化物に捕まると、暗転して部屋に戻る。
+// 操作：WASD／矢印（↑↓＝前後・←→＝向き）・ドラッグ＝見回す・Esc／右上の「もどる」＝出る。スマホは左のスティックで移動、ほかの所をスワイプして見回す。
+function openDungeon(onClose, opt) {
+  opt = opt || {};
+  if (typeof THREE === 'undefined') { if (onClose) onClose(); return; }
+  const touch = (typeof IS_TOUCH_DEVICE !== 'undefined' && IS_TOUCH_DEVICE);
+  const root = document.createElement('div'); root.id = 'dungeonOverlay';
+  root.style.cssText = 'position:fixed;inset:0;z-index:400;background:#000;touch-action:none;user-select:none;-webkit-user-select:none;font-family:sans-serif;';
+  const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;';
+  root.appendChild(cv); document.body.appendChild(root);
+  let renderer;
+  const lowSpec = IS_LOW_SPEC, lite = touch || lowSpec;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: !lite }); } catch (err) { console.error('3Dのダンジョンを作れませんでした:', err); root.remove(); if (onClose) onClose(); return; }
+  const basePR = lowSpec ? 1 : Math.min(window.devicePixelRatio || 1, touch ? 1.25 : 1.75); renderer.setPixelRatio(basePR);
+  // 📱 スマホは、アプリを切り替えたりメモリが足りなくなったりすると、3Dの描画（WebGL）がいったん止まる。「あとで復帰させる」と伝えておく（これが無いと戻らない）
+  cv.addEventListener('webglcontextlost', ev => { ev.preventDefault(); });
+  cv.addEventListener('webglcontextrestored', () => { try { resize(); } catch (_) { } });
+  const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 400); camera.rotation.order = 'YXZ';
+  const FOG_ORIG = THREE.ShaderChunk.fog_vertex; THREE.ShaderChunk.fog_vertex = FOG_ORIG.replace(/-\s*mvPosition\.z/, 'length(mvPosition.xyz)'); // 霧の濃さを、画面の奥行きではなく「自分からの直線距離」で決める（奥行きだと、同じ距離でも画面の端のほうが霧が薄くなり、端だけ遠くのものがはっきり見えていた）。草原を出る時に元に戻す
+
+  // ----- 操作 -----
+  const P = { x: 0, z: 0, yaw: 0, pitch: 0 }, keys = {}; let sv = { x: 0, y: 0 }, sr = { x: 0, y: 0 }, closed = false, raf = 0, last = 0;
+  const SHIFT_DASH = false; // 🏃 Shift ダッシュ（true で有効に戻る。速さは下の sp2 の数字）
+  const ctl = k => ({ w: 'f', arrowup: 'f', s: 'b', arrowdown: 'b', a: 'l', d: 'r', arrowleft: 'tl', arrowright: 'tr' })[k];
+  let dun = null; // 🕳 ダンジョン本体（createDungeon で作る。入口＝dun.warp() ／ 毎フレーム＝dun.frame() ／ 片づけ＝dun.stopHeart()）
+  const glNet = opt.net || null, glSc = opt.scene || null, glRem = new Map(); let glAcc = 0;
+  const exit = () => {
+    if (closed) return; closed = true; cancelAnimationFrame(raf);
+    document.removeEventListener('keydown', onKeyDown, true); document.removeEventListener('keyup', onKeyUp, true); window.removeEventListener('resize', resize); window.removeEventListener('blur', onBlur);
+    if (dun) { if (dun.scene) dun.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); dun.stopHeart(); }
+    glStop(); THREE.ShaderChunk.fog_vertex = FOG_ORIG; renderer.dispose(); try { renderer.forceContextLoss(); } catch (e) { /* 何もしない */ }
+    root.remove(); if (onClose) onClose();
+  };
+  const onKeyDown = ev => {
+    const k = (ev.key || '').toLowerCase(); keys.shift = ev.shiftKey;
+    if (k === 'escape') { ev.preventDefault(); ev.stopPropagation(); exit(); return; }
+    if (ctl(k)) { ev.preventDefault(); ev.stopPropagation(); keys[ctl(k)] = true; }
+  };
+  const onKeyUp = ev => { const c = ctl((ev.key || '').toLowerCase()); keys.shift = ev.shiftKey; if (c) { keys[c] = false; ev.stopPropagation(); } };
+  const onBlur = () => { Object.keys(keys).forEach(k => { keys[k] = false; }); sv = { x: 0, y: 0 }; sr = { x: 0, y: 0 }; };
+  document.addEventListener('keydown', onKeyDown, true); document.addEventListener('keyup', onKeyUp, true); window.addEventListener('blur', onBlur);
+  const look = createLookControl(cv, P, touch); // 視点操作（ドラッグ・すべり・矢印キー・右スティック）は全部共通の処理
+  const btn = document.createElement('div'); btn.textContent = '✕ もどる';
+  btn.style.cssText = 'position:absolute;top:12px;right:12px;padding:9px 14px;font-size:16px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.38);border:2px solid rgba(255,255,255,0.7);border-radius:10px;cursor:pointer;';
+  btn.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); exit(); }; root.appendChild(btn);
+  const hint = document.createElement('div'); // 文は、入った時（dun.warp）にダンジョン側が入れる
+  hint.style.cssText = 'position:absolute;left:50%;bottom:4vh;transform:translateX(-50%);padding:8px 16px;font-size:15px;color:#fff;background:rgba(0,0,0,0.35);border-radius:999px;white-space:nowrap;transition:opacity 1.5s;pointer-events:none;';
+  root.appendChild(hint);
+  if (touch) { // スマホ：2D（書庫・パーティールーム）と同じ位置・大きさの左スティック。視点は画面のスワイプ
+    const base = document.createElement('div'), knob = document.createElement('div');
+    base.style.cssText = 'position:absolute;left:14.5vh;top:55.5vh;transform:translateY(-50%);width:27vh;height:27vh;border-radius:50%;background:rgba(255,255,255,0.08);border:0.5vh solid rgba(255,255,255,0.25);touch-action:none;';
+    knob.style.cssText = 'position:absolute;left:8.5vh;top:8.5vh;width:10vh;height:10vh;border-radius:50%;background:rgba(255,255,255,0.55);pointer-events:none;'; base.appendChild(knob); root.appendChild(base);
+    let id = null;
+    const apply = ev => { const r = base.getBoundingClientRect(), dx = ev.clientX - (r.left + r.width / 2), dy = ev.clientY - (r.top + r.height / 2), md = (r.width / 2) * 0.7778, raw = Math.hypot(dx, dy) || 1, d = Math.min(md, raw); knob.style.transform = 'translate(' + (dx / raw * d) + 'px,' + (dy / raw * d) + 'px)'; sv = { x: dx / raw * d / md, y: dy / raw * d / md }; };
+    base.onpointerdown = ev => { if (id !== null) return; ev.preventDefault(); id = ev.pointerId; try { base.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } apply(ev); };
+    base.onpointermove = ev => { if (ev.pointerId === id) apply(ev); };
+    base.onpointerup = base.onpointercancel = ev => { if (ev.pointerId === id) { id = null; knob.style.transform = ''; sv = { x: 0, y: 0 }; } };
+  }
+  const blk = document.createElement('div'); blk.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity 0.6s;'; root.appendChild(blk); // 暗転用の黒い幕
+  const resize = () => { const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
+  window.addEventListener('resize', resize); resize();
+
+  // ----- 🎙 仲間の姿・位置の同期（同じ迷路＝同じ番号の人だけが見える）。位置は gl = { x, z, r, p, d:1, sd:迷路の番号, m:化物の位置（ホストだけ） } で配る -----
+  const glBodyGeo = new THREE.CylinderGeometry(0.27, 0.33, 1.05, 10), glHeadGeo = new THREE.SphereGeometry(0.25, 12, 10), glNoseGeo = new THREE.BoxGeometry(0.1, 0.1, 0.5);
+  glBodyGeo.translate(0, 0.62, 0); glHeadGeo.translate(0, 1.42, 0); glNoseGeo.translate(0, 0, -0.5);
+  const glPublish = clear => { if (!glNet || !dun) return; try { glNet.updateOwnState({ gl: clear ? null : { x: Math.round(P.x * 100) / 100, z: Math.round(P.z * 100) / 100, r: Math.round(P.yaw * 100) / 100, p: Math.round(P.pitch * 100) / 100, d: 1, sd: dun.seed, e: null, en: 0, m: (dun.isHost && dun.mons.length) ? dun.mons.map(q => [Math.round(q.x * 100) / 100, Math.round(q.z * 100) / 100, q.alert > 0 ? 1 : 0]) : null } }); } catch (e) { /* 何もしない */ } };
+  const glMake = (uid, p, sc) => {
+    let col; try { col = new THREE.Color(p.color == null ? 0xffffff : p.color); } catch (e) { col = new THREE.Color(0xffffff); }
+    const grp = new THREE.Group(), mat = new THREE.MeshLambertMaterial({ color: col }), noseM = new THREE.MeshLambertMaterial({ color: 0xffffff }), nose = new THREE.Group(); nose.position.y = 1.42; nose.add(new THREE.Mesh(glNoseGeo, noseM));
+    grp.add(new THREE.Mesh(glBodyGeo, mat), new THREE.Mesh(glHeadGeo, mat), nose);
+    const c = document.createElement('canvas'); c.width = 256; c.height = 64; const x = c.getContext('2d');
+    x.font = 'bold 30px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineWidth = 6; x.strokeStyle = 'rgba(0,0,0,0.7)'; x.fillStyle = '#fff';
+    let nm = String(p.name || '？'); if (x.measureText(nm).width > 240) { const ch = Array.from(nm); while (ch.length > 1 && x.measureText(ch.join('') + '…').width > 240) ch.pop(); nm = ch.join('') + '…'; }
+    x.strokeText(nm, 128, 34); x.fillText(nm, 128, 34);
+    const tex = new THREE.CanvasTexture(c), label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, fog: false })); label.scale.set(1.8, 0.45, 1); label.position.y = 2.0; grp.add(label); sc.add(grp);
+    const r = { grp, sc, mat, noseM, nose, tex, label, tx: 0, tz: 0, tr: 0, tp: 0, init: false }; glRem.set(uid, r); return r;
+  };
+  const glRemove = uid => { const r = glRem.get(uid); if (!r) return; r.sc.remove(r.grp); r.mat.dispose(); r.noseM.dispose(); r.tex.dispose(); r.label.material.dispose(); glRem.delete(uid); };
+  const glClearRemotes = () => { Array.from(glRem.keys()).forEach(glRemove); };
+  const glBar = glNet ? document.getElementById('voiceBar') : null, glBarZ = glBar ? glBar.style.zIndex : ''; if (glBar) glBar.style.zIndex = '450'; // この画面より手前に、マイクのボタンを出す
+  const glVS = { water: () => 0, x: 0, z: 0, yaw: 0, pitch: 0, env: 'maze', key: 'gl', d: 1, sd: 0, radius: (typeof VOICE !== 'undefined' && VOICE.space3dDungeonRadius) || 9, wall: null, path: null }; // 🎙 声：2Dダンジョンの通路と同じ響き＋壁越しはこもる（radius＝距離の基準(m)・wall/path＝壁の数と回り込みの経路を調べる関数）
+  const glFrame = (dt, t) => {
+    if (!glNet || !dun) return;
+    glAcc += dt; if (glAcc >= 0.06) { glAcc = 0; glPublish(false); }
+    { const v = glNet._voice; if (v && !v.stopped) { glVS.x = P.x; glVS.z = P.z; glVS.yaw = P.yaw; glVS.pitch = P.pitch; glVS.sd = dun.seed; glVS.wall = dun.wallTiles; glVS.path = dun.voicePath; v.space3d = glVS; } }
+    const players = (glSc && glSc.latestPlayers) || {}, sc = dun.scene; if (!sc) return;
+    const want = new Set();
+    for (const uid in players) {
+      if (uid === glNet.uid) continue;
+      const g = players[uid] && players[uid].gl; if (!g || typeof g.x !== 'number') continue; // 位置が無い（＝別のゾーンの印だけ）の人は出さない
+      if (zoneOfPlayer(players[uid]) !== 'dungeon:' + dun.seed) continue; // 同じ迷路の人だけ見える
+      want.add(uid);
+      let r = glRem.get(uid); if (r && r.sc !== sc) { glRemove(uid); r = null; }
+      if (!r) r = glMake(uid, players[uid], sc);
+      r.tx = g.x || 0; r.tz = g.z || 0; r.tr = g.r || 0; r.tp = g.p || 0;
+      if (!r.init) { r.init = true; r.grp.position.set(r.tx, 0, r.tz); r.grp.rotation.y = r.tr; r.nose.rotation.x = r.tp; }
+    }
+    for (const uid of Array.from(glRem.keys())) if (!want.has(uid)) glRemove(uid);
+    const k = 1 - Math.exp(-dt * 12);
+    glRem.forEach(r => {
+      const g = r.grp, ox = g.position.x, oz = g.position.z; g.position.x += (r.tx - ox) * k; g.position.z += (r.tz - oz) * k;
+      let da = r.tr - g.rotation.y; da -= Math.round(da / 6.2832) * 6.2832; g.rotation.y += da * k; r.nose.rotation.x += (r.tp - r.nose.rotation.x) * k;
+      const mv = Math.min(1, Math.hypot(r.tx - ox, r.tz - oz) / Math.max(dt, 0.001) / 3); g.position.y = Math.abs(Math.sin(t * 9)) * 0.08 * mv;
+    });
+  };
+  const glStop = () => {
+    if (!glNet) return; if (glBar) glBar.style.zIndex = glBarZ || ''; { const v = glNet._voice; if (v && v.space3d === glVS) v.space3d = null; } glClearRemotes(); [glBodyGeo, glHeadGeo, glNoseGeo].forEach(g => g.dispose());
+    glPublish(true); setTimeout(() => glPublish(true), 300); setTimeout(() => glPublish(true), 1200); // 取りこぼしても消えるように、数回送る
+  };
+
+  // ----- 🔧 動的な軽量化：約2秒の平均が30fpsを下回る状態が2回続いたら、解像度を少しずつ下げる（最小0.6倍）。自動では戻さない（行ったり来たりしないため） -----
+  let adS = 1, adAcc = 0, adN = 0, adBad = 0;
+  const adaptRes = raw => {
+    if (raw > 0.5) return;
+    adAcc += raw; adN++;
+    if (adAcc < 2) return;
+    const avg = adAcc / adN; adAcc = 0; adN = 0;
+    if (avg > 0.036 && adS > 0.6) { if (++adBad >= 2) { adBad = 0; adS = Math.max(0.6, adS - 0.12); renderer.setPixelRatio(basePR * adS); resize(); } } else adBad = 0;
+  };
+
+  dun = createDungeon({ P, blk, camera, hint, opt, renderer, root, glNet, glSc, isClosed: () => closed, exit: () => exit(), glClearRemotes: () => glClearRemotes() });
+  const frame = ms => {
+    if (closed) return;
+    const t = ms / 1000, raw = last ? t - last : 0.016, dt = Math.min(0.05, raw); last = t; adaptRes(raw);
+    look.step(dt, keys, sr); // 視点：矢印キー・右スティック・すべり
+    glFrame(dt, t); // 🎙 仲間の姿の同期
+    let mf = (keys.f ? 1 : 0) - (keys.b ? 1 : 0) - sv.y, mr = (keys.r ? 1 : 0) - (keys.l ? 1 : 0) + sv.x; const mm = Math.hypot(mf, mr); if (mm > 1) { mf /= mm; mr /= mm; }
+    const sp2 = 4.2 * (SHIFT_DASH && keys.shift ? 19 : 1) * dt, sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
+    dun.frame(dt, t, mf, mr, sp2, sy, cy); raf = requestAnimationFrame(frame);
+  };
+  blk.style.transition = 'none'; blk.style.opacity = '1'; void blk.offsetWidth; dun.warp(); glPublish(false); // 開いた直後から、暗いダンジョンの中で始まる（暗闇からゆっくり見えてくる）
+  raf = requestAnimationFrame(frame);
+}
 
 function openGrassland(onClose, opt) {
   opt = opt || {};
@@ -1987,13 +2122,13 @@ function openGrassland(onClose, opt) {
     if (closed) return; closed = true; cancelAnimationFrame(raf);
     document.removeEventListener('keydown', onKeyDown, true); document.removeEventListener('keyup', onKeyUp, true); window.removeEventListener('resize', resize); window.removeEventListener('blur', onBlur);
     scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); });
-    if (dun && dun.scene) dun.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); if (dun) dun.stopHeart(); stopAmbient(); try { wVoiceRestore(); } catch (e) { /* 何もしない */ } glStop(); cairnStop(); [trunkGeo, leafGeo, trunkMat, leafMat].forEach(o => o.dispose()); THREE.ShaderChunk.fog_vertex = FOG_ORIG; renderer.dispose(); try { renderer.forceContextLoss(); } catch (e) { /* 何もしない */ }
+    stopAmbient(); try { wVoiceRestore(); } catch (e) { /* 何もしない */ } glStop(); cairnStop(); [trunkGeo, leafGeo, trunkMat, leafMat].forEach(o => o.dispose()); THREE.ShaderChunk.fog_vertex = FOG_ORIG; renderer.dispose(); try { renderer.forceContextLoss(); } catch (e) { /* 何もしない */ }
     root.remove(); if (onClose) onClose();
   };
   const onKeyDown = ev => {
     const k = (ev.key || '').toLowerCase(); keys.shift = ev.shiftKey;
     if (k === 'escape') { ev.preventDefault(); ev.stopPropagation(); exit(); return; }
-    if (k === 'e' && !inDungeon) { ev.preventDefault(); ev.stopPropagation(); if (!ev.repeat) stackAction(); return; } // 🪨 石を積む
+    if (k === 'e') { ev.preventDefault(); ev.stopPropagation(); if (!ev.repeat) stackAction(); return; } // 🪨 石を積む
     if (ctl(k)) { ev.preventDefault(); ev.stopPropagation(); keys[ctl(k)] = true; }
   };
   const onKeyUp = ev => { const c = ctl((ev.key || '').toLowerCase()); keys.shift = ev.shiftKey; if (c) { keys[c] = false; ev.stopPropagation(); } };
@@ -2132,7 +2267,7 @@ function openGrassland(onClose, opt) {
   const updateAmbient = (dt) => { // 毎フレーム：音の大きさ（追われている間・ダンジョンでは0）、丘の高さに応じた風、鳥のタイミング
     if (!amAc || amAc.state === 'closed') return;
     if (amAc.state === 'suspended' && amAc.resume) amAc.resume().catch(() => {}); // 最初の操作のあとで鳴りはじめる
-    const want = inDungeon ? 0 : 1;
+    const want = 1;
     if (want !== amWant) { amWant = want; amMaster.gain.setTargetAtTime(want ? 0.6 : 0, amAc.currentTime, want ? 2.2 : 0.5); } // ゆっくり聞こえはじめる／追われたら、すっと消える
     if (!want) return;
     amWindBus.gain.value = 1 + 1.3 * Math.max(0, Math.min(1, hh(P.x, P.z) / 12)); // 高い丘の上ほど風が強い（開放感）
@@ -2141,22 +2276,15 @@ function openGrassland(onClose, opt) {
     if (whale && whale.visible) { whaleLoad(); if (!whPre && amAc) { whPre = true; setTimeout(() => { try { if (amAc && amAc.state !== 'closed' && amMaster && !whWho) whWho = whaleBus(); } catch (e) {} }, 1500); } /* 🔧 クジラの声の響きは、最初の歌の瞬間ではなく、始まって少ししたあとに作っておく（歌う瞬間のカクつき防止） */ const ns = Date.now() / 1000, sl = Math.floor(ns / 60); if (sl > whDone) { const r = seedRng(sl), tc = sl * 60 + 20 + 22 * r(); if (ns >= tc) { whDone = sl; if (ns - tc < 4) whaleCall(r); } } if (whWho) whaleSpatial(); } // 🐋 1分ごとの枠のなかの20〜42秒めに歌う（つぎの歌まで約40〜80秒＝平均1分）。歌いはじめを逃したら、その枠はお休み
   };
   const stopAmbient = () => { whWho = null; whBuf = null; whBufTried = false; whPre = false; amNodes.forEach(n => { try { n.stop(); } catch (e) { /* 何もしない */ } }); amNodes = []; if (amAc) { try { amAc.close(); } catch (e) { /* 何もしない */ } amAc = null; } };
-  if (!opt.dungeonOnly) startAmbient(); // 交流ルームの「ダンジョン」（草原を歩かない）では鳴らさない
-  const blk = document.createElement('div'); blk.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity 0.6s;'; root.appendChild(blk); // 暗転用の黒い幕
+  startAmbient();
 
-  // ----- 🕳 暗いダンジョン：交流ルームの「ダンジョン」（opt.dungeonOnly）：開いた直後にここへ入る。迷路の中を化物が歩き回っていて、見つかると追ってくる。緑の光の出口に入るか、化物に捕まると、草原を出て部屋に戻る -----
-  let inDungeon = false; // 今ダンジョンにいるか（変えるのは setMode だけ）
-  let dun = null; // 🕳 ダンジョン本体（草原とは別の関数 createDungeon で作る。入口＝dun.warp() ／ 毎フレーム＝dun.frame() ／ 片づけ＝dun.stopHeart()）
   const glNet = opt.net || null, glSc = opt.scene || null, glRem = new Map(); let glAcc = 0;
-  // 🌿 ダンジョンへ入る時に、草原の絵（木・草・空）を片づけてメモリをあける。草原の中身を知っているのはここだけ
-  const disposeGrass = () => { scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); [trunkGeo, leafGeo, trunkMat, leafMat].forEach(o => o.dispose()); while (scene.children.length) scene.remove(scene.children[0]); };
-  dun = createDungeon({ P, blk, camera, hint, opt, renderer, root, glNet, glSc, disposeGrass, isClosed: () => closed, exit: () => exit(), setMode: m => setMode(m), glClearRemotes: () => glClearRemotes() });
   const glBodyGeo = new THREE.CylinderGeometry(0.27, 0.33, 1.05, 10), glHeadGeo = new THREE.SphereGeometry(0.25, 12, 10), glNoseGeo = new THREE.BoxGeometry(0.1, 0.1, 0.5);
   glBodyGeo.translate(0, 0.62, 0); glHeadGeo.translate(0, 1.42, 0); glNoseGeo.translate(0, 0, -0.5);
   // ----- 💬 エモート：ボタンを押すと定型メッセージの候補が出て、選ぶと自分の頭上に吹き出しが約5秒出る。gl の e（番号）と en（通し番号）で配るので、同じ草原にいる人全員に見える。メッセージを足す時は EMOTES に足すだけ -----
   const EMOTES = ['こんにちは', 'ありがとう', 'すごい', 'いこう', 'まって', 'ついてきて', 'ごめん', 'ドンマイ', 'またね', 'いいね', 'ｺﾎﾟｫ…'], EMO_MS = 5000;
   const emoEl = (css, txt) => { const d = document.createElement('div'); d.style.cssText = css; if (txt != null) d.textContent = txt; root.appendChild(d); return d; }; // （mkEl はこの後で作られるので、エモート用に別に用意）
-  let emoNow = null, emoCount = 0, emoT = 0, emoDisp = '';
+  let emoNow = null, emoCount = 0, emoT = 0;
   const emoBtn = glNet ? emoEl(touch
     ? 'position:absolute;left:calc(50% - 10vh - 1.5vh - 11vh);bottom:4vh;width:11vh;height:11vh;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:5vh;color:#fff;background:rgba(255,255,255,0.22);border:0.5vh solid rgba(255,255,255,0.6);box-sizing:border-box;touch-action:none;cursor:pointer;'
     : 'position:absolute;left:calc(50% - 300px);bottom:calc(4vh + 52px);padding:9px 14px;font-size:16px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.5);border:2px solid rgba(255,255,255,0.7);border-radius:999px;white-space:nowrap;cursor:pointer;', touch ? '💬' : '💬 言葉') : null;
@@ -2182,7 +2310,7 @@ function openGrassland(onClose, opt) {
   };
   const emoClear = r => { if (!r.emo) return; r.grp.remove(r.emo.sp); r.emo.sp.material.map.dispose(); r.emo.sp.material.dispose(); r.emo = null; };
   const emoShow = (r, i) => { emoClear(r); if (!EMOTES[i]) return; const sp = emoMake(EMOTES[i]); r.grp.add(sp); r.emo = { sp, t0: performance.now() }; };
-  const glPublish = clear => { if (!glNet) return; try { glNet.updateOwnState({ gl: clear ? null : { x: Math.round(P.x * 100) / 100, z: Math.round(P.z * 100) / 100, r: Math.round(P.yaw * 100) / 100, p: Math.round(P.pitch * 100) / 100, d: inDungeon ? 1 : 0, sd: inDungeon ? dun.seed : 0, e: emoNow ? emoNow.i : null, en: emoNow ? emoNow.n : 0, m: (inDungeon && dun.isHost && dun.mons.length) ? dun.mons.map(q => [Math.round(q.x * 100) / 100, Math.round(q.z * 100) / 100, q.alert > 0 ? 1 : 0]) : null } }); } catch (e) { /* 何もしない */ } };
+  const glPublish = clear => { if (!glNet) return; try { glNet.updateOwnState({ gl: clear ? null : { x: Math.round(P.x * 100) / 100, z: Math.round(P.z * 100) / 100, r: Math.round(P.yaw * 100) / 100, p: Math.round(P.pitch * 100) / 100, d: 0, sd: 0, e: emoNow ? emoNow.i : null, en: emoNow ? emoNow.n : 0, m: null } }); } catch (e) { /* 何もしない */ } };
   const glMake = (uid, p, sc) => {
     let col; try { col = new THREE.Color(p.color == null ? 0xffffff : p.color); } catch (e) { col = new THREE.Color(0xffffff); }
     const grp = new THREE.Group(), mat = new THREE.MeshLambertMaterial({ color: col }), noseM = new THREE.MeshLambertMaterial({ color: 0xffffff }), nose = new THREE.Group(); nose.position.y = 1.42; nose.add(new THREE.Mesh(glNoseGeo, noseM));
@@ -2199,28 +2327,27 @@ function openGrassland(onClose, opt) {
   const glFrame = (dt, t) => {
     if (!glNet) return;
     glAcc += dt; if (glAcc >= 0.06) { glAcc = 0; glPublish(false); }
-    { const v = glNet._voice; if (v && !v.stopped) { glVS.x = P.x; glVS.z = P.z; glVS.yaw = P.yaw; glVS.pitch = P.pitch; glVS.env = inDungeon ? 'maze' : 'open'; glVS.radius = inDungeon ? VOICE.space3dDungeonRadius : 0; glVS.wall = inDungeon ? dun.wallTiles : null; glVS.path = inDungeon ? dun.voicePath : null; glVS.d = inDungeon ? 1 : 0; glVS.sd = inDungeon ? dun.seed : 0; v.space3d = glVS; } }
-    const players = (glSc && glSc.latestPlayers) || {}, sc = inDungeon ? dun.scene : scene; if (!sc) return;
+    { const v = glNet._voice; if (v && !v.stopped) { glVS.x = P.x; glVS.z = P.z; glVS.yaw = P.yaw; glVS.pitch = P.pitch; v.space3d = glVS; } }
+    const players = (glSc && glSc.latestPlayers) || {}, sc = scene;
     const want = new Set();
     for (const uid in players) {
       if (uid === glNet.uid) continue;
       const g = players[uid] && players[uid].gl; if (!g || typeof g.x !== 'number') continue; // 位置が無い（＝別のゾーンの印だけ）の人は出さない
-      if (zoneOfPlayer(players[uid]) !== (inDungeon ? 'dungeon:' + dun.seed : 'grass')) continue; // 草原の人は草原の人だけ、ダンジョンの人は同じ迷路の人だけ見える
+      if (zoneOfPlayer(players[uid]) !== 'grass') continue; // 草原の人だけ見える
       want.add(uid);
       let r = glRem.get(uid); if (r && r.sc !== sc) { glRemove(uid); r = null; }
       if (!r) r = glMake(uid, players[uid], sc);
       r.tx = g.x || 0; r.tz = g.z || 0; r.tr = g.r || 0; r.tp = g.p || 0;
       if (typeof g.e === 'number' && g.en !== r.en) { r.en = g.en; emoShow(r, g.e); } // 新しいエモートが来た：吹き出しを出す
-      if (!r.init) { r.init = true; r.grp.position.set(r.tx, inDungeon ? 0 : avY(r.tx, r.tz), r.tz); r.grp.rotation.y = r.tr; r.nose.rotation.x = r.tp; }
+      if (!r.init) { r.init = true; r.grp.position.set(r.tx, avY(r.tx, r.tz), r.tz); r.grp.rotation.y = r.tr; r.nose.rotation.x = r.tp; }
     }
     for (const uid of Array.from(glRem.keys())) if (!want.has(uid)) glRemove(uid);
     const k = 1 - Math.exp(-dt * 12), nowMs = performance.now();
-    { const dsp = inDungeon ? 'none' : (touch ? 'flex' : 'block'); if (dsp !== emoDisp) { emoDisp = dsp; emoBtn.style.display = dsp; if (inDungeon) emoShowMenu(false); } } // 草原だけ：ダンジョンの中ではボタンを隠す
     glRem.forEach(r => {
       if (r.emo) { const age = nowMs - r.emo.t0; if (age >= EMO_MS) emoClear(r); else r.emo.sp.material.opacity = age > EMO_MS - 600 ? Math.max(0, (EMO_MS - age) / 600) : 1; }
       const g = r.grp, ox = g.position.x, oz = g.position.z; g.position.x += (r.tx - ox) * k; g.position.z += (r.tz - oz) * k;
       let da = r.tr - g.rotation.y; da -= Math.round(da / 6.2832) * 6.2832; g.rotation.y += da * k; r.nose.rotation.x += (r.tp - r.nose.rotation.x) * k;
-      const mv = Math.min(1, Math.hypot(r.tx - ox, r.tz - oz) / Math.max(dt, 0.001) / 3); g.position.y = (inDungeon ? 0 : avY(g.position.x, g.position.z)) + Math.abs(Math.sin(t * 9)) * 0.08 * mv;
+      const mv = Math.min(1, Math.hypot(r.tx - ox, r.tz - oz) / Math.max(dt, 0.001) / 3); g.position.y = avY(g.position.x, g.position.z) + Math.abs(Math.sin(t * 9)) * 0.08 * mv;
     });
   };
   const glStop = () => {
@@ -2254,15 +2381,6 @@ function openGrassland(onClose, opt) {
   actBtn.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); stackAction(); };
   const toast = msg => { cToast.textContent = msg; cToast.style.opacity = '1'; clearTimeout(cToastT); cToastT = setTimeout(() => { cToast.style.opacity = '0'; }, 2200); };
   const setHeld = n => { held = n; stoneHud.textContent = '🪨 × ' + held; };
-  // 🔀 モード切り替え（草原 ⇄ ダンジョン）。「今どちらにいるか」の旗 inDungeon は、setMode だけで変える。草原専用の画面（石カウンター・最高記録・トースト・積むボタン・水中の幕・言葉ボタン）の出し入れは、applyModeUi だけで行う。
-  // （草原の画面を増やす時は、ここの草原用リストに足す。ダンジョン側の処理には、草原の画面を触るコードを書かない）
-  const applyModeUi = () => {
-    const grass = !inDungeon;
-    [stoneHud, bestHud, cToast].forEach(e => { e.style.display = grass ? '' : 'none'; });
-    if (!grass) { actTxt = ''; actBtn.style.display = 'none'; uwOv.style.display = 'none'; }
-    if (emoBtn) { const dsp = grass ? (touch ? 'flex' : 'block') : 'none'; emoDisp = dsp; emoBtn.style.display = dsp; if (!grass) emoShowMenu(false); }
-  };
-  const setMode = m => { inDungeon = (m === 'dungeon'); applyModeUi(); };
   const hid = str => { let h = 0; for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 9973; return h + 1; }; // 山の名前（キー）から、石の形のもとになる数を作る（全員同じ形になる）
 
 
@@ -2396,7 +2514,7 @@ function openGrassland(onClose, opt) {
   const findCairn = sp => { let best = null, bd = JOIN_R; cairns.forEach(c => { const d = Math.hypot(c.x - sp.x, c.z - sp.z); if (d < bd) { bd = d; best = c; } }); return best; };
   const reachPct = n => { let r = 1; for (let k = 1; k < n; k++) r *= 1 - pOf(k); const p = r * 100; return (p >= 99.95 ? '100' : p >= 10 ? p.toFixed(1) : p.toFixed(2)) + '%'; }; // n段まで崩さずに積める確率＝1段目（かならず成功）から n-1 段目までの「崩れない確率」の積（pOf＝いま k 段の山に積む時に崩れる確率）
   const stackAction = () => {
-    if (closed || inDungeon || cBusy || performance.now() < cdEnd) return; // クールダウン中は置けない
+    if (closed || cBusy || performance.now() < cdEnd) return; // クールダウン中は置けない
     if (held <= 0) { toast('石を持っていない（草原の石に近づくと拾える）'); return; }
     getCtx(); // 音を鳴らせる状態にしておく
     const sp = aimSpot(), tg = findCairn(sp);
@@ -2424,7 +2542,6 @@ function openGrassland(onClose, opt) {
   } else cLive = true;
   const cairnPush = () => { cairns.forEach(c => { const dx = P.x - c.x, dz = P.z - c.z, d = Math.hypot(dx, dz); if (d < BLOCK_R && d > 1e-4) { P.x = c.x + dx / d * BLOCK_R; P.z = c.z + dz / d * BLOCK_R; } }); };
   const cairnFrame = dt => {
-    if (inDungeon) { if (actTxt) { actTxt = ''; actBtn.style.display = 'none'; } return; }
     syncStones();
     stones.forEach((m, key) => {
       if (Math.hypot(m.position.x - P.x, m.position.z - P.z) >= PICK_R) return;
@@ -2620,10 +2737,6 @@ function openGrassland(onClose, opt) {
     wVT -= dt; if (wVT <= 0 || under !== wVU) { wVT = 0.25; if (under || wVf) { wVoice(under); wVU = under; } } // 声（ボイスチャット）もこもる
     wD = D; syncPonds();
   };
-  const waterOff = () => { // ダンジョンの間は、水の見た目と音を止める
-    if (wOff) return; wOff = true; uwOv.style.display = 'none'; wD = 0; wVU = false; if (wVf) wVoice(false);
-    try { if (amAc && amAc.state !== 'closed' && amUw) { const ct = amAc.currentTime; amUw.gain.setTargetAtTime(0, ct, 0.1); amBab.forEach(g => g.gain.setTargetAtTime(0, ct, 0.1)); amOut.frequency.setTargetAtTime(20000, ct, 0.05); amAmb.gain.setTargetAtTime(1, ct, 0.1); } } catch (e) { /* 何もしない */ }
-  };
 
   // 🔧 クジラが画面（視錐台）に入っているか。体の長さの半分（約55m）に余裕を足した球で判定する
   const wFr = new THREE.Frustum(), wPM = new THREE.Matrix4(), wSp = new THREE.Sphere();
@@ -2647,17 +2760,15 @@ function openGrassland(onClose, opt) {
     updateAmbient(dt); // 🍃 自然音
     let mf = (keys.f ? 1 : 0) - (keys.b ? 1 : 0) - sv.y, mr = (keys.r ? 1 : 0) - (keys.l ? 1 : 0) + sv.x; const mm = Math.hypot(mf, mr); if (mm > 1) { mf /= mm; mr /= mm; }
     const sp2 = 4.2 * (SHIFT_DASH && keys.shift ? 19 : 1) * dt, sy = Math.sin(P.yaw), cy = Math.cos(P.yaw); /* TEST: 走る速度10倍（1.9→19）。テスト後は 19 を 1.9 に戻す */
-    if (inDungeon) { waterOff(); dun.frame(dt, t, mf, mr, sp2, sy, cy); raf = requestAnimationFrame(frame); return; } // 🕳 ダンジョンの間は、草原は止めておく
     const px0 = P.x, pz0 = P.z, wsl = wSlow(); P.x += (-sy * mf + cy * mr) * sp2 * wsl; P.z += (-cy * mf - sy * mr) * sp2 * wsl; const mvd = Math.hypot(P.x - px0, P.z - pz0); wCurrent(dt); // 🌊 水の中では遅くなる（川では流される）
     cairnPush(); // 🪨 石の山の中には入れない
     syncTrees(); ground.position.set(Math.round(P.x / GS) * GS, 0, Math.round(P.z / GS) * GS); U.uGC.value.set(ground.position.x, ground.position.z); // 歩ける範囲に制限はない（木と地面は自分についてくる）
     waterFrame(dt, t, mvd); camera.position.set(P.x, P.ey, P.z); /* 🌊 目の高さ P.ey（歩く／浮かぶ／潜る） */ camera.rotation.set(P.pitch, P.yaw, 0); camera.updateMatrixWorld();
-    sky.position.copy(camera.position); clouds.rotation.y += dt * 0.004; if (whale && whale.visible && !inDungeon) whale.userData.update(Date.now() / 1000, whaleInView());
+    sky.position.copy(camera.position); clouds.rotation.y += dt * 0.004; if (whale && whale.visible) whale.userData.update(Date.now() / 1000, whaleInView());
     U.uTime.value = t; U.uCam.value.set(P.x, P.z);
     { const hf = 2 * Math.atan(Math.tan(camera.fov * Math.PI / 360) * camera.aspect), lim = Math.min(3.0, hf / 2 + 0.6); U.uCamDir.value.set(-sy, -cy); U.uCone.value = Math.cos(lim); } // 🔧 草と花：横の見える範囲＋約34°の余裕より外（と、10mより遠く）は計算しない
     renderer.render(scene, camera); raf = requestAnimationFrame(frame);
   };
-  if (opt.dungeonOnly) { blk.style.transition = 'none'; blk.style.opacity = '1'; void blk.offsetWidth; dun.warp(); } // 🕳 交流ルームの「ダンジョン」：草原は歩かず、影に追いつかれてワープした直後（暗いダンジョン）から始まる
   raf = requestAnimationFrame(frame);
 }
 
@@ -27644,7 +27755,7 @@ class GameScene extends Phaser.Scene {
     if (tg.hero) { this._partyLeave(true); return; } // ⚔ 斬り合い：部屋を出て、ボス部屋へ
     if (tg.portal) { // 🌿 草原（3D）へ。入っている間は、この画面を止める（小屋の本を読んでいる間と同じ）
       this._hutReading = true;
-      try { const back = () => { this._hutReading = false; }; if (tg.social) openPartyHall(back, { net: this.net, scene: this }); else if (tg.lstairs) openStairs(back, { net: this.net, scene: this }); else openGrassland(back, { net: this.net, scene: this, noHorror: !!tg.lgrass, dungeonOnly: !!tg.ldungeon }); } catch (err) { console.error('草原を開けませんでした:', err); this._hutReading = false; }
+      try { const back = () => { this._hutReading = false; }; if (tg.social) openPartyHall(back, { net: this.net, scene: this }); else if (tg.lstairs) openStairs(back, { net: this.net, scene: this }); else if (tg.ldungeon) openDungeon(back, { net: this.net, scene: this }); else openGrassland(back, { net: this.net, scene: this, noHorror: !!tg.lgrass }); } catch (err) { console.error('草原を開けませんでした:', err); this._hutReading = false; }
       return;
     }
     if (tg.stat) { // 🖤 黒いメモ：今のセーブの数値を「説明：数値」で並べる（読むたびに最新のセーブを見る）
