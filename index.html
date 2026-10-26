@@ -1489,6 +1489,225 @@ function zoneStubOf(p) {
   if (q.gl) q.gl = { d: q.gl.d, sd: q.gl.sd };
   return q;
 }
+// 🕳 ダンジョン（草原とは別の関数）：暗い迷路・追ってくる化物・心拍音・捕まった時の演出。草原（openGrassland）が createDungeon(env) で作って使う。
+//  ・草原から受け取るもの（env）： P（自分の位置と向き）・blk（暗転）・camera・hint・root・renderer・opt・glNet・glSc・exit・setMode・glClearRemotes・isClosed・disposeGrass
+//  ・草原へ返すもの： warp（入る）・frame（毎フレーム）・stopHeart（心拍音を止める）・scene/seed/mons/isHost/wallTiles/voicePath（通信・ボイスで使う読み取り専用の値）
+//  ・「今どちらにいるか」の旗 inDungeon と、草原の画面（HUD）の出し入れは、草原側の setMode / applyModeUi が持つ。ここから草原の画面や中身を直接触らない
+const createDungeon = (env) => {
+  const { P, blk, camera, hint, root, renderer, opt, glNet, glSc, disposeGrass, isClosed, exit, setMode, glClearRemotes } = env;
+  const DG = { N: 21, TS: 3, H: 3.2, MONSTERS: 5, WALK: 1.8, CHASE: 3.4, SIGHT: 11, CATCH: 1.0, SPAWN_MIN: 9 }; // N＝迷路の大きさ(マス・奇数)／TS＝1マスの大きさ(m)／H＝天井の高さ／MONSTERS＝化物の数／WALK＝徘徊の速さ／CHASE＝追ってくる速さ(自分の歩き4.2より遅いので、走れば逃げられる)／SIGHT＝見つけられる距離(m)／CATCH＝捕まる距離(m)／SPAWN_MIN＝スタートからこのマス数以上はなれた所に化物が出る
+  let dStart = [1, 1], dIsHost = false, dSeed = 0, dScene = null, dMaze = null, dMons = [], dExitPos = null, dLight = null, dDead = false, dCatch = null, dFlash = null, hbAc = null, hbGain = null, hbT = 0;
+  const dSolid = (i, j) => i < 0 || j < 0 || i >= DG.N || j >= DG.N || dMaze[i][j] === 1;
+  const dWallAt = (x, z, r) => { for (const ox of [-r, r]) for (const oz of [-r, r]) if (dSolid(Math.round((x + ox) / DG.TS), Math.round((z + oz) / DG.TS))) return true; return false; };
+  const dMove = (o, dx, dz, r) => { if (!dWallAt(o.x + dx, o.z, r)) o.x += dx; if (!dWallAt(o.x, o.z + dz, r)) o.z += dz; }; // 壁にぶつかったら、その向きだけ止まる（壁にそってすべる）
+  const dLos = (ax, az, bx, bz) => { const dx = bx - ax, dz = bz - az, n = Math.ceil(Math.hypot(dx, dz) / 0.5); for (let k = 1; k < n; k++) if (dWallAt(ax + dx * k / n, az + dz * k / n, 0)) return false; return true; }; // 間に壁がなく見えているか
+  // 🎙 声の壁越し処理（2Dダンジョンの VoiceChat._wallTiles / _soundField / _soundPath と同じ考え方）。VoiceChat が glVS.wall / glVS.path として呼ぶ
+  const dWallTiles = (ax, az, bx, bz) => { // 2点の間にある壁のマスの数（＝壁の厚み）。途中で壁のマスに入るたびに1つ数える
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / (DG.TS * 0.25))); let c = 0, last = -1;
+    for (let k = 1; k < n; k++) { const i = Math.round((ax + (bx - ax) * k / n) / DG.TS), j = Math.round((az + (bz - az) * k / n) / DG.TS); if (dSolid(i, j)) { const key = (i + 8) * 100 + (j + 8); if (key !== last) { c++; last = key; } } else last = -1; }
+    return c;
+  };
+  let dBfs = null;
+  const dField = () => { // 自分のマスから、歩いて行ける範囲を幅優先で調べる（迷路は固定なので、自分のマスが変わった時だけ調べ直す）
+    const si = Math.round(P.x / DG.TS), sj = Math.round(P.z / DG.TS), N = DG.N;
+    if (dBfs && dBfs.si === si && dBfs.sj === sj && dBfs.maze === dMaze) return dBfs;
+    const dist = new Int16Array(N * N).fill(-1), par = new Int32Array(N * N).fill(-1); dBfs = { si, sj, maze: dMaze, dist, par };
+    if (dSolid(si, sj)) return dBfs;
+    const q = [si * N + sj]; dist[si * N + sj] = 0;
+    for (let h = 0; h < q.length; h++) { const c = q[h], ci = (c / N) | 0, cj = c % N; for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const ni = ci + d[0], nj = cj + d[1]; if (dSolid(ni, nj) || dist[ni * N + nj] >= 0) continue; dist[ni * N + nj] = dist[c] + 1; par[ni * N + nj] = c; q.push(ni * N + nj); } }
+    return dBfs;
+  };
+  const dVoicePath = (bx, bz) => { // 相手のいる所まで、音が通路を回り込んで届く経路。{len＝経路の長さ(m), dx/dz/dist＝聞こえる方向（経路上で自分から見える一番遠い点＝曲がり角）}。届かなければ null
+    const B = dField(), N = DG.N, ti = Math.round(bx / DG.TS), tj = Math.round(bz / DG.TS); if (ti < 0 || tj < 0 || ti >= N || tj >= N) return null;
+    const idx = ti * N + tj; if (B.dist[idx] < 0) return null;
+    const nodes = []; for (let c = idx; c !== -1; c = B.par[c]) nodes.push(c); // 相手→自分の順
+    let tgt = nodes.length >= 2 ? nodes[nodes.length - 2] : idx;
+    for (let i = 0; i < nodes.length - 1; i++) { const c = nodes[i]; if (dLos(P.x, P.z, ((c / N) | 0) * DG.TS, (c % N) * DG.TS)) { tgt = c; break; } }
+    const cx = ((tgt / N) | 0) * DG.TS, cz = (tgt % N) * DG.TS;
+    let turns = 0, pdi = 0, pdj = 0; for (let t = 0; t + 1 < nodes.length; t++) { const a = nodes[t], b = nodes[t + 1], di = ((b / N) | 0) - ((a / N) | 0), dj = (b % N) - (a % N); if (t > 0 && (di !== pdi || dj !== pdj)) turns++; pdi = di; pdj = dj; } // 経路の曲がり角の数（音は角を曲がるたびに弱まる）
+    return { len: B.dist[idx] * DG.TS * VOICE.pathStretch, dx: cx - P.x, dz: cz - P.z, dist: Math.hypot(cx - P.x, cz - P.z), turns };
+  };
+  const buildDungeon = (seed, si, sj) => { // seed＝迷路と出口の扉の決まり方（同じ番号なら全員が同じ迷路）／si,sj＝自分がワープしてきたマス（化物はここから離れた所に出す）
+    const R = (a => () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; })(seed | 0);
+    const N = DG.N, TS = DG.TS; dMaze = []; for (let i = 0; i < N; i++) dMaze.push(new Array(N).fill(1));
+    const dirs = [[2, 0], [-2, 0], [0, 2], [0, -2]], st = [[1, 1]]; dMaze[1][1] = 0;
+    while (st.length) { // 迷路を掘る（行き止まりまで掘って、戻って別の道を掘る）
+      const c = st[st.length - 1], opts = dirs.filter(d => { const a = c[0] + d[0], b = c[1] + d[1]; return a > 0 && b > 0 && a < N - 1 && b < N - 1 && dMaze[a][b] === 1; });
+      if (!opts.length) { st.pop(); continue; }
+      const d = opts[Math.floor(R() * opts.length)]; dMaze[c[0] + d[0] / 2][c[1] + d[1] / 2] = 0; dMaze[c[0] + d[0]][c[1] + d[1]] = 0; st.push([c[0] + d[0], c[1] + d[1]]);
+    }
+    for (let i = 2; i < N - 2; i++) for (let j = 2; j < N - 2; j++) { // 壁を少し抜いて、ぐるっと回れる道を作る（化物から逃げ回れるように）
+      if (dMaze[i][j] === 1 && R() < 0.12 && ((dMaze[i - 1][j] === 0 && dMaze[i + 1][j] === 0 && dMaze[i][j - 1] === 1 && dMaze[i][j + 1] === 1) || (dMaze[i][j - 1] === 0 && dMaze[i][j + 1] === 0 && dMaze[i - 1][j] === 1 && dMaze[i + 1][j] === 1))) dMaze[i][j] = 0;
+    }
+    const DEAD_FIX = 0.8, dir4 = [[1, 0], [-1, 0], [0, 1], [0, -1]]; // DEAD_FIX＝行き止まりをつなげて、なくす確率（0〜1。1ならほとんど行き止まりがなくなる／0なら今まで通り）
+    for (let i = 1; i < N - 1; i += 2) for (let j = 1; j < N - 1; j += 2) { // 🔀 行き止まりを減らす：行き止まりの先の壁を1枚抜いて、となりの道とつなぐ（外の壁は抜かない）
+      if (dMaze[i][j] !== 0 || dir4.filter(d => dMaze[i + d[0]][j + d[1]] === 0).length !== 1 || R() >= DEAD_FIX) continue;
+      const cw = dir4.filter(d => { const a = i + d[0], b = j + d[1], a2 = i + 2 * d[0], b2 = j + 2 * d[1]; return a > 0 && b > 0 && a < N - 1 && b < N - 1 && a2 > 0 && b2 > 0 && a2 < N - 1 && b2 < N - 1 && dMaze[a][b] === 1 && dMaze[a2][b2] === 0; });
+      if (cw.length) { const d = cw[Math.floor(R() * cw.length)]; dMaze[i + d[0]][j + d[1]] = 0; }
+    }
+    dScene = new THREE.Scene(); dScene.background = new THREE.Color(0x000000); dScene.fog = new THREE.Fog(0x000000, 2, 15);
+    dScene.add(new THREE.AmbientLight(0x1a1a24, 0.9));
+    dLight = new THREE.PointLight(0xffe2b0, 1.3, 18, 1.2); dScene.add(dLight); // 自分が持っている明かり
+    const wallTiles = []; for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) if (dMaze[i][j] === 1) wallTiles.push([i, j]);
+    const walls = new THREE.InstancedMesh(new THREE.BoxGeometry(TS, DG.H, TS), new THREE.MeshLambertMaterial({ color: 0xffffff }), wallTiles.length), m4 = new THREE.Matrix4(), cc = new THREE.Color();
+    wallTiles.forEach((w, k) => { m4.makeTranslation(w[0] * TS, DG.H / 2, w[1] * TS); walls.setMatrixAt(k, m4); const g = 0.22 + Math.random() * 0.1; cc.setRGB(g, g, g * 1.1); walls.setColorAt(k, cc); });
+    dScene.add(walls);
+    const mid = (N - 1) / 2 * TS, flo = new THREE.Mesh(new THREE.PlaneGeometry(N * TS, N * TS), new THREE.MeshLambertMaterial({ color: 0x2a2a30 })), cei = new THREE.Mesh(new THREE.PlaneGeometry(N * TS, N * TS), new THREE.MeshLambertMaterial({ color: 0x18181c }));
+    flo.rotation.x = -Math.PI / 2; flo.position.set(mid, 0, mid); cei.rotation.x = Math.PI / 2; cei.position.set(mid, DG.H, mid); dScene.add(flo, cei);
+    const open = []; for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) if (dMaze[i][j] === 0) open.push([i, j]);
+    const dd = [[1, 0], [-1, 0], [0, 1], [0, -1]], nearWall = o => dd.some(d => dSolid(o[0] + d[0], o[1] + d[1])); // 壁のどこかに、明るい扉をつける（スタートからはなれた所の、壁に面したマス）
+    let dc = open.filter(o => Math.abs(o[0] - 1) + Math.abs(o[1] - 1) >= 14 && nearWall(o)); if (!dc.length) dc = open.filter(nearWall).sort((a, b) => (b[0] + b[1]) - (a[0] + a[1])).slice(0, 3);
+    const dtile = dc[Math.floor(R() * dc.length)], dn = dd.filter(d => dSolid(dtile[0] + d[0], dtile[1] + d[1])), wd = dn[Math.floor(R() * dn.length)];
+    const cx = dtile[0] * TS, cz = dtile[1] * TS, off = TS / 2 - 0.08, rotY = wd[0] !== 0 ? Math.PI / 2 : 0; // wd＝扉をつける壁の向き
+    const door = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.4, 0.1), new THREE.MeshBasicMaterial({ color: 0xfff6d0, fog: false })); door.position.set(cx + wd[0] * off, 1.2, cz + wd[1] * off); door.rotation.y = rotY; dScene.add(door);
+    const gc = document.createElement('canvas'); gc.width = gc.height = 64; const gx = gc.getContext('2d'), gr = gx.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,244,200,0.9)'); gr.addColorStop(1, 'rgba(255,244,200,0)'); gx.fillStyle = gr; gx.fillRect(0, 0, 64, 64);
+    const halo = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(gc), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide })); // 扉のまわりのまぶしい光
+    halo.position.set(cx + wd[0] * (off - 0.05), 1.3, cz + wd[1] * (off - 0.05)); halo.rotation.y = rotY; dScene.add(halo);
+    const dl = new THREE.PointLight(0xfff0c0, 1.2, 10); dl.position.set(cx + wd[0] * (TS / 2 - 0.7), 1.6, cz + wd[1] * (TS / 2 - 0.7)); dScene.add(dl); // 道のほうも明るく照らす
+    dExitPos = { x: door.position.x, z: door.position.z };
+    const sphG = new THREE.SphereGeometry(1, 12, 9), eyeG = new THREE.SphereGeometry(0.08, 6, 5);
+    const darkM = new THREE.MeshLambertMaterial({ color: 0x0c0c0e }), eyeM = new THREE.MeshBasicMaterial({ color: 0xff2020, fog: false });
+    if (si < 0) { let sc = open.filter(o => Math.abs(o[0] - dtile[0]) + Math.abs(o[1] - dtile[1]) >= 12); if (!sc.length) sc = open; const o = sc[Math.floor(Math.random() * sc.length)]; si = o[0]; sj = o[1]; } dStart = [si, sj]; // 🎲 はじめにダンジョンへ入る人は、迷路のランダムなマスから始まる（出口の扉の近くは避ける。化物もそこから離れた所に出る）
+    const cand = open.filter(o => Math.abs(o[0] - si) + Math.abs(o[1] - sj) >= DG.SPAWN_MIN).sort(() => Math.random() - 0.5); dMons = []; dIsHost = false;
+    for (let k = 0; k < DG.MONSTERS && k < cand.length; k++) { // 化物：黒い球がぶくぶくと連なっていて、いちばん上の球に赤い目が光っている
+      const g = new THREE.Group(), blobs = [], n = 7 + Math.floor(Math.random() * 3); let topY = 0, topZ = 0, topR = 0.3;
+      const addBlob = (r, x, y, z) => { const mesh = new THREE.Mesh(sphG, darkM); mesh.position.set(x, y, z); mesh.scale.setScalar(r); g.add(mesh); blobs.push({ mesh, r, ph: Math.random() * 6.28 }); };
+      for (let b = 0; b < n; b++) { // 下から上へ、球を積み重ねる（下ほど大きく、上へいくほど少し小さく。左右にちょっとずれる）
+        const r = 0.5 - b * 0.03 + Math.random() * 0.1, x = (Math.random() - 0.5) * 0.3, z = (Math.random() - 0.5) * 0.3, y = r * 0.8 + b * 0.28;
+        addBlob(r, x, y, z); if (b === n - 1) { topY = y; topZ = z; topR = r; }
+      }
+      for (let b = 0; b < 4; b++) { const ang = Math.random() * 6.28; addBlob(0.2 + Math.random() * 0.12, Math.cos(ang) * 0.5, 0.4 + Math.random() * 1.4, Math.sin(ang) * 0.5); } // 横にぶくっと出っぱった小さな球
+      const e1 = new THREE.Mesh(eyeG, eyeM), e2 = new THREE.Mesh(eyeG, eyeM); e1.position.set(0.14, topY + 0.06, topZ + topR * 0.85); e2.position.set(-0.14, topY + 0.06, topZ + topR * 0.85); g.add(e1, e2);
+      const x = cand[k][0] * TS, z = cand[k][1] * TS; g.position.set(x, 0, z); dScene.add(g);
+      dMons.push({ g, blobs, x, z, ci: cand[k][0], cj: cand[k][1], pi: -1, pj: -1, alert: 0, tx: x, tz: z, was: false, ph: Math.random() * 6 });
+    }
+  };
+  // 💓 心音：音声ファイルは使わず、ブラウザで低い「ドッ」を作って鳴らす（「ドクン…ドクン」の2回で1拍）。化物に見つかっている間だけ鳴り、近いほど大きく・はやくなる
+  const startHeart = () => {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      hbAc = new AC(); if (hbAc.resume) hbAc.resume().catch(() => {});
+      const comp = hbAc.createDynamicsCompressor(); hbGain = hbAc.createGain(); hbGain.gain.value = 1; hbGain.connect(comp); comp.connect(hbAc.destination);
+    } catch (e) { hbAc = null; hbGain = null; }
+  };
+  const hbThump = (v, f0, len) => { // 1回の「ドッ」：低い音がすっと下がる（スマホのスピーカーでも聞こえるように、三角波で少し高い成分もまぜる）
+    if (!hbAc) return;
+    try { const t0 = hbAc.currentTime, o = hbAc.createOscillator(), g = hbAc.createGain(), lp = hbAc.createBiquadFilter(); o.type = 'triangle'; o.frequency.setValueAtTime(f0, t0); o.frequency.exponentialRampToValueAtTime(f0 * 0.5, t0 + len); lp.type = 'lowpass'; lp.frequency.value = 420; g.gain.setValueAtTime(0.001, t0); g.gain.linearRampToValueAtTime(v, t0 + 0.012); g.gain.exponentialRampToValueAtTime(0.001, t0 + len); o.connect(lp); lp.connect(g); g.connect(hbGain); o.start(t0); o.stop(t0 + len + 0.02); } catch (e) { /* 何もしない */ }
+  };
+  const stopHeart = () => { if (hbAc) { try { hbAc.close(); } catch (e) { /* 何もしない */ } hbAc = null; } hbGain = null; };
+  const warpToDungeon = () => { // 暗転している間に、ダンジョンへ移る
+    if (isClosed()) return;
+    glClearRemotes();
+    // 先にダンジョンへワープしている人がいれば、その人と同じ迷路（同じ番号）にする（始まる場所はだれでもランダム）
+    let si = -1, sj = -1, spawnYaw = null; dSeed = Math.floor(Math.random() * 2147483647) + 1;
+    { const pl = (opt.scene && opt.scene.latestPlayers) || {}, me = opt.net && opt.net.uid, ids = Object.keys(pl).filter(u => u !== me && pl[u] && pl[u].gl && pl[u].gl.d && pl[u].gl.sd).sort();
+      if (ids.length) { const g = pl[ids[0]].gl; dSeed = g.sd; } } // 合流する時も、同じ迷路（同じ番号）に入るだけで、始まる場所はランダム
+    buildDungeon(dSeed, si, sj); si = dStart[0]; sj = dStart[1]; if (dSolid(si, sj)) { si = 1; sj = 1; spawnYaw = null; }
+    startHeart(); setMode('dungeon'); // 草原の草・木・空はもう描かないので、先に片づける（グラフィックのメモリをあける）
+    disposeGrass(); // 🌿 草原の絵・メモリの片づけは、草原側の関数に任せる（ダンジョンは草原の中身を知らない）
+    dDead = false; dCatch = null; if (dFlash) dFlash.style.opacity = '0'; camera.fov = 70; camera.updateProjectionMatrix();
+    P.x = si * DG.TS; P.z = sj * DG.TS; P.pitch = 0; P.yaw = spawnYaw != null ? spawnYaw : (() => { const od = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(d => !dSolid(si + d[0], sj + d[1])); const d = od.length ? od[Math.floor(Math.random() * od.length)] : [1, 0]; return Math.atan2(-d[0], -d[1]); })(); // 開いている方を向いて始まる（先にいる人の近くなら、その人と同じ向き）
+    renderer.setClearColor(0x000000, 1);
+    blk.style.transition = 'opacity 2.4s'; blk.style.opacity = '0'; // 暗闇からゆっくり見えてくる
+    hint.textContent = '暗い…どこかで何かが歩いている。壁のどこかに、明るい扉があるはずだ'; hint.style.transition = 'opacity 1.5s'; hint.style.opacity = '1'; setTimeout(() => { hint.style.opacity = '0'; }, 8000);
+  };
+  const dEnd = ms => { dDead = true; blk.style.transition = 'opacity 0.3s'; blk.style.opacity = '1'; setTimeout(exit, ms); }; // 画面を暗くして、草原を出る
+  // 😱 捕まった時の恐怖演出：化物がぐわっと顔の前に迫り、画面が白く光って赤くちらつき、カメラが激しく揺れる。同時に、ブラウザで作ったでかい悲鳴＋爆音が鳴る
+  const dScream = () => { // 驚かし音：ノイズの爆発＋ひずんだ金切り声＋腹に響く重低音（音声ファイルは使わない）。最後に圧縮して音割れ寸前の大音量にする
+    try {
+      if (!hbAc) startHeart(); if (!hbAc) return; if (hbAc.state === 'suspended' && hbAc.resume) hbAc.resume().catch(() => {});
+      const c = hbAc, t0 = c.currentTime, comp = c.createDynamicsCompressor(), out = c.createGain();
+      comp.threshold.value = -4; comp.knee.value = 0; comp.ratio.value = 20; comp.attack.value = 0.001; comp.release.value = 0.15; out.gain.value = 0.8; out.connect(comp); comp.connect(c.destination);
+      const curve = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(x * 6); }
+      const ws = c.createWaveShaper(); ws.curve = curve; ws.oversample = '2x'; ws.connect(out);
+      const nl = Math.floor(c.sampleRate * 1.8), nb = c.createBuffer(1, nl, c.sampleRate), nd = nb.getChannelData(0); for (let i = 0; i < nl; i++) nd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / nl, 1.3);
+      const ns = c.createBufferSource(), bp = c.createBiquadFilter(), ng = c.createGain(); ns.buffer = nb; bp.type = 'bandpass'; bp.frequency.value = 2200; bp.Q.value = 0.6; ng.gain.setValueAtTime(1.2, t0); ng.gain.exponentialRampToValueAtTime(0.001, t0 + 1.7); ns.connect(bp); bp.connect(ng); ng.connect(ws); ns.start(t0);
+      [[880, 1760], [1175, 2350], [1397, 1100], [660, 1500]].forEach((f, i) => { // 不協和な金切り声：のこぎり波が急にかけ上がり、ふるえる
+        const o = c.createOscillator(), g = c.createGain(), lfo = c.createOscillator(), lg = c.createGain(); o.type = 'sawtooth';
+        o.frequency.setValueAtTime(f[0], t0); o.frequency.exponentialRampToValueAtTime(f[1], t0 + 0.25); o.frequency.exponentialRampToValueAtTime(f[0] * 0.8, t0 + 1.5);
+        lfo.frequency.value = 22 + i * 5; lg.gain.value = 40; lfo.connect(lg); lg.connect(o.frequency);
+        g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(0.5, t0 + 0.01); g.gain.setValueAtTime(0.5, t0 + 0.9); g.gain.exponentialRampToValueAtTime(0.001, t0 + 1.7);
+        o.connect(g); g.connect(ws); o.start(t0); lfo.start(t0); o.stop(t0 + 1.8); lfo.stop(t0 + 1.8);
+      });
+      const b = c.createOscillator(), bg = c.createGain(); b.type = 'sine'; b.frequency.setValueAtTime(110, t0); b.frequency.exponentialRampToValueAtTime(28, t0 + 0.5); bg.gain.setValueAtTime(1.4, t0); bg.gain.exponentialRampToValueAtTime(0.001, t0 + 0.9); b.connect(bg); bg.connect(out); b.start(t0); b.stop(t0 + 1);
+    } catch (e) { /* 何もしない */ }
+  };
+  const dCaught = m => { // 捕まった：演出をはじめて、1.5秒後に真っ暗、2.6秒後に草原を出る
+    dDead = true; dCatch = { t: 0, m }; hint.style.opacity = '0';
+    if (!dFlash) { dFlash = document.createElement('div'); dFlash.style.cssText = 'position:absolute;inset:0;pointer-events:none;opacity:0;'; root.insertBefore(dFlash, blk); }
+    if (dLight) dLight.color.set(0xff2a10);
+    dScream(); try { if (navigator.vibrate) navigator.vibrate([250, 60, 350]); } catch (e) { /* 何もしない */ }
+    setTimeout(() => { blk.style.transition = 'opacity 0.12s'; blk.style.opacity = '1'; }, 1500); setTimeout(exit, 2600);
+  };
+  const dCatchStep = dt => { // 毎フレーム：化物のほうへ首がぐいっと向き、化物が目の前に飛びこみ、画面がちかちかする
+    const c = dCatch, m = c.m; c.t += dt;
+    const dx = m.x - P.x, dz = m.z - P.z, dist = Math.hypot(dx, dz) || 0.01, k = Math.min(1, dt * 18);
+    let dy = Math.atan2(-dx, -dz) - P.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); P.yaw += dy * k; P.pitch += (0.55 - P.pitch) * k; // 見上げさせられる
+    const want = Math.max(1.2, dist - 16 * dt); m.x = P.x + dx / dist * want; m.z = P.z + dz / dist * want; // 化物がぐわっと迫る
+    m.g.position.set(m.x, 0, m.z); m.g.rotation.y = Math.atan2(-dx, -dz); m.g.scale.setScalar(1 + 0.15 * Math.min(1, c.t / 0.2));
+    camera.fov = 70 + 28 * Math.min(1, c.t / 0.15); camera.updateProjectionMatrix(); // 画角がぐっと広がって、ゆがむ
+    if (dFlash) { if (c.t < 0.08) { dFlash.style.background = '#fff'; dFlash.style.opacity = '1'; } else { dFlash.style.background = 'radial-gradient(ellipse at center, rgba(255,0,0,0) 20%, rgba(150,0,0,0.95) 100%)'; dFlash.style.opacity = String(c.t < 1.4 ? 0.55 + 0.45 * Math.random() : 1); } }
+  };
+  const dungeonFrame = (dt, t, mf, mr, sp2, sy, cy) => {
+    if (dCatch) dCatchStep(dt);
+    if (!dDead) dMove(P, (-sy * mf + cy * mr) * sp2, (-cy * mf - sy * mr) * sp2, 0.4);
+    camera.position.set(P.x, 1.6, P.z); camera.rotation.set(P.pitch, P.yaw, 0); camera.updateMatrixWorld();
+    dLight.position.copy(camera.position); dLight.intensity = 1.25 + 0.1 * Math.sin(t * 11) * Math.sin(t * 3.1); // 明かりが、かすかにゆれる
+    if (dCatch) { const k = Math.max(0, 1 - dCatch.t / 1.6) * 0.09 + 0.02; camera.position.x += (Math.random() - 0.5) * k; camera.position.y += (Math.random() - 0.5) * k; camera.rotation.z = (Math.random() - 0.5) * k * 2.5; dLight.intensity = 2 + 3 * Math.random(); } // 捕まった間は、画面が激しく揺れ、明かりが赤くちらつく
+    const TS = DG.TS; let found = false, nearD = 99;
+    // 🤝 協力プレイ：同じ迷路にいる人のうち1人（ホスト）だけが化物を動かして、位置を配る。ほかの人はその位置どおりに化物を出す。ホスト＝すでに化物の位置を配っている人のうち uid がいちばん小さい人（だれも配っていなければ、迷路にいる全員のうち uid がいちばん小さい人）
+    let hostM = null, mates = [];
+    if (glNet) {
+      const pl = (glSc && glSc.latestPlayers) || {}, me = glNet.uid;
+      for (const u in pl) { if (u === me) continue; const g = pl[u] && pl[u].gl; if (g && g.d && g.sd === dSeed) mates.push({ u, g }); }
+      const cands = mates.filter(x => Array.isArray(x.g.m)).map(x => x.u); if (dIsHost) cands.push(me);
+      const hostUid = (cands.length ? cands : mates.map(x => x.u).concat([me])).sort()[0], was = dIsHost; dIsHost = hostUid === me;
+      if (dIsHost && !was) dMons.forEach(m => { m.ci = Math.round(m.x / TS); m.cj = Math.round(m.z / TS); m.pi = m.pj = -1; m.was = false; m.alert = 0; }); // 新しくホストになった：いまの位置から、徘徊をつづける
+      if (!dIsHost) { const hm = mates.find(x => x.u === hostUid); hostM = hm && Array.isArray(hm.g.m) ? hm.g.m : null; }
+    } else dIsHost = true;
+    const multi = mates.length > 0;
+    dMons.forEach((m, mi) => {
+      if (dCatch && dCatch.m === m) { m.blobs.forEach(b => b.mesh.scale.setScalar(b.r * (1 + 0.25 * Math.sin(t * 25 + b.ph)))); return; } // 捕まえた化物は、その場でうごめく
+      if (!dIsHost) { // ホストから届いた位置へ、なめらかに動く（最初と大きくずれた時は、すぐ移る）
+        const sn = hostM && hostM[mi];
+        if (sn) { const ex = sn[0] - m.x, ez = sn[1] - m.z, ed = Math.hypot(ex, ez); if (!m.synced || ed > 5) { m.x = sn[0]; m.z = sn[1]; m.synced = true; } else { const k2 = Math.min(1, dt * 10); if (ed > 0.02) m.g.rotation.y = Math.atan2(ex, ez); m.x += ex * k2; m.z += ez * k2; } m.alert = sn[2] ? 3 : 0; }
+      } else {
+        let seen = null, sdist = 1e9; const tg = []; if (!dDead) tg.push({ x: P.x, z: P.z }); mates.forEach(x => tg.push({ x: x.g.x, z: x.g.z }));
+        tg.forEach(q => { const dd = Math.hypot(q.x - m.x, q.z - m.z); if (dd < DG.SIGHT && dd < sdist && dLos(m.x, m.z, q.x, q.z)) { seen = q; sdist = dd; } });
+        if (seen) { m.alert = 3; m.tx = seen.x; m.tz = seen.z; } else if (m.alert > 0) m.alert -= dt;
+      }
+      if (m.alert > 0 && (!multi || Math.hypot(P.x - m.x, P.z - m.z) < DG.SIGHT * 1.6)) { found = true; nearD = Math.min(nearD, Math.hypot(P.x - m.x, P.z - m.z)); } // 見つかっている（見失っても3秒はつづく）
+      if (dIsHost) {
+        let gx, gz, sp;
+        if (m.alert > 0) { m.was = true; gx = m.tx; gz = m.tz; sp = DG.CHASE; } // 見つけた：見失っても3秒は、最後に見た場所まで追う
+        else {
+          if (m.was) { m.was = false; m.ci = Math.round(m.x / TS); m.cj = Math.round(m.z / TS); m.pi = m.pj = -1; } // 見失ったので、近くのマスから徘徊にもどる
+          if (Math.hypot(m.ci * TS - m.x, m.cj * TS - m.z) < 0.15) { // 着いたら、つぎのマスをえらぶ（なるべく来た道はもどらない）
+            let ns = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(d => !dSolid(m.ci + d[0], m.cj + d[1])); const fw = ns.filter(d => !(m.ci + d[0] === m.pi && m.cj + d[1] === m.pj)); if (fw.length) ns = fw;
+            if (ns.length) { const d = ns[Math.floor(Math.random() * ns.length)]; m.pi = m.ci; m.pj = m.cj; m.ci += d[0]; m.cj += d[1]; }
+          }
+          gx = m.ci * TS; gz = m.cj * TS; sp = DG.WALK;
+        }
+        const dx = gx - m.x, dz = gz - m.z, d = Math.hypot(dx, dz);
+        if (d > 0.3) { const k = Math.min(d, sp * dt) / d; dMove(m, dx * k, dz * k, 0.4); m.g.rotation.y = Math.atan2(dx, dz); }
+      }
+      m.g.position.set(m.x, 0, m.z); m.blobs.forEach(b => b.mesh.scale.setScalar(b.r * (1 + 0.13 * Math.sin(t * 3.2 + b.ph)))); // 球がそれぞれ、ぶくぶくとふくらんだり縮んだりする
+      if (!dDead && Math.hypot(P.x - m.x, P.z - m.z) < DG.CATCH) dCaught(m); // 捕まった：恐怖演出＋大音量の悲鳴、そのあと暗転して草原を出る
+    });
+    // 💓 化物に見つかっている間は、心臓の音がする（近いほど大きく、はやくなる）
+    if (hbGain && !dCatch) { if (found) { const near = 1 - Math.min(nearD, DG.SIGHT) / DG.SIGHT; hbT -= dt; if (hbT <= 0) { const v = 0.55 + 0.55 * near; hbThump(v, 62, 0.16); setTimeout(() => hbThump(v * 0.7, 50, 0.2), 150 - 40 * near); hbT = 0.95 - 0.5 * near; } } else hbT = 0; }
+    if (!dDead && Math.hypot(P.x - dExitPos.x, P.z - dExitPos.z) < 1.2) dEnd(900); // 扉に入った：明るく…ではなく暗転して、草原を出る
+    renderer.render(dScene, camera);
+  };
+  // ----- 🎙 一緒にいる人の姿の同期（広場と同じ仕組み）：自分の位置は updateOwnState({ gl: {...} }) で0.06秒ごとに配る（広場の g3 とは別のキー）。
+  //   影が出る時・ダンジョンへワープする時は人それぞれ（同期しない）。ただし、先にダンジョンにいる人がいれば、その人と同じ迷路・その人の近くにワープする。
+  //   gl = { x, z, r（向き）, p（上下の向き）, d（1＝ダンジョンの中）, sd（ダンジョンの迷路の番号） }。草原にいる人は草原だけ、ダンジョンにいる人は同じ迷路の人だけが見える。
+  return {
+    warp: warpToDungeon, frame: dungeonFrame, stopHeart, wallTiles: dWallTiles, voicePath: dVoicePath,
+    get scene() { return dScene; }, get seed() { return dSeed; }, get mons() { return dMons; }, get isHost() { return dIsHost; }
+  };
+};
+
 function openGrassland(onClose, opt) {
   opt = opt || {};
   if (typeof THREE === 'undefined') { if (onClose) onClose(); return; }
@@ -1768,7 +1987,7 @@ function openGrassland(onClose, opt) {
     if (closed) return; closed = true; cancelAnimationFrame(raf);
     document.removeEventListener('keydown', onKeyDown, true); document.removeEventListener('keyup', onKeyUp, true); window.removeEventListener('resize', resize); window.removeEventListener('blur', onBlur);
     scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); });
-    if (dScene) dScene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); stopChaseSound(); stopHeart(); stopAmbient(); try { wVoiceRestore(); } catch (e) { /* 何もしない */ } glStop(); cairnStop(); [trunkGeo, leafGeo, trunkMat, leafMat, shTex].forEach(o => o.dispose()); THREE.ShaderChunk.fog_vertex = FOG_ORIG; renderer.dispose(); try { renderer.forceContextLoss(); } catch (e) { /* 何もしない */ }
+    if (dun && dun.scene) dun.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); if (dun) dun.stopHeart(); stopAmbient(); try { wVoiceRestore(); } catch (e) { /* 何もしない */ } glStop(); cairnStop(); [trunkGeo, leafGeo, trunkMat, leafMat].forEach(o => o.dispose()); THREE.ShaderChunk.fog_vertex = FOG_ORIG; renderer.dispose(); try { renderer.forceContextLoss(); } catch (e) { /* 何もしない */ }
     root.remove(); if (onClose) onClose();
   };
   const onKeyDown = ev => {
@@ -1803,28 +2022,6 @@ function openGrassland(onClose, opt) {
   const resize = () => { const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
   window.addEventListener('resize', resize); resize();
 
-  // ----- 👁 黒い影（ホラー）：入ってしばらくすると、自分の背中側の遠くに黒い影が現れる（視界の外にしか現れない）。歩いても同じ距離・同じ方角のままついてくるので、振り返れば必ず見える。見えて少しすると消えて、また間をおいて現れる -----
-  const SHADOW_FIRST = 40, SHADOW_GAP = [30, 60], SHADOW_DIST = 45, SHADOW_SEEN = 4.3, SHADOW_OP = 0.6; // 最初に現れるまで(秒)／消えてから次に現れるまで(秒)／自分からの距離(m)／はっきり見えてから消え始めるまで(秒。消えるのに0.7秒かかるので、見てから消え終わるまで合計5秒)／いちばん濃い時の濃さ
-  const mkShadowTex = () => { // ぼんやりした人影の絵（ぼかしの影だけを描く：図形の本体は画面の外に描いて、ぼかした影だけを写す）
-    const W = 128, H = 256, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'), OFF = 1000;
-    x.shadowColor = '#000'; x.shadowBlur = 16; x.shadowOffsetX = OFF; x.fillStyle = '#000'; x.strokeStyle = '#000'; x.lineWidth = 5; x.lineCap = 'round';
-    const draw = () => {
-      x.beginPath(); x.ellipse(64 - OFF, 48, 12, 17, 0.08, 0, 6.3); x.fill(); // 頭
-      x.beginPath(); x.moveTo(55 - OFF, 66); x.lineTo(73 - OFF, 66); x.lineTo(92 - OFF, 92); x.lineTo(86 - OFF, 222); x.lineTo(42 - OFF, 222); x.lineTo(36 - OFF, 92); x.closePath(); x.fill(); // 胴
-      [[36, 92, 29, 228], [92, 92, 99, 228]].forEach(([a, b, c2, d]) => { x.beginPath(); x.moveTo(a - OFF, b); x.lineTo(c2 - OFF, d); x.stroke(); }); // 長く垂れた腕
-    };
-    draw(); draw(); // 2回重ねて濃くする
-    x.shadowColor = 'transparent'; x.globalCompositeOperation = 'destination-in'; const gr = x.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.6, 'rgba(0,0,0,0.9)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = gr; x.fillRect(0, 0, W, H); // 足もとは霧にとけるように薄く
-    return new THREE.CanvasTexture(c);
-  };
-  const shTex = mkShadowTex(), shMat = new THREE.MeshBasicMaterial({ map: shTex, transparent: true, opacity: 0, depthWrite: false }), shadow = new THREE.Group();
-  const shPlane = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 4.6), shMat); shPlane.position.y = 2.1; shadow.add(shPlane); shadow.visible = false; scene.add(shadow); // 自分のほうを向いた板に、ぼやけた影の絵を貼る（霧の影響も受ける）
-  let sOn = false, sTimer = SHADOW_FIRST, sYaw = 0, sSeen = 0, sStart = false, sA = 0, sGone = false; const projV = new THREE.Vector3();
-  const onScreen = (x, y, z, mx, my) => { projV.set(x, y, z).project(camera); return projV.z < 1 && Math.abs(projV.x) < mx && Math.abs(projV.y) < my; }; // 画面の中（mx・my＝画面の端を1とした範囲）にあるか。カメラの後ろは false
-  const placeShadow = (fix) => { if (!fix) { const x = P.x - Math.sin(sYaw) * SHADOW_DIST, z = P.z - Math.cos(sYaw) * SHADOW_DIST; shadow.position.set(x, avY(x, z), z); } shadow.rotation.y = Math.atan2(P.x - shadow.position.x, P.z - shadow.position.z); }; // 自分のほうを向いて立つ（fix＝true の間は位置を動かさず、向きだけ自分のほうへ）
-  // ----- 👁 三回目に黒い影を見ると、大きな音を立てて追いかけてくる。足は自分の走る速さ(4.2×1.9)より1割速い。追いつかれると画面が暗転して、草原から出る -----
-  const SHADOW_CHASE_AT = 3, CHASE_SPEED = 4.2 * 1.9 * 1.1, CATCH_DIST = 1.4; // 何回目に見た時に追ってくるか／追ってくる速さ(m/秒)／これより近づかれたら捕まる(m)
-  let sCount = 0, chase = false, caught = false, ac = null, chMaster = null, chNodes = [], stompT = 0;
   // ----- 🍃 草原のかすかな自然音：風（ゆっくり強弱する）・草のざわめき・遠くの鳥。左右に広がって聞こえ、高い丘の上ほど風が強い。影に追われている間とダンジョンの間は、静かに消える（音はすべて小さく、ここだけの別の AudioContext） -----
   let amAmb = null, amOut = null, amWet = null, amUw = null, amBab = [], amNoise = null, amAc = null, amMaster = null, amWindBus = null, amBirdBus = null, amNodes = [], amBirdT = 3, amWant = -1, amGust = null, amGustT = 6; // amGust＝風の「ひと吹き」の強さ（ふだんはほぼ無音、ときどきだけ吹く）
   const startAmbient = () => {
@@ -1935,7 +2132,7 @@ function openGrassland(onClose, opt) {
   const updateAmbient = (dt) => { // 毎フレーム：音の大きさ（追われている間・ダンジョンでは0）、丘の高さに応じた風、鳥のタイミング
     if (!amAc || amAc.state === 'closed') return;
     if (amAc.state === 'suspended' && amAc.resume) amAc.resume().catch(() => {}); // 最初の操作のあとで鳴りはじめる
-    const want = (chase || caught || inDungeon) ? 0 : 1;
+    const want = inDungeon ? 0 : 1;
     if (want !== amWant) { amWant = want; amMaster.gain.setTargetAtTime(want ? 0.6 : 0, amAc.currentTime, want ? 2.2 : 0.5); } // ゆっくり聞こえはじめる／追われたら、すっと消える
     if (!want) return;
     amWindBus.gain.value = 1 + 1.3 * Math.max(0, Math.min(1, hh(P.x, P.z) / 12)); // 高い丘の上ほど風が強い（開放感）
@@ -1946,270 +2143,14 @@ function openGrassland(onClose, opt) {
   const stopAmbient = () => { whWho = null; whBuf = null; whBufTried = false; whPre = false; amNodes.forEach(n => { try { n.stop(); } catch (e) { /* 何もしない */ } }); amNodes = []; if (amAc) { try { amAc.close(); } catch (e) { /* 何もしない */ } amAc = null; } };
   if (!opt.dungeonOnly) startAmbient(); // 交流ルームの「ダンジョン」（草原を歩かない）では鳴らさない
   const blk = document.createElement('div'); blk.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity 0.6s;'; root.appendChild(blk); // 暗転用の黒い幕
-  const thump = v => { if (!ac) return; try { const t0 = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(120, t0); o.frequency.exponentialRampToValueAtTime(32, t0 + 0.25); g.gain.setValueAtTime(v, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.32); o.connect(g); g.connect(chMaster); o.start(t0); o.stop(t0 + 0.35); } catch (e) { /* 何もしない */ } }; // ドンという足音
-  const startChaseSound = () => { // うなる低い声＋ざらざらした音＋足音。近づくほど大きくなる
-    try {
-      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
-      ac = new AC(); if (ac.resume) ac.resume().catch(() => {});
-      const comp = ac.createDynamicsCompressor(); chMaster = ac.createGain(); chMaster.gain.value = 0.5; chMaster.connect(comp); comp.connect(ac.destination);
-      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 260; lp.connect(chMaster);
-      [[48, 'sawtooth', 0.4], [51.5, 'sawtooth', 0.4], [96, 'square', 0.18]].forEach(a => { const o = ac.createOscillator(), g = ac.createGain(); o.type = a[1]; o.frequency.value = a[0]; g.gain.value = a[2]; o.connect(g); g.connect(lp); o.start(); chNodes.push(o); });
-      const lfo = ac.createOscillator(), lg = ac.createGain(); lfo.frequency.value = 7; lg.gain.value = 0.25; lfo.connect(lg); lg.connect(chMaster.gain); lfo.start(); chNodes.push(lfo); // うなりの揺れ
-      const nb = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate), nd = nb.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
-      const ns = ac.createBufferSource(), nf = ac.createBiquadFilter(), ng = ac.createGain(); ns.buffer = nb; ns.loop = true; nf.type = 'bandpass'; nf.frequency.value = 700; nf.Q.value = 0.6; ng.gain.value = 0.25; ns.connect(nf); nf.connect(ng); ng.connect(chMaster); ns.start(); chNodes.push(ns);
-      thump(1.6); // 見つけた瞬間の大きな「ドン」
-    } catch (e) { ac = null; }
-  };
-  const stopChaseSound = () => { chNodes.forEach(n => { try { n.stop(); } catch (e) { /* 何もしない */ } }); chNodes = []; if (ac) { try { ac.close(); } catch (e) { /* 何もしない */ } ac = null; } };
-  const startChase = () => { chase = true; sA = 1; startChaseSound(); };
-  const chaseStep = (dt, t) => {
-    if (caught) return;
-    const dx = P.x - shadow.position.x, dz = P.z - shadow.position.z, d = Math.hypot(dx, dz);
-    if (d < CATCH_DIST) { // 追いつかれた：ドンと鳴って、画面が真っ暗になり、少ししたら草原を出る
-      caught = true; thump(2.2); blk.style.transition = 'opacity 0.25s'; blk.style.opacity = '1';
-      if (ac && chMaster) chMaster.gain.setTargetAtTime(0, ac.currentTime + 0.4, 0.25);
-      setTimeout(warpToDungeon, 1800); return;
-    }
-    const k = Math.min(d, CHASE_SPEED * dt) / d, x = shadow.position.x + dx * k, z = shadow.position.z + dz * k;
-    shadow.position.set(x, avY(x, z), z); shadow.rotation.y = Math.atan2(P.x - x, P.z - z); // 自分に向かって、まっすぐ走ってくる
-    sA = 1; shadow.scale.setScalar(1.25); shMat.opacity = 0.95 * (0.9 + 0.1 * Math.sin(t * 17));
-    if (ac && chMaster) { const near = 1 - Math.min(d, 45) / 45; chMaster.gain.value = 0.45 + 0.65 * near; stompT -= dt; if (stompT <= 0) { thump(0.9 + 0.7 * near); stompT = 0.34; } }
-  };
-  const updateShadow = (dt, t) => {
-    if (!sOn) {
-      sTimer -= dt; if (sTimer > 0) return;
-      sYaw = P.yaw + Math.PI + (Math.random() - 0.5) * 0.9; placeShadow(); // 背中側（真後ろから左右に約25°まで）
-      if (onScreen(shadow.position.x, shadow.position.y + 1.8, shadow.position.z, 1.5, 1.5)) return; // 画面の中や、そのすぐ外なら出さずに、次のフレームでやり直す
-      shadow.visible = true; sOn = true; sSeen = 0; sStart = false; sA = 0; sGone = false; return;
-    }
-    if (chase) { chaseStep(dt, t); return; } // 👁 三回目：追いかけてくる
-    placeShadow(sStart); // 見つけるまでは、歩いても自分から同じ距離・同じ方角に居続ける。振り返って見えたら（sStart）その場に固定して、歩いても動かない
-    if (!sGone) {
-      sA = Math.min(1, sA + dt / 1.2); // すうっと浮かび上がる
-      if (!sStart && sA >= 0.8 && onScreen(shadow.position.x, shadow.position.y + 1.8, shadow.position.z, 0.9, 0.95)) { sStart = true; if (++sCount >= SHADOW_CHASE_AT) startChase(); } // 振り返って、はっきり見える状態で視界に入った：ここから数え始める（そのあと目をそらしても、数えは続く）
-      if (sStart && !chase) { sSeen += dt; if (sSeen >= SHADOW_SEEN) sGone = true; }
-    } else {
-      sA -= dt / 0.7; // 見られたら、すっと薄れて消える
-      if (sA <= 0) { shadow.visible = false; sOn = false; sTimer = SHADOW_GAP[0] + Math.random() * (SHADOW_GAP[1] - SHADOW_GAP[0]); return; }
-    }
-    shMat.opacity = SHADOW_OP * Math.max(0, sA) * (0.85 + 0.15 * Math.sin(t * 2.3)); shPlane.scale.x = 1 + 0.04 * Math.sin(t * 1.3); // ゆらゆらして見える
-  };
 
-  // ----- 🕳 暗いダンジョン：三回目の影に追いつかれると、ここへワープする。迷路の中を化物が歩き回っていて、見つかると追ってくる。緑の光の出口に入るか、化物に捕まると、草原を出て部屋に戻る -----
-  // ════════════ ここから：ダンジョン（草原とは別の区画） ════════════
-  // ダンジョンの部品は、d○○ という名前（DG・dScene・dMons・dungeonFrame など）と、warpToDungeon / startHeart / stopHeart / dEnd / dScream / dCaught にまとめてある。
-  // ・草原との境目は、次の3つだけ： ①入る＝warpToDungeon（草原の絵を片づけ、setMode('dungeon') で画面を切り替える） ②毎フレーム＝frame の中で inDungeon の時に dungeonFrame だけを動かす ③出る＝dEnd → exit
-  // ・「今どちらか」の旗 inDungeon は setMode でだけ変える。草原の画面（HUD・ボタン）は applyModeUi でだけ出し入れする（ダンジョンのコードから草原の画面を直接触らない）
-  // ・草原と共有しているもの： renderer / camera / P（自分の位置と向き）/ blk（暗転）/ hint / opt / glNet（通信）/ closed / exit
-  const DG = { N: 21, TS: 3, H: 3.2, MONSTERS: 5, WALK: 1.8, CHASE: 3.4, SIGHT: 11, CATCH: 1.0, SPAWN_MIN: 9 }; // N＝迷路の大きさ(マス・奇数)／TS＝1マスの大きさ(m)／H＝天井の高さ／MONSTERS＝化物の数／WALK＝徘徊の速さ／CHASE＝追ってくる速さ(自分の歩き4.2より遅いので、走れば逃げられる)／SIGHT＝見つけられる距離(m)／CATCH＝捕まる距離(m)／SPAWN_MIN＝スタートからこのマス数以上はなれた所に化物が出る
-  let dStart = [1, 1], dIsHost = false, dSeed = 0, inDungeon = false, dScene = null, dMaze = null, dMons = [], dExitPos = null, dLight = null, dDead = false, dCatch = null, dFlash = null, hbAc = null, hbGain = null, hbT = 0;
-  const dSolid = (i, j) => i < 0 || j < 0 || i >= DG.N || j >= DG.N || dMaze[i][j] === 1;
-  const dWallAt = (x, z, r) => { for (const ox of [-r, r]) for (const oz of [-r, r]) if (dSolid(Math.round((x + ox) / DG.TS), Math.round((z + oz) / DG.TS))) return true; return false; };
-  const dMove = (o, dx, dz, r) => { if (!dWallAt(o.x + dx, o.z, r)) o.x += dx; if (!dWallAt(o.x, o.z + dz, r)) o.z += dz; }; // 壁にぶつかったら、その向きだけ止まる（壁にそってすべる）
-  const dLos = (ax, az, bx, bz) => { const dx = bx - ax, dz = bz - az, n = Math.ceil(Math.hypot(dx, dz) / 0.5); for (let k = 1; k < n; k++) if (dWallAt(ax + dx * k / n, az + dz * k / n, 0)) return false; return true; }; // 間に壁がなく見えているか
-  // 🎙 声の壁越し処理（2Dダンジョンの VoiceChat._wallTiles / _soundField / _soundPath と同じ考え方）。VoiceChat が glVS.wall / glVS.path として呼ぶ
-  const dWallTiles = (ax, az, bx, bz) => { // 2点の間にある壁のマスの数（＝壁の厚み）。途中で壁のマスに入るたびに1つ数える
-    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / (DG.TS * 0.25))); let c = 0, last = -1;
-    for (let k = 1; k < n; k++) { const i = Math.round((ax + (bx - ax) * k / n) / DG.TS), j = Math.round((az + (bz - az) * k / n) / DG.TS); if (dSolid(i, j)) { const key = (i + 8) * 100 + (j + 8); if (key !== last) { c++; last = key; } } else last = -1; }
-    return c;
-  };
-  let dBfs = null;
-  const dField = () => { // 自分のマスから、歩いて行ける範囲を幅優先で調べる（迷路は固定なので、自分のマスが変わった時だけ調べ直す）
-    const si = Math.round(P.x / DG.TS), sj = Math.round(P.z / DG.TS), N = DG.N;
-    if (dBfs && dBfs.si === si && dBfs.sj === sj && dBfs.maze === dMaze) return dBfs;
-    const dist = new Int16Array(N * N).fill(-1), par = new Int32Array(N * N).fill(-1); dBfs = { si, sj, maze: dMaze, dist, par };
-    if (dSolid(si, sj)) return dBfs;
-    const q = [si * N + sj]; dist[si * N + sj] = 0;
-    for (let h = 0; h < q.length; h++) { const c = q[h], ci = (c / N) | 0, cj = c % N; for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const ni = ci + d[0], nj = cj + d[1]; if (dSolid(ni, nj) || dist[ni * N + nj] >= 0) continue; dist[ni * N + nj] = dist[c] + 1; par[ni * N + nj] = c; q.push(ni * N + nj); } }
-    return dBfs;
-  };
-  const dVoicePath = (bx, bz) => { // 相手のいる所まで、音が通路を回り込んで届く経路。{len＝経路の長さ(m), dx/dz/dist＝聞こえる方向（経路上で自分から見える一番遠い点＝曲がり角）}。届かなければ null
-    const B = dField(), N = DG.N, ti = Math.round(bx / DG.TS), tj = Math.round(bz / DG.TS); if (ti < 0 || tj < 0 || ti >= N || tj >= N) return null;
-    const idx = ti * N + tj; if (B.dist[idx] < 0) return null;
-    const nodes = []; for (let c = idx; c !== -1; c = B.par[c]) nodes.push(c); // 相手→自分の順
-    let tgt = nodes.length >= 2 ? nodes[nodes.length - 2] : idx;
-    for (let i = 0; i < nodes.length - 1; i++) { const c = nodes[i]; if (dLos(P.x, P.z, ((c / N) | 0) * DG.TS, (c % N) * DG.TS)) { tgt = c; break; } }
-    const cx = ((tgt / N) | 0) * DG.TS, cz = (tgt % N) * DG.TS;
-    let turns = 0, pdi = 0, pdj = 0; for (let t = 0; t + 1 < nodes.length; t++) { const a = nodes[t], b = nodes[t + 1], di = ((b / N) | 0) - ((a / N) | 0), dj = (b % N) - (a % N); if (t > 0 && (di !== pdi || dj !== pdj)) turns++; pdi = di; pdj = dj; } // 経路の曲がり角の数（音は角を曲がるたびに弱まる）
-    return { len: B.dist[idx] * DG.TS * VOICE.pathStretch, dx: cx - P.x, dz: cz - P.z, dist: Math.hypot(cx - P.x, cz - P.z), turns };
-  };
-  const buildDungeon = (seed, si, sj) => { // seed＝迷路と出口の扉の決まり方（同じ番号なら全員が同じ迷路）／si,sj＝自分がワープしてきたマス（化物はここから離れた所に出す）
-    const R = (a => () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; })(seed | 0);
-    const N = DG.N, TS = DG.TS; dMaze = []; for (let i = 0; i < N; i++) dMaze.push(new Array(N).fill(1));
-    const dirs = [[2, 0], [-2, 0], [0, 2], [0, -2]], st = [[1, 1]]; dMaze[1][1] = 0;
-    while (st.length) { // 迷路を掘る（行き止まりまで掘って、戻って別の道を掘る）
-      const c = st[st.length - 1], opts = dirs.filter(d => { const a = c[0] + d[0], b = c[1] + d[1]; return a > 0 && b > 0 && a < N - 1 && b < N - 1 && dMaze[a][b] === 1; });
-      if (!opts.length) { st.pop(); continue; }
-      const d = opts[Math.floor(R() * opts.length)]; dMaze[c[0] + d[0] / 2][c[1] + d[1] / 2] = 0; dMaze[c[0] + d[0]][c[1] + d[1]] = 0; st.push([c[0] + d[0], c[1] + d[1]]);
-    }
-    for (let i = 2; i < N - 2; i++) for (let j = 2; j < N - 2; j++) { // 壁を少し抜いて、ぐるっと回れる道を作る（化物から逃げ回れるように）
-      if (dMaze[i][j] === 1 && R() < 0.12 && ((dMaze[i - 1][j] === 0 && dMaze[i + 1][j] === 0 && dMaze[i][j - 1] === 1 && dMaze[i][j + 1] === 1) || (dMaze[i][j - 1] === 0 && dMaze[i][j + 1] === 0 && dMaze[i - 1][j] === 1 && dMaze[i + 1][j] === 1))) dMaze[i][j] = 0;
-    }
-    const DEAD_FIX = 0.8, dir4 = [[1, 0], [-1, 0], [0, 1], [0, -1]]; // DEAD_FIX＝行き止まりをつなげて、なくす確率（0〜1。1ならほとんど行き止まりがなくなる／0なら今まで通り）
-    for (let i = 1; i < N - 1; i += 2) for (let j = 1; j < N - 1; j += 2) { // 🔀 行き止まりを減らす：行き止まりの先の壁を1枚抜いて、となりの道とつなぐ（外の壁は抜かない）
-      if (dMaze[i][j] !== 0 || dir4.filter(d => dMaze[i + d[0]][j + d[1]] === 0).length !== 1 || R() >= DEAD_FIX) continue;
-      const cw = dir4.filter(d => { const a = i + d[0], b = j + d[1], a2 = i + 2 * d[0], b2 = j + 2 * d[1]; return a > 0 && b > 0 && a < N - 1 && b < N - 1 && a2 > 0 && b2 > 0 && a2 < N - 1 && b2 < N - 1 && dMaze[a][b] === 1 && dMaze[a2][b2] === 0; });
-      if (cw.length) { const d = cw[Math.floor(R() * cw.length)]; dMaze[i + d[0]][j + d[1]] = 0; }
-    }
-    dScene = new THREE.Scene(); dScene.background = new THREE.Color(0x000000); dScene.fog = new THREE.Fog(0x000000, 2, 15);
-    dScene.add(new THREE.AmbientLight(0x1a1a24, 0.9));
-    dLight = new THREE.PointLight(0xffe2b0, 1.3, 18, 1.2); dScene.add(dLight); // 自分が持っている明かり
-    const wallTiles = []; for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) if (dMaze[i][j] === 1) wallTiles.push([i, j]);
-    const walls = new THREE.InstancedMesh(new THREE.BoxGeometry(TS, DG.H, TS), new THREE.MeshLambertMaterial({ color: 0xffffff }), wallTiles.length), m4 = new THREE.Matrix4(), cc = new THREE.Color();
-    wallTiles.forEach((w, k) => { m4.makeTranslation(w[0] * TS, DG.H / 2, w[1] * TS); walls.setMatrixAt(k, m4); const g = 0.22 + Math.random() * 0.1; cc.setRGB(g, g, g * 1.1); walls.setColorAt(k, cc); });
-    dScene.add(walls);
-    const mid = (N - 1) / 2 * TS, flo = new THREE.Mesh(new THREE.PlaneGeometry(N * TS, N * TS), new THREE.MeshLambertMaterial({ color: 0x2a2a30 })), cei = new THREE.Mesh(new THREE.PlaneGeometry(N * TS, N * TS), new THREE.MeshLambertMaterial({ color: 0x18181c }));
-    flo.rotation.x = -Math.PI / 2; flo.position.set(mid, 0, mid); cei.rotation.x = Math.PI / 2; cei.position.set(mid, DG.H, mid); dScene.add(flo, cei);
-    const open = []; for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) if (dMaze[i][j] === 0) open.push([i, j]);
-    const dd = [[1, 0], [-1, 0], [0, 1], [0, -1]], nearWall = o => dd.some(d => dSolid(o[0] + d[0], o[1] + d[1])); // 壁のどこかに、明るい扉をつける（スタートからはなれた所の、壁に面したマス）
-    let dc = open.filter(o => Math.abs(o[0] - 1) + Math.abs(o[1] - 1) >= 14 && nearWall(o)); if (!dc.length) dc = open.filter(nearWall).sort((a, b) => (b[0] + b[1]) - (a[0] + a[1])).slice(0, 3);
-    const dtile = dc[Math.floor(R() * dc.length)], dn = dd.filter(d => dSolid(dtile[0] + d[0], dtile[1] + d[1])), wd = dn[Math.floor(R() * dn.length)];
-    const cx = dtile[0] * TS, cz = dtile[1] * TS, off = TS / 2 - 0.08, rotY = wd[0] !== 0 ? Math.PI / 2 : 0; // wd＝扉をつける壁の向き
-    const door = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.4, 0.1), new THREE.MeshBasicMaterial({ color: 0xfff6d0, fog: false })); door.position.set(cx + wd[0] * off, 1.2, cz + wd[1] * off); door.rotation.y = rotY; dScene.add(door);
-    const gc = document.createElement('canvas'); gc.width = gc.height = 64; const gx = gc.getContext('2d'), gr = gx.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,244,200,0.9)'); gr.addColorStop(1, 'rgba(255,244,200,0)'); gx.fillStyle = gr; gx.fillRect(0, 0, 64, 64);
-    const halo = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(gc), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide })); // 扉のまわりのまぶしい光
-    halo.position.set(cx + wd[0] * (off - 0.05), 1.3, cz + wd[1] * (off - 0.05)); halo.rotation.y = rotY; dScene.add(halo);
-    const dl = new THREE.PointLight(0xfff0c0, 1.2, 10); dl.position.set(cx + wd[0] * (TS / 2 - 0.7), 1.6, cz + wd[1] * (TS / 2 - 0.7)); dScene.add(dl); // 道のほうも明るく照らす
-    dExitPos = { x: door.position.x, z: door.position.z };
-    const sphG = new THREE.SphereGeometry(1, 12, 9), eyeG = new THREE.SphereGeometry(0.08, 6, 5);
-    const darkM = new THREE.MeshLambertMaterial({ color: 0x0c0c0e }), eyeM = new THREE.MeshBasicMaterial({ color: 0xff2020, fog: false });
-    if (si < 0) { let sc = open.filter(o => Math.abs(o[0] - dtile[0]) + Math.abs(o[1] - dtile[1]) >= 12); if (!sc.length) sc = open; const o = sc[Math.floor(Math.random() * sc.length)]; si = o[0]; sj = o[1]; } dStart = [si, sj]; // 🎲 はじめにダンジョンへ入る人は、迷路のランダムなマスから始まる（出口の扉の近くは避ける。化物もそこから離れた所に出る）
-    const cand = open.filter(o => Math.abs(o[0] - si) + Math.abs(o[1] - sj) >= DG.SPAWN_MIN).sort(() => Math.random() - 0.5); dMons = []; dIsHost = false;
-    for (let k = 0; k < DG.MONSTERS && k < cand.length; k++) { // 化物：黒い球がぶくぶくと連なっていて、いちばん上の球に赤い目が光っている
-      const g = new THREE.Group(), blobs = [], n = 7 + Math.floor(Math.random() * 3); let topY = 0, topZ = 0, topR = 0.3;
-      const addBlob = (r, x, y, z) => { const mesh = new THREE.Mesh(sphG, darkM); mesh.position.set(x, y, z); mesh.scale.setScalar(r); g.add(mesh); blobs.push({ mesh, r, ph: Math.random() * 6.28 }); };
-      for (let b = 0; b < n; b++) { // 下から上へ、球を積み重ねる（下ほど大きく、上へいくほど少し小さく。左右にちょっとずれる）
-        const r = 0.5 - b * 0.03 + Math.random() * 0.1, x = (Math.random() - 0.5) * 0.3, z = (Math.random() - 0.5) * 0.3, y = r * 0.8 + b * 0.28;
-        addBlob(r, x, y, z); if (b === n - 1) { topY = y; topZ = z; topR = r; }
-      }
-      for (let b = 0; b < 4; b++) { const ang = Math.random() * 6.28; addBlob(0.2 + Math.random() * 0.12, Math.cos(ang) * 0.5, 0.4 + Math.random() * 1.4, Math.sin(ang) * 0.5); } // 横にぶくっと出っぱった小さな球
-      const e1 = new THREE.Mesh(eyeG, eyeM), e2 = new THREE.Mesh(eyeG, eyeM); e1.position.set(0.14, topY + 0.06, topZ + topR * 0.85); e2.position.set(-0.14, topY + 0.06, topZ + topR * 0.85); g.add(e1, e2);
-      const x = cand[k][0] * TS, z = cand[k][1] * TS; g.position.set(x, 0, z); dScene.add(g);
-      dMons.push({ g, blobs, x, z, ci: cand[k][0], cj: cand[k][1], pi: -1, pj: -1, alert: 0, tx: x, tz: z, was: false, ph: Math.random() * 6 });
-    }
-  };
-  // 💓 心音：音声ファイルは使わず、ブラウザで低い「ドッ」を作って鳴らす（「ドクン…ドクン」の2回で1拍）。化物に見つかっている間だけ鳴り、近いほど大きく・はやくなる
-  const startHeart = () => {
-    try {
-      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
-      hbAc = new AC(); if (hbAc.resume) hbAc.resume().catch(() => {});
-      const comp = hbAc.createDynamicsCompressor(); hbGain = hbAc.createGain(); hbGain.gain.value = 1; hbGain.connect(comp); comp.connect(hbAc.destination);
-    } catch (e) { hbAc = null; hbGain = null; }
-  };
-  const hbThump = (v, f0, len) => { // 1回の「ドッ」：低い音がすっと下がる（スマホのスピーカーでも聞こえるように、三角波で少し高い成分もまぜる）
-    if (!hbAc) return;
-    try { const t0 = hbAc.currentTime, o = hbAc.createOscillator(), g = hbAc.createGain(), lp = hbAc.createBiquadFilter(); o.type = 'triangle'; o.frequency.setValueAtTime(f0, t0); o.frequency.exponentialRampToValueAtTime(f0 * 0.5, t0 + len); lp.type = 'lowpass'; lp.frequency.value = 420; g.gain.setValueAtTime(0.001, t0); g.gain.linearRampToValueAtTime(v, t0 + 0.012); g.gain.exponentialRampToValueAtTime(0.001, t0 + len); o.connect(lp); lp.connect(g); g.connect(hbGain); o.start(t0); o.stop(t0 + len + 0.02); } catch (e) { /* 何もしない */ }
-  };
-  const stopHeart = () => { if (hbAc) { try { hbAc.close(); } catch (e) { /* 何もしない */ } hbAc = null; } hbGain = null; };
-  const warpToDungeon = () => { // 暗転している間に、ダンジョンへ移る
-    if (closed) return;
-    stopChaseSound(); glClearRemotes();
-    // 先にダンジョンへワープしている人がいれば、その人と同じ迷路（同じ番号）にする（始まる場所はだれでもランダム）
-    let si = -1, sj = -1, spawnYaw = null; dSeed = Math.floor(Math.random() * 2147483647) + 1;
-    { const pl = (opt.scene && opt.scene.latestPlayers) || {}, me = opt.net && opt.net.uid, ids = Object.keys(pl).filter(u => u !== me && pl[u] && pl[u].gl && pl[u].gl.d && pl[u].gl.sd).sort();
-      if (ids.length) { const g = pl[ids[0]].gl; dSeed = g.sd; } } // 合流する時も、同じ迷路（同じ番号）に入るだけで、始まる場所はランダム
-    buildDungeon(dSeed, si, sj); si = dStart[0]; sj = dStart[1]; if (dSolid(si, sj)) { si = 1; sj = 1; spawnYaw = null; }
-    startHeart(); setMode('dungeon'); // 草原の草・木・空はもう描かないので、先に片づける（グラフィックのメモリをあける）
-    scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); [trunkGeo, leafGeo, trunkMat, leafMat, shTex].forEach(o => o.dispose()); while (scene.children.length) scene.remove(scene.children[0]);
-    dDead = false; dCatch = null; if (dFlash) dFlash.style.opacity = '0'; camera.fov = 70; camera.updateProjectionMatrix(); shadow.visible = false;
-    P.x = si * DG.TS; P.z = sj * DG.TS; P.pitch = 0; P.yaw = spawnYaw != null ? spawnYaw : (() => { const od = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(d => !dSolid(si + d[0], sj + d[1])); const d = od.length ? od[Math.floor(Math.random() * od.length)] : [1, 0]; return Math.atan2(-d[0], -d[1]); })(); // 開いている方を向いて始まる（先にいる人の近くなら、その人と同じ向き）
-    renderer.setClearColor(0x000000, 1);
-    blk.style.transition = 'opacity 2.4s'; blk.style.opacity = '0'; // 暗闇からゆっくり見えてくる
-    hint.textContent = '暗い…どこかで何かが歩いている。壁のどこかに、明るい扉があるはずだ'; hint.style.transition = 'opacity 1.5s'; hint.style.opacity = '1'; setTimeout(() => { hint.style.opacity = '0'; }, 8000);
-  };
-  const dEnd = ms => { dDead = true; blk.style.transition = 'opacity 0.3s'; blk.style.opacity = '1'; setTimeout(exit, ms); }; // 画面を暗くして、草原を出る
-  // 😱 捕まった時の恐怖演出：化物がぐわっと顔の前に迫り、画面が白く光って赤くちらつき、カメラが激しく揺れる。同時に、ブラウザで作ったでかい悲鳴＋爆音が鳴る
-  const dScream = () => { // 驚かし音：ノイズの爆発＋ひずんだ金切り声＋腹に響く重低音（音声ファイルは使わない）。最後に圧縮して音割れ寸前の大音量にする
-    try {
-      if (!hbAc) startHeart(); if (!hbAc) return; if (hbAc.state === 'suspended' && hbAc.resume) hbAc.resume().catch(() => {});
-      const c = hbAc, t0 = c.currentTime, comp = c.createDynamicsCompressor(), out = c.createGain();
-      comp.threshold.value = -4; comp.knee.value = 0; comp.ratio.value = 20; comp.attack.value = 0.001; comp.release.value = 0.15; out.gain.value = 0.8; out.connect(comp); comp.connect(c.destination);
-      const curve = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(x * 6); }
-      const ws = c.createWaveShaper(); ws.curve = curve; ws.oversample = '2x'; ws.connect(out);
-      const nl = Math.floor(c.sampleRate * 1.8), nb = c.createBuffer(1, nl, c.sampleRate), nd = nb.getChannelData(0); for (let i = 0; i < nl; i++) nd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / nl, 1.3);
-      const ns = c.createBufferSource(), bp = c.createBiquadFilter(), ng = c.createGain(); ns.buffer = nb; bp.type = 'bandpass'; bp.frequency.value = 2200; bp.Q.value = 0.6; ng.gain.setValueAtTime(1.2, t0); ng.gain.exponentialRampToValueAtTime(0.001, t0 + 1.7); ns.connect(bp); bp.connect(ng); ng.connect(ws); ns.start(t0);
-      [[880, 1760], [1175, 2350], [1397, 1100], [660, 1500]].forEach((f, i) => { // 不協和な金切り声：のこぎり波が急にかけ上がり、ふるえる
-        const o = c.createOscillator(), g = c.createGain(), lfo = c.createOscillator(), lg = c.createGain(); o.type = 'sawtooth';
-        o.frequency.setValueAtTime(f[0], t0); o.frequency.exponentialRampToValueAtTime(f[1], t0 + 0.25); o.frequency.exponentialRampToValueAtTime(f[0] * 0.8, t0 + 1.5);
-        lfo.frequency.value = 22 + i * 5; lg.gain.value = 40; lfo.connect(lg); lg.connect(o.frequency);
-        g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(0.5, t0 + 0.01); g.gain.setValueAtTime(0.5, t0 + 0.9); g.gain.exponentialRampToValueAtTime(0.001, t0 + 1.7);
-        o.connect(g); g.connect(ws); o.start(t0); lfo.start(t0); o.stop(t0 + 1.8); lfo.stop(t0 + 1.8);
-      });
-      const b = c.createOscillator(), bg = c.createGain(); b.type = 'sine'; b.frequency.setValueAtTime(110, t0); b.frequency.exponentialRampToValueAtTime(28, t0 + 0.5); bg.gain.setValueAtTime(1.4, t0); bg.gain.exponentialRampToValueAtTime(0.001, t0 + 0.9); b.connect(bg); bg.connect(out); b.start(t0); b.stop(t0 + 1);
-    } catch (e) { /* 何もしない */ }
-  };
-  const dCaught = m => { // 捕まった：演出をはじめて、1.5秒後に真っ暗、2.6秒後に草原を出る
-    dDead = true; dCatch = { t: 0, m }; hint.style.opacity = '0';
-    if (!dFlash) { dFlash = document.createElement('div'); dFlash.style.cssText = 'position:absolute;inset:0;pointer-events:none;opacity:0;'; root.insertBefore(dFlash, blk); }
-    if (dLight) dLight.color.set(0xff2a10);
-    dScream(); try { if (navigator.vibrate) navigator.vibrate([250, 60, 350]); } catch (e) { /* 何もしない */ }
-    setTimeout(() => { blk.style.transition = 'opacity 0.12s'; blk.style.opacity = '1'; }, 1500); setTimeout(exit, 2600);
-  };
-  const dCatchStep = dt => { // 毎フレーム：化物のほうへ首がぐいっと向き、化物が目の前に飛びこみ、画面がちかちかする
-    const c = dCatch, m = c.m; c.t += dt;
-    const dx = m.x - P.x, dz = m.z - P.z, dist = Math.hypot(dx, dz) || 0.01, k = Math.min(1, dt * 18);
-    let dy = Math.atan2(-dx, -dz) - P.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); P.yaw += dy * k; P.pitch += (0.55 - P.pitch) * k; // 見上げさせられる
-    const want = Math.max(1.2, dist - 16 * dt); m.x = P.x + dx / dist * want; m.z = P.z + dz / dist * want; // 化物がぐわっと迫る
-    m.g.position.set(m.x, 0, m.z); m.g.rotation.y = Math.atan2(-dx, -dz); m.g.scale.setScalar(1 + 0.15 * Math.min(1, c.t / 0.2));
-    camera.fov = 70 + 28 * Math.min(1, c.t / 0.15); camera.updateProjectionMatrix(); // 画角がぐっと広がって、ゆがむ
-    if (dFlash) { if (c.t < 0.08) { dFlash.style.background = '#fff'; dFlash.style.opacity = '1'; } else { dFlash.style.background = 'radial-gradient(ellipse at center, rgba(255,0,0,0) 20%, rgba(150,0,0,0.95) 100%)'; dFlash.style.opacity = String(c.t < 1.4 ? 0.55 + 0.45 * Math.random() : 1); } }
-  };
-  const dungeonFrame = (dt, t, mf, mr, sp2, sy, cy) => {
-    if (dCatch) dCatchStep(dt);
-    if (!dDead) dMove(P, (-sy * mf + cy * mr) * sp2, (-cy * mf - sy * mr) * sp2, 0.4);
-    camera.position.set(P.x, 1.6, P.z); camera.rotation.set(P.pitch, P.yaw, 0); camera.updateMatrixWorld();
-    dLight.position.copy(camera.position); dLight.intensity = 1.25 + 0.1 * Math.sin(t * 11) * Math.sin(t * 3.1); // 明かりが、かすかにゆれる
-    if (dCatch) { const k = Math.max(0, 1 - dCatch.t / 1.6) * 0.09 + 0.02; camera.position.x += (Math.random() - 0.5) * k; camera.position.y += (Math.random() - 0.5) * k; camera.rotation.z = (Math.random() - 0.5) * k * 2.5; dLight.intensity = 2 + 3 * Math.random(); } // 捕まった間は、画面が激しく揺れ、明かりが赤くちらつく
-    const TS = DG.TS; let found = false, nearD = 99;
-    // 🤝 協力プレイ：同じ迷路にいる人のうち1人（ホスト）だけが化物を動かして、位置を配る。ほかの人はその位置どおりに化物を出す。ホスト＝すでに化物の位置を配っている人のうち uid がいちばん小さい人（だれも配っていなければ、迷路にいる全員のうち uid がいちばん小さい人）
-    let hostM = null, mates = [];
-    if (glNet) {
-      const pl = (glSc && glSc.latestPlayers) || {}, me = glNet.uid;
-      for (const u in pl) { if (u === me) continue; const g = pl[u] && pl[u].gl; if (g && g.d && g.sd === dSeed) mates.push({ u, g }); }
-      const cands = mates.filter(x => Array.isArray(x.g.m)).map(x => x.u); if (dIsHost) cands.push(me);
-      const hostUid = (cands.length ? cands : mates.map(x => x.u).concat([me])).sort()[0], was = dIsHost; dIsHost = hostUid === me;
-      if (dIsHost && !was) dMons.forEach(m => { m.ci = Math.round(m.x / TS); m.cj = Math.round(m.z / TS); m.pi = m.pj = -1; m.was = false; m.alert = 0; }); // 新しくホストになった：いまの位置から、徘徊をつづける
-      if (!dIsHost) { const hm = mates.find(x => x.u === hostUid); hostM = hm && Array.isArray(hm.g.m) ? hm.g.m : null; }
-    } else dIsHost = true;
-    const multi = mates.length > 0;
-    dMons.forEach((m, mi) => {
-      if (dCatch && dCatch.m === m) { m.blobs.forEach(b => b.mesh.scale.setScalar(b.r * (1 + 0.25 * Math.sin(t * 25 + b.ph)))); return; } // 捕まえた化物は、その場でうごめく
-      if (!dIsHost) { // ホストから届いた位置へ、なめらかに動く（最初と大きくずれた時は、すぐ移る）
-        const sn = hostM && hostM[mi];
-        if (sn) { const ex = sn[0] - m.x, ez = sn[1] - m.z, ed = Math.hypot(ex, ez); if (!m.synced || ed > 5) { m.x = sn[0]; m.z = sn[1]; m.synced = true; } else { const k2 = Math.min(1, dt * 10); if (ed > 0.02) m.g.rotation.y = Math.atan2(ex, ez); m.x += ex * k2; m.z += ez * k2; } m.alert = sn[2] ? 3 : 0; }
-      } else {
-        let seen = null, sdist = 1e9; const tg = []; if (!dDead) tg.push({ x: P.x, z: P.z }); mates.forEach(x => tg.push({ x: x.g.x, z: x.g.z }));
-        tg.forEach(q => { const dd = Math.hypot(q.x - m.x, q.z - m.z); if (dd < DG.SIGHT && dd < sdist && dLos(m.x, m.z, q.x, q.z)) { seen = q; sdist = dd; } });
-        if (seen) { m.alert = 3; m.tx = seen.x; m.tz = seen.z; } else if (m.alert > 0) m.alert -= dt;
-      }
-      if (m.alert > 0 && (!multi || Math.hypot(P.x - m.x, P.z - m.z) < DG.SIGHT * 1.6)) { found = true; nearD = Math.min(nearD, Math.hypot(P.x - m.x, P.z - m.z)); } // 見つかっている（見失っても3秒はつづく）
-      if (dIsHost) {
-        let gx, gz, sp;
-        if (m.alert > 0) { m.was = true; gx = m.tx; gz = m.tz; sp = DG.CHASE; } // 見つけた：見失っても3秒は、最後に見た場所まで追う
-        else {
-          if (m.was) { m.was = false; m.ci = Math.round(m.x / TS); m.cj = Math.round(m.z / TS); m.pi = m.pj = -1; } // 見失ったので、近くのマスから徘徊にもどる
-          if (Math.hypot(m.ci * TS - m.x, m.cj * TS - m.z) < 0.15) { // 着いたら、つぎのマスをえらぶ（なるべく来た道はもどらない）
-            let ns = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(d => !dSolid(m.ci + d[0], m.cj + d[1])); const fw = ns.filter(d => !(m.ci + d[0] === m.pi && m.cj + d[1] === m.pj)); if (fw.length) ns = fw;
-            if (ns.length) { const d = ns[Math.floor(Math.random() * ns.length)]; m.pi = m.ci; m.pj = m.cj; m.ci += d[0]; m.cj += d[1]; }
-          }
-          gx = m.ci * TS; gz = m.cj * TS; sp = DG.WALK;
-        }
-        const dx = gx - m.x, dz = gz - m.z, d = Math.hypot(dx, dz);
-        if (d > 0.3) { const k = Math.min(d, sp * dt) / d; dMove(m, dx * k, dz * k, 0.4); m.g.rotation.y = Math.atan2(dx, dz); }
-      }
-      m.g.position.set(m.x, 0, m.z); m.blobs.forEach(b => b.mesh.scale.setScalar(b.r * (1 + 0.13 * Math.sin(t * 3.2 + b.ph)))); // 球がそれぞれ、ぶくぶくとふくらんだり縮んだりする
-      if (!dDead && Math.hypot(P.x - m.x, P.z - m.z) < DG.CATCH) dCaught(m); // 捕まった：恐怖演出＋大音量の悲鳴、そのあと暗転して草原を出る
-    });
-    // 💓 化物に見つかっている間は、心臓の音がする（近いほど大きく、はやくなる）
-    if (hbGain && !dCatch) { if (found) { const near = 1 - Math.min(nearD, DG.SIGHT) / DG.SIGHT; hbT -= dt; if (hbT <= 0) { const v = 0.55 + 0.55 * near; hbThump(v, 62, 0.16); setTimeout(() => hbThump(v * 0.7, 50, 0.2), 150 - 40 * near); hbT = 0.95 - 0.5 * near; } } else hbT = 0; }
-    if (!dDead && Math.hypot(P.x - dExitPos.x, P.z - dExitPos.z) < 1.2) dEnd(900); // 扉に入った：明るく…ではなく暗転して、草原を出る
-    renderer.render(dScene, camera);
-  };
-  // ----- 🎙 一緒にいる人の姿の同期（広場と同じ仕組み）：自分の位置は updateOwnState({ gl: {...} }) で0.06秒ごとに配る（広場の g3 とは別のキー）。
-  //   影が出る時・ダンジョンへワープする時は人それぞれ（同期しない）。ただし、先にダンジョンにいる人がいれば、その人と同じ迷路・その人の近くにワープする。
-  //   gl = { x, z, r（向き）, p（上下の向き）, d（1＝ダンジョンの中）, sd（ダンジョンの迷路の番号） }。草原にいる人は草原だけ、ダンジョンにいる人は同じ迷路の人だけが見える。
-  // ════════════ ここまで：ダンジョン ════════════
+  // ----- 🕳 暗いダンジョン：交流ルームの「ダンジョン」（opt.dungeonOnly）：開いた直後にここへ入る。迷路の中を化物が歩き回っていて、見つかると追ってくる。緑の光の出口に入るか、化物に捕まると、草原を出て部屋に戻る -----
+  let inDungeon = false; // 今ダンジョンにいるか（変えるのは setMode だけ）
+  let dun = null; // 🕳 ダンジョン本体（草原とは別の関数 createDungeon で作る。入口＝dun.warp() ／ 毎フレーム＝dun.frame() ／ 片づけ＝dun.stopHeart()）
   const glNet = opt.net || null, glSc = opt.scene || null, glRem = new Map(); let glAcc = 0;
+  // 🌿 ダンジョンへ入る時に、草原の絵（木・草・空）を片づけてメモリをあける。草原の中身を知っているのはここだけ
+  const disposeGrass = () => { scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); [trunkGeo, leafGeo, trunkMat, leafMat].forEach(o => o.dispose()); while (scene.children.length) scene.remove(scene.children[0]); };
+  dun = createDungeon({ P, blk, camera, hint, opt, renderer, root, glNet, glSc, disposeGrass, isClosed: () => closed, exit: () => exit(), setMode: m => setMode(m), glClearRemotes: () => glClearRemotes() });
   const glBodyGeo = new THREE.CylinderGeometry(0.27, 0.33, 1.05, 10), glHeadGeo = new THREE.SphereGeometry(0.25, 12, 10), glNoseGeo = new THREE.BoxGeometry(0.1, 0.1, 0.5);
   glBodyGeo.translate(0, 0.62, 0); glHeadGeo.translate(0, 1.42, 0); glNoseGeo.translate(0, 0, -0.5);
   // ----- 💬 エモート：ボタンを押すと定型メッセージの候補が出て、選ぶと自分の頭上に吹き出しが約5秒出る。gl の e（番号）と en（通し番号）で配るので、同じ草原にいる人全員に見える。メッセージを足す時は EMOTES に足すだけ -----
@@ -2241,7 +2182,7 @@ function openGrassland(onClose, opt) {
   };
   const emoClear = r => { if (!r.emo) return; r.grp.remove(r.emo.sp); r.emo.sp.material.map.dispose(); r.emo.sp.material.dispose(); r.emo = null; };
   const emoShow = (r, i) => { emoClear(r); if (!EMOTES[i]) return; const sp = emoMake(EMOTES[i]); r.grp.add(sp); r.emo = { sp, t0: performance.now() }; };
-  const glPublish = clear => { if (!glNet) return; try { glNet.updateOwnState({ gl: clear ? null : { x: Math.round(P.x * 100) / 100, z: Math.round(P.z * 100) / 100, r: Math.round(P.yaw * 100) / 100, p: Math.round(P.pitch * 100) / 100, d: inDungeon ? 1 : 0, sd: inDungeon ? dSeed : 0, e: emoNow ? emoNow.i : null, en: emoNow ? emoNow.n : 0, m: (inDungeon && dIsHost && dMons.length) ? dMons.map(q => [Math.round(q.x * 100) / 100, Math.round(q.z * 100) / 100, q.alert > 0 ? 1 : 0]) : null } }); } catch (e) { /* 何もしない */ } };
+  const glPublish = clear => { if (!glNet) return; try { glNet.updateOwnState({ gl: clear ? null : { x: Math.round(P.x * 100) / 100, z: Math.round(P.z * 100) / 100, r: Math.round(P.yaw * 100) / 100, p: Math.round(P.pitch * 100) / 100, d: inDungeon ? 1 : 0, sd: inDungeon ? dun.seed : 0, e: emoNow ? emoNow.i : null, en: emoNow ? emoNow.n : 0, m: (inDungeon && dun.isHost && dun.mons.length) ? dun.mons.map(q => [Math.round(q.x * 100) / 100, Math.round(q.z * 100) / 100, q.alert > 0 ? 1 : 0]) : null } }); } catch (e) { /* 何もしない */ } };
   const glMake = (uid, p, sc) => {
     let col; try { col = new THREE.Color(p.color == null ? 0xffffff : p.color); } catch (e) { col = new THREE.Color(0xffffff); }
     const grp = new THREE.Group(), mat = new THREE.MeshLambertMaterial({ color: col }), noseM = new THREE.MeshLambertMaterial({ color: 0xffffff }), nose = new THREE.Group(); nose.position.y = 1.42; nose.add(new THREE.Mesh(glNoseGeo, noseM));
@@ -2258,13 +2199,13 @@ function openGrassland(onClose, opt) {
   const glFrame = (dt, t) => {
     if (!glNet) return;
     glAcc += dt; if (glAcc >= 0.06) { glAcc = 0; glPublish(false); }
-    { const v = glNet._voice; if (v && !v.stopped) { glVS.x = P.x; glVS.z = P.z; glVS.yaw = P.yaw; glVS.pitch = P.pitch; glVS.env = inDungeon ? 'maze' : 'open'; glVS.radius = inDungeon ? VOICE.space3dDungeonRadius : 0; glVS.wall = inDungeon ? dWallTiles : null; glVS.path = inDungeon ? dVoicePath : null; glVS.d = inDungeon ? 1 : 0; glVS.sd = inDungeon ? dSeed : 0; v.space3d = glVS; } }
-    const players = (glSc && glSc.latestPlayers) || {}, sc = inDungeon ? dScene : scene; if (!sc) return;
+    { const v = glNet._voice; if (v && !v.stopped) { glVS.x = P.x; glVS.z = P.z; glVS.yaw = P.yaw; glVS.pitch = P.pitch; glVS.env = inDungeon ? 'maze' : 'open'; glVS.radius = inDungeon ? VOICE.space3dDungeonRadius : 0; glVS.wall = inDungeon ? dun.wallTiles : null; glVS.path = inDungeon ? dun.voicePath : null; glVS.d = inDungeon ? 1 : 0; glVS.sd = inDungeon ? dun.seed : 0; v.space3d = glVS; } }
+    const players = (glSc && glSc.latestPlayers) || {}, sc = inDungeon ? dun.scene : scene; if (!sc) return;
     const want = new Set();
     for (const uid in players) {
       if (uid === glNet.uid) continue;
       const g = players[uid] && players[uid].gl; if (!g || typeof g.x !== 'number') continue; // 位置が無い（＝別のゾーンの印だけ）の人は出さない
-      if (zoneOfPlayer(players[uid]) !== (inDungeon ? 'dungeon:' + dSeed : 'grass')) continue; // 草原の人は草原の人だけ、ダンジョンの人は同じ迷路の人だけ見える
+      if (zoneOfPlayer(players[uid]) !== (inDungeon ? 'dungeon:' + dun.seed : 'grass')) continue; // 草原の人は草原の人だけ、ダンジョンの人は同じ迷路の人だけ見える
       want.add(uid);
       let r = glRem.get(uid); if (r && r.sc !== sc) { glRemove(uid); r = null; }
       if (!r) r = glMake(uid, players[uid], sc);
@@ -2706,17 +2647,17 @@ function openGrassland(onClose, opt) {
     updateAmbient(dt); // 🍃 自然音
     let mf = (keys.f ? 1 : 0) - (keys.b ? 1 : 0) - sv.y, mr = (keys.r ? 1 : 0) - (keys.l ? 1 : 0) + sv.x; const mm = Math.hypot(mf, mr); if (mm > 1) { mf /= mm; mr /= mm; }
     const sp2 = 4.2 * (SHIFT_DASH && keys.shift ? 19 : 1) * dt, sy = Math.sin(P.yaw), cy = Math.cos(P.yaw); /* TEST: 走る速度10倍（1.9→19）。テスト後は 19 を 1.9 に戻す */
-    if (inDungeon) { waterOff(); dungeonFrame(dt, t, mf, mr, sp2, sy, cy); raf = requestAnimationFrame(frame); return; } // 🕳 ダンジョンの間は、草原は止めておく
+    if (inDungeon) { waterOff(); dun.frame(dt, t, mf, mr, sp2, sy, cy); raf = requestAnimationFrame(frame); return; } // 🕳 ダンジョンの間は、草原は止めておく
     const px0 = P.x, pz0 = P.z, wsl = wSlow(); P.x += (-sy * mf + cy * mr) * sp2 * wsl; P.z += (-cy * mf - sy * mr) * sp2 * wsl; const mvd = Math.hypot(P.x - px0, P.z - pz0); wCurrent(dt); // 🌊 水の中では遅くなる（川では流される）
     cairnPush(); // 🪨 石の山の中には入れない
     syncTrees(); ground.position.set(Math.round(P.x / GS) * GS, 0, Math.round(P.z / GS) * GS); U.uGC.value.set(ground.position.x, ground.position.z); // 歩ける範囲に制限はない（木と地面は自分についてくる）
-    waterFrame(dt, t, mvd); camera.position.set(P.x, P.ey, P.z); /* 🌊 目の高さ P.ey（歩く／浮かぶ／潜る） */ camera.rotation.set(P.pitch, P.yaw, 0); camera.updateMatrixWorld(); if (!opt.noHorror) updateShadow(dt, t); // 👁 黒い影（opt.noHorror＝交流ルームの「草原」：影は出ず、何も起こらない）
+    waterFrame(dt, t, mvd); camera.position.set(P.x, P.ey, P.z); /* 🌊 目の高さ P.ey（歩く／浮かぶ／潜る） */ camera.rotation.set(P.pitch, P.yaw, 0); camera.updateMatrixWorld();
     sky.position.copy(camera.position); clouds.rotation.y += dt * 0.004; if (whale && whale.visible && !inDungeon) whale.userData.update(Date.now() / 1000, whaleInView());
     U.uTime.value = t; U.uCam.value.set(P.x, P.z);
     { const hf = 2 * Math.atan(Math.tan(camera.fov * Math.PI / 360) * camera.aspect), lim = Math.min(3.0, hf / 2 + 0.6); U.uCamDir.value.set(-sy, -cy); U.uCone.value = Math.cos(lim); } // 🔧 草と花：横の見える範囲＋約34°の余裕より外（と、10mより遠く）は計算しない
     renderer.render(scene, camera); raf = requestAnimationFrame(frame);
   };
-  if (opt.dungeonOnly) { blk.style.transition = 'none'; blk.style.opacity = '1'; void blk.offsetWidth; warpToDungeon(); } // 🕳 交流ルームの「ダンジョン」：草原は歩かず、影に追いつかれてワープした直後（暗いダンジョン）から始まる
+  if (opt.dungeonOnly) { blk.style.transition = 'none'; blk.style.opacity = '1'; void blk.offsetWidth; dun.warp(); } // 🕳 交流ルームの「ダンジョン」：草原は歩かず、影に追いつかれてワープした直後（暗いダンジョン）から始まる
   raf = requestAnimationFrame(frame);
 }
 
