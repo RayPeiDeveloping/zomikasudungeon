@@ -2203,7 +2203,36 @@ function openGrassland(onClose, opt) {
   const glNet = opt.net || null, glSc = opt.scene || null, glRem = new Map(); let glAcc = 0;
   const glBodyGeo = new THREE.CylinderGeometry(0.27, 0.33, 1.05, 10), glHeadGeo = new THREE.SphereGeometry(0.25, 12, 10), glNoseGeo = new THREE.BoxGeometry(0.1, 0.1, 0.5);
   glBodyGeo.translate(0, 0.62, 0); glHeadGeo.translate(0, 1.42, 0); glNoseGeo.translate(0, 0, -0.5);
-  const glPublish = clear => { if (!glNet) return; try { glNet.updateOwnState({ gl: clear ? null : { x: Math.round(P.x * 100) / 100, z: Math.round(P.z * 100) / 100, r: Math.round(P.yaw * 100) / 100, p: Math.round(P.pitch * 100) / 100, d: inDungeon ? 1 : 0, sd: inDungeon ? dSeed : 0, m: (inDungeon && dIsHost && dMons.length) ? dMons.map(q => [Math.round(q.x * 100) / 100, Math.round(q.z * 100) / 100, q.alert > 0 ? 1 : 0]) : null } }); } catch (e) { /* 何もしない */ } };
+  // ----- 💬 エモート：ボタンを押すと定型メッセージの候補が出て、選ぶと自分の頭上に吹き出しが約5秒出る。gl の e（番号）と en（通し番号）で配るので、同じ草原にいる人全員に見える。メッセージを足す時は EMOTES に足すだけ -----
+  const EMOTES = ['こんにちは', 'ありがとう', 'すごい', 'いこう', 'まって', 'ついてきて', 'ごめん', 'ドンマイ', 'またね', 'いいね', 'ｺﾎﾟｫ…'], EMO_MS = 5000;
+  const emoEl = (css, txt) => { const d = document.createElement('div'); d.style.cssText = css; if (txt != null) d.textContent = txt; root.appendChild(d); return d; }; // （mkEl はこの後で作られるので、エモート用に別に用意）
+  let emoNow = null, emoCount = 0, emoT = 0, emoDisp = '';
+  const emoBtn = glNet ? emoEl(touch
+    ? 'position:absolute;left:calc(50% - 10vh - 1.5vh - 11vh);bottom:4vh;width:11vh;height:11vh;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:5vh;color:#fff;background:rgba(255,255,255,0.22);border:0.5vh solid rgba(255,255,255,0.6);box-sizing:border-box;touch-action:none;cursor:pointer;'
+    : 'position:absolute;left:calc(50% - 300px);bottom:calc(4vh + 52px);padding:9px 14px;font-size:16px;font-weight:bold;color:#fff;background:rgba(0,0,0,0.5);border:2px solid rgba(255,255,255,0.7);border-radius:999px;white-space:nowrap;cursor:pointer;', touch ? '💬' : '💬 言葉') : null;
+  const emoMenu = glNet ? emoEl(touch
+    ? 'position:absolute;left:50%;bottom:27vh;transform:translateX(-50%);display:none;grid-template-columns:repeat(3,1fr);gap:1.2vh;padding:1.5vh;background:rgba(0,0,0,0.55);border-radius:2vh;z-index:5;'
+    : 'position:absolute;left:calc(50% - 300px);bottom:calc(4vh + 100px);display:none;grid-template-columns:repeat(3,1fr);gap:6px;padding:8px;background:rgba(0,0,0,0.55);border-radius:12px;z-index:5;') : null;
+  const emoShowMenu = on => { if (emoMenu) emoMenu.style.display = on ? 'grid' : 'none'; };
+  const emoSend = i => {
+    emoShowMenu(false); emoCount++; emoNow = { i, n: emoCount }; clearTimeout(emoT); emoT = setTimeout(() => { emoNow = null; glPublish(false); }, EMO_MS + 200);
+    glPublish(false); toast('💬 ' + EMOTES[i]);
+  };
+  if (glNet) {
+    emoBtn.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); emoShowMenu(emoMenu.style.display === 'none'); };
+    EMOTES.forEach((m, i) => { const b = document.createElement('div'); b.textContent = m; b.style.cssText = touch ? 'padding:1.6vh 2vh;font-size:2.8vh;font-weight:bold;color:#fff;background:rgba(255,255,255,0.18);border-radius:1.2vh;text-align:center;white-space:nowrap;touch-action:none;cursor:pointer;' : 'padding:7px 12px;font-size:15px;font-weight:bold;color:#fff;background:rgba(255,255,255,0.18);border-radius:8px;text-align:center;white-space:nowrap;cursor:pointer;'; b.onpointerdown = ev => { ev.preventDefault(); ev.stopPropagation(); emoSend(i); }; emoMenu.appendChild(b); });
+    emoMenu.onpointerdown = ev => { ev.stopPropagation(); };
+  }
+  const emoMake = text => { // 吹き出しの絵（白い角丸＋下のしっぽ）を作って、頭上の板（スプライト）にする
+    const c = document.createElement('canvas'), x = c.getContext('2d'), F = 'bold 44px sans-serif'; x.font = F; const tw = Math.ceil(x.measureText(text).width), W = tw + 56, H = 110; c.width = W; c.height = H;
+    x.font = F; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#fff'; x.strokeStyle = 'rgba(0,0,0,0.55)'; x.lineWidth = 4;
+    const bh = 80, r = 24; x.beginPath(); x.moveTo(r, 2); x.lineTo(W - r, 2); x.quadraticCurveTo(W - 2, 2, W - 2, r); x.lineTo(W - 2, bh - r); x.quadraticCurveTo(W - 2, bh, W - r, bh); x.lineTo(W / 2 + 14, bh); x.lineTo(W / 2, H - 4); x.lineTo(W / 2 - 14, bh); x.lineTo(r, bh); x.quadraticCurveTo(2, bh, 2, bh - r); x.lineTo(2, r); x.quadraticCurveTo(2, 2, r, 2); x.closePath(); x.fill(); x.stroke();
+    x.fillStyle = '#222'; x.fillText(text, W / 2, bh / 2 + 3);
+    const tex = new THREE.CanvasTexture(c); tex.minFilter = THREE.LinearFilter; const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, fog: false })); const hgt = 0.62; sp.scale.set(hgt * W / H, hgt, 1); sp.center.set(0.5, 0); sp.position.y = 2.3; sp.renderOrder = 10; return sp;
+  };
+  const emoClear = r => { if (!r.emo) return; r.grp.remove(r.emo.sp); r.emo.sp.material.map.dispose(); r.emo.sp.material.dispose(); r.emo = null; };
+  const emoShow = (r, i) => { emoClear(r); if (!EMOTES[i]) return; const sp = emoMake(EMOTES[i]); r.grp.add(sp); r.emo = { sp, t0: performance.now() }; };
+  const glPublish = clear => { if (!glNet) return; try { glNet.updateOwnState({ gl: clear ? null : { x: Math.round(P.x * 100) / 100, z: Math.round(P.z * 100) / 100, r: Math.round(P.yaw * 100) / 100, p: Math.round(P.pitch * 100) / 100, d: inDungeon ? 1 : 0, sd: inDungeon ? dSeed : 0, e: emoNow ? emoNow.i : null, en: emoNow ? emoNow.n : 0, m: (inDungeon && dIsHost && dMons.length) ? dMons.map(q => [Math.round(q.x * 100) / 100, Math.round(q.z * 100) / 100, q.alert > 0 ? 1 : 0]) : null } }); } catch (e) { /* 何もしない */ } };
   const glMake = (uid, p, sc) => {
     let col; try { col = new THREE.Color(p.color == null ? 0xffffff : p.color); } catch (e) { col = new THREE.Color(0xffffff); }
     const grp = new THREE.Group(), mat = new THREE.MeshLambertMaterial({ color: col }), noseM = new THREE.MeshLambertMaterial({ color: 0xffffff }), nose = new THREE.Group(); nose.position.y = 1.42; nose.add(new THREE.Mesh(glNoseGeo, noseM));
@@ -2215,7 +2244,7 @@ function openGrassland(onClose, opt) {
     const tex = new THREE.CanvasTexture(c), label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, fog: false })); label.scale.set(1.8, 0.45, 1); label.position.y = 2.0; grp.add(label); sc.add(grp);
     const r = { grp, sc, mat, noseM, nose, tex, label, tx: 0, tz: 0, tr: 0, tp: 0, init: false }; glRem.set(uid, r); return r;
   };
-  const glRemove = uid => { const r = glRem.get(uid); if (!r) return; r.sc.remove(r.grp); r.mat.dispose(); r.noseM.dispose(); r.tex.dispose(); r.label.material.dispose(); glRem.delete(uid); };
+  const glRemove = uid => { const r = glRem.get(uid); if (!r) return; emoClear(r); r.sc.remove(r.grp); r.mat.dispose(); r.noseM.dispose(); r.tex.dispose(); r.label.material.dispose(); glRem.delete(uid); };
   const glClearRemotes = () => { Array.from(glRem.keys()).forEach(glRemove); };
   const glFrame = (dt, t) => {
     if (!glNet) return;
@@ -2231,18 +2260,21 @@ function openGrassland(onClose, opt) {
       let r = glRem.get(uid); if (r && r.sc !== sc) { glRemove(uid); r = null; }
       if (!r) r = glMake(uid, players[uid], sc);
       r.tx = g.x || 0; r.tz = g.z || 0; r.tr = g.r || 0; r.tp = g.p || 0;
+      if (typeof g.e === 'number' && g.en !== r.en) { r.en = g.en; emoShow(r, g.e); } // 新しいエモートが来た：吹き出しを出す
       if (!r.init) { r.init = true; r.grp.position.set(r.tx, inDungeon ? 0 : avY(r.tx, r.tz), r.tz); r.grp.rotation.y = r.tr; r.nose.rotation.x = r.tp; }
     }
     for (const uid of Array.from(glRem.keys())) if (!want.has(uid)) glRemove(uid);
-    const k = 1 - Math.exp(-dt * 12);
+    const k = 1 - Math.exp(-dt * 12), nowMs = performance.now();
+    { const dsp = inDungeon ? 'none' : (touch ? 'flex' : 'block'); if (dsp !== emoDisp) { emoDisp = dsp; emoBtn.style.display = dsp; if (inDungeon) emoShowMenu(false); } } // 草原だけ：ダンジョンの中ではボタンを隠す
     glRem.forEach(r => {
+      if (r.emo) { const age = nowMs - r.emo.t0; if (age >= EMO_MS) emoClear(r); else r.emo.sp.material.opacity = age > EMO_MS - 600 ? Math.max(0, (EMO_MS - age) / 600) : 1; }
       const g = r.grp, ox = g.position.x, oz = g.position.z; g.position.x += (r.tx - ox) * k; g.position.z += (r.tz - oz) * k;
       let da = r.tr - g.rotation.y; da -= Math.round(da / 6.2832) * 6.2832; g.rotation.y += da * k; r.nose.rotation.x += (r.tp - r.nose.rotation.x) * k;
       const mv = Math.min(1, Math.hypot(r.tx - ox, r.tz - oz) / Math.max(dt, 0.001) / 3); g.position.y = (inDungeon ? 0 : avY(g.position.x, g.position.z)) + Math.abs(Math.sin(t * 9)) * 0.08 * mv;
     });
   };
   const glStop = () => {
-    if (!glNet) return; if (glBar) glBar.style.zIndex = glBarZ || ''; { const v = glNet._voice; if (v && v.space3d === glVS) v.space3d = null; } glClearRemotes(); [glBodyGeo, glHeadGeo, glNoseGeo].forEach(g => g.dispose());
+    if (!glNet) return; if (glBar) glBar.style.zIndex = glBarZ || ''; { const v = glNet._voice; if (v && v.space3d === glVS) v.space3d = null; } glClearRemotes(); clearTimeout(emoT); emoNow = null; [glBodyGeo, glHeadGeo, glNoseGeo].forEach(g => g.dispose());
     glPublish(true); setTimeout(() => glPublish(true), 300); setTimeout(() => glPublish(true), 1200); // 取りこぼしても消えるように、数回送る
   };
   const glBar = glNet ? document.getElementById('voiceBar') : null, glBarZ = glBar ? glBar.style.zIndex : ''; if (glBar) glBar.style.zIndex = '450'; // この画面より手前に、マイクのボタンを出す
