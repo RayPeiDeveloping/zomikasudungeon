@@ -3890,12 +3890,14 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   orangeTelegraph: 0.6,    // 構えの秒数（放つ向きの予告線が出る。向きはランダムで、自分は狙わない）
   orangeCount: 1,          // 1回に放つ本数（2本目以降も、それぞれランダムな向き）
   orangeColor: 0xff8c1a,   // オレンジの斬撃の色
+  orangeThick: 2,          // オレンジの斬撃の跡の太さ（通常の斬撃に対する倍率。見た目だけで、当たり判定は変わらない）
+  orangeSpeedRate: 2 / 3,  // オレンジの斬撃の速さ（通常の敵の斬撃 enemySlashSpeed に対する倍率。2/3＝3分の2）
   orangeLife: 6,           // 消えるまでの秒数（壁で跳ね返りながら、これだけ飛び続ける）
   rapidSpread: 0.3,        // 自分の方向から、上へ／下へ交互にずらす角度（ラジアン）
   // --- 斬撃が地面に残す跡（自分の斬撃も敵の斬撃も、通った道すじに斬られたような傷が残り、だんだん薄れて消える） ---
   scarLife: 5.0,           // 跡が残る秒数（最後の scarFade 秒でだんだん薄くなる）
   scarFade: 2.0,           // 消えていく秒数
-  scarWidth: 6,            // 跡の太さ（px。斬撃が出た所が最も太く、だんだん細くなる）
+  scarWidth: 3.6,          // 跡の太さ（px。そのまま描かれる太さ。斬撃が出た所が最も太く、だんだん細くなる）
   scarMax: 2600,           // 跡の線分の最大数（これを超えたら古い順に消す）
   scarStep: 5,             // 何px進むごとに跡の線分を1つ足すか（小さいほどなめらかだが重くなる）
   // --- スローモーション（敵の斬撃が自分に近づくと、全体がゆっくりになる） ---
@@ -8182,6 +8184,18 @@ class GameScene extends Phaser.Scene {
     if (rm) cam.centerOn((rm.x + rm.w / 2) * TILE, (rm.y + rm.h / 2) * TILE); // カメラは部屋の真ん中に固定（倍率はそのまま。画面の縦は常に12.5マス分が見える）
     else cam.centerOn((a.x + b.x) / 2, (a.y + b.y) / 2);
   }
+  // ⚔ 斬撃の見た目の太さ（px）：地面の跡の太さと同じ計算。斬撃が出た所が最も太く、寿命が進むほど細くなる。敵の斬撃がプレイヤーに当たる判定は、この太さの半分を半径にする（見た目のまま）
+  _vhSlashW(s) {
+    const V = VS_HERO;
+    return Math.max(0.9, V.scarWidth * (s.wMul || 1) * (1 - 0.65 * Math.min(1, s.age / (s.life || (s.owner === 'e' ? V.enemySlashLife : V.slashLife)))));
+  }
+  // ⚔ いま見えている範囲：カメラの worldView は最初の描画が終わるまで正しい値にならず、最初の入場だけ位置が別の場所に寄せられていたため、部屋の真ん中に固定したカメラから、自分で計算する
+  _vhView() {
+    const cam = this.cameras.main, rm = this.dungeon && this.dungeon.rooms && this.dungeon.rooms[0];
+    if (!rm) return cam.worldView;
+    const z = cam.zoom || 1, w = cam.width / z, h = cam.height / z, cx = (rm.x + rm.w / 2) * TILE, cy = (rm.y + rm.h / 2) * TILE;
+    return { x: cx - w / 2, y: cy - h / 2, width: w, height: h, right: cx + w / 2, bottom: cy + h / 2 };
+  }
   // ⚔ 移動：スティック（または WASD）で、画面の中ならどこでも自由に動ける（壁には、ぶつかって止まる）
   _vhStep(dx, dy, dt) {
     if (!this.player) return;
@@ -8198,7 +8212,7 @@ class GameScene extends Phaser.Scene {
       if (!this.circleHitsWall(nx, this.player.y, r)) this.player.x = nx; else vel.x = 0; // 壁にそって、すべる
       if (!this.circleHitsWall(this.player.x, ny, r)) this.player.y = ny; else vel.y = 0;
     }
-    const wv = cam.worldView; // いま見えている範囲の外には出られない
+    const wv = this._vhView(); // いま見えている範囲の外には出られない
     if (wv) {
       const mg = V.screenMargin + r;
       this.player.x = Phaser.Math.Clamp(this.player.x, wv.x + mg, wv.right - mg);
@@ -8207,7 +8221,7 @@ class GameScene extends Phaser.Scene {
   }
   // ⚔ 敵の動き：画面の右側を、あちこちへ動き回る。自分の斬撃がまっすぐ当たりそうなら、横へさっと避ける（避けたあとは少しの間、避けられない）
   _vhEnemyMove(e, dt) {
-    const V = VS_HERO, cam = this.cameras.main, wv = cam.worldView, g = e.gfx, r = e.type.radius;
+    const V = VS_HERO, cam = this.cameras.main, wv = this._vhView(), g = e.gfx, r = e.type.radius;
     if (!wv || !this.player || !g || !g.scene) return;
     const R = this._vhRoam || (this._vhRoam = { tx: g.x, ty: g.y, wait: 0.5, dT: 0, dx: 0, dy: 0, cd: 0 });
     R.cd = Math.max(0, R.cd - dt);
@@ -8361,7 +8375,7 @@ class GameScene extends Phaser.Scene {
             fire(en.ang, V.purpleTurn, V.purpleHomeTime, { big: true, col: V.purpleColor, spd: V.enemySlashSpeed * V.purpleSpeedRate, rad: V.enemySlashRadius * V.purpleThick, wMul: V.purpleThick, life: V.purpleLife, clashR: V.purpleClashRadius, dmg: V.purpleDamage, commitD: V.purpleCommitDist });
             en.atk = null; en.flank = false; en.off = 0; en.hold = false; en.cd = V.p2IntervalMin + Math.random() * (V.p2IntervalMax - V.p2IntervalMin);
           } else if (en.atk === 'orange') { // 🟠 オレンジの斬撃：ランダムな向きへ、追わずに直進。壁で跳ね返り、orangeLife 秒で消える
-            for (let k = 0; k < V.orangeCount; k++) fire(k === 0 ? en.ang : (Math.random() * 2 - 1) * Math.PI, 0, null, { col: V.orangeColor, committed: true, bounce: true, life: V.orangeLife });
+            for (let k = 0; k < V.orangeCount; k++) fire(k === 0 ? en.ang : (Math.random() * 2 - 1) * Math.PI, 0, null, { col: V.orangeColor, committed: true, bounce: true, life: V.orangeLife, wMul: V.orangeThick, spd: V.enemySlashSpeed * V.orangeSpeedRate });
             en.atk = null; en.hold = false; en.cd = V.p2IntervalMin + Math.random() * (V.p2IntervalMax - V.p2IntervalMin);
           } else {
             fire(en.ang, en.flank ? V.flankTurn : 0, en.flank ? V.flankHomeTime : null);
@@ -8412,7 +8426,7 @@ class GameScene extends Phaser.Scene {
       }
       if (s.sx === undefined) { s.sx = ox; s.sy = oy; } // 跡：前に線分を足した位置から、scarStepぶん進むたびに、斬撃の道すじに傷を足す（曲がれば、曲がった傷になる）
       if (Math.hypot(s.x - s.sx, s.y - s.sy) >= V.scarStep && !this.circleHitsWall(s.x, s.y, 5)) {
-        this._vhScars.push({ x1: s.sx, y1: s.sy, x2: s.x, y2: s.y, col: s.col, t: 0, w: Math.max(1.5, V.scarWidth * (s.wMul || 1) * (1 - 0.65 * Math.min(1, s.age / (s.life || (s.owner === 'e' ? V.enemySlashLife : V.slashLife))))) });
+        this._vhScars.push({ x1: s.sx, y1: s.sy, x2: s.x, y2: s.y, col: s.col, t: 0, w: this._vhSlashW(s) });
         s.sx = s.x; s.sy = s.y;
       }
       s.sp = (s.sp || 0) + dt * 140;
@@ -8421,7 +8435,7 @@ class GameScene extends Phaser.Scene {
       if (!dead && s.owner === 'p' && e && Math.hypot(s.x - e.gfx.x, s.y - e.gfx.y) < e.type.radius + V.slashRadius) {
         this.damageEnemy(e, V.slashDamage, s.a, 0); this._vhBurst(s.x, s.y, s.col, 18); this._vhBlood(s.x, s.y, s.a); this._vhHitFeel(false); dead = true;
       }
-      if (!dead && s.owner === 'e' && !this.isGhost && Math.hypot(s.x - this.player.x, s.y - this.player.y) < this.player.radius + (s.rad || V.enemySlashRadius) && this.playerInvuln <= 0) {
+      if (!dead && s.owner === 'e' && !this.isGhost && Math.hypot(s.x - this.player.x, s.y - this.player.y) < this.player.radius + this._vhSlashW(s) / 2 && this.playerInvuln <= 0) {
         this._vhHurt(s.dmg || V.enemySlashDamage); this._vhBurst(s.x, s.y, s.col, 18); this._vhBlood(s.x, s.y, s.a); this._vhHitFeel(true); dead = true; // 無敵の間は、すり抜ける
       }
       if (dead) { if (s.age <= sLife && !s.hitDone) this._vhBurst(s.x, s.y, s.col, 10); s.dead = true; }
@@ -8434,7 +8448,7 @@ class GameScene extends Phaser.Scene {
         if (b.big) { // 💜 紫の太い斬撃：そらさずに、紫の通常斬撃3つ（もとの向きにまっすぐ・左右に purpleSplitDeg 度）に分裂する。自分の斬撃も、ここで消える
           b.dead = true; a.dead = true;
           const sd = V.purpleSplitDeg * Math.PI / 180;
-          for (const da of [0, sd, -sd]) this._vhSlashes.push({ x: b.x, y: b.y, a: Phaser.Math.Angle.Wrap(b.a + da), age: 0, owner: 'e', col: V.purpleColor, spd: V.enemySlashSpeed * V.purpleSpeedRate, turn: 0, homeT: null, sp: 0, lx: b.x, ly: b.y, cd: V.clashCooldown });
+          for (const da of [0, sd, -sd]) this._vhSlashes.push({ x: b.x, y: b.y, a: Phaser.Math.Angle.Wrap(b.a + da), age: 0, owner: 'e', col: V.purpleColor, spd: V.enemySlashSpeed * V.purpleSpeedRate, life: V.purpleLife, turn: 0, homeT: null, sp: 0, lx: b.x, ly: b.y, cd: V.clashCooldown });
           this._vhBurst(b.x, b.y, V.purpleColor, V.clashSparks); this._vhBurst(b.x, b.y, 0xffffff, 8);
           this._vhStopT = Math.max(this._vhStopT || 0, V.clashStop);
           if (V.clashShake > 0) { try { this.cameras.main.shake(V.clashShakeMs, V.clashShake); } catch (e) {} }
@@ -8504,8 +8518,8 @@ class GameScene extends Phaser.Scene {
         const c = SC[i]; c.t += dt;
         if (c.t >= life) { SC.splice(i, 1); continue; }
         const al = Math.min(1, (life - c.t) / fade), glow = Math.max(0, 1 - c.t / 0.9); // 光は、出てすぐだけ強い
-        sg.lineStyle(c.w * 0.6, 0x000000, 0.6 * al); sg.lineBetween(c.x1, c.y1, c.x2, c.y2); // 黒い傷：同じ太さの1本線（縁なし）。scarLife のあいだ残る
-        if (glow > 0) { sg.lineStyle(c.w * 0.6, c.col, 0.85 * glow * al); sg.lineBetween(c.x1, c.y1, c.x2, c.y2); } // 斬撃の色：同じ太さで黒の上に重ね、出てすぐ薄れて、黒だけが残る
+        sg.lineStyle(c.w, 0x000000, 0.6 * al); sg.lineBetween(c.x1, c.y1, c.x2, c.y2); // 黒い傷：同じ太さの1本線（縁なし）。scarLife のあいだ残る
+        if (glow > 0) { sg.lineStyle(c.w, c.col, 0.85 * glow * al); sg.lineBetween(c.x1, c.y1, c.x2, c.y2); } // 斬撃の色：同じ太さで黒の上に重ね、出てすぐ薄れて、黒だけが残る
       }
       if (SC.length > V.scarMax) SC.splice(0, SC.length - V.scarMax);
       const BL = this._vhBloods, bLife = V.bloodLife, bFade = Math.max(0.01, V.bloodFade); // 🩸 血：飛んでいる間は尾を引き、止まったら小さな血だまりになる
