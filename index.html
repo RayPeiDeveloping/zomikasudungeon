@@ -3811,9 +3811,9 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   slashDamage: 40,     // 斬撃が敵に当たった時のダメージ
   slashLife: 2.2,      // 斬撃が消えるまでの秒数
   slashRadius: 16,     // 斬撃の当たり判定の半径（px）
-  slashColor: 0xffc933, // 自分の斬撃の色
-  sparkColor: 0xffc933,    // 自分の火花の色（本物の火花っぽい黄色。斬撃そのものの色は slashColor のまま）
-  sparkHot: 0xfff4b8,      // 火花のうち、ときどき混ざる芯の明るい色（白っぽい黄色）
+  slashColor: 0x5bd1ff, // 自分の斬撃の色（水色）
+  sparkColor: 0x5bd1ff,    // 自分の火花の色（斬撃と同じ水色）
+  sparkHot: 0xd8f4ff,      // 火花のうち、ときどき混ざる芯の明るい色（白っぽい水色）
   // --- 敵の動き（画面内を動き回り、まっすぐ飛んでくる斬撃は避ける。曲げないと当たらない） ---
   enemyMoveSpeed: 150,     // 敵が動き回る速さ（px/秒）
   enemyRoamLeft: 0.45,     // 敵が動ける範囲：画面の左から、この割合より右側（0＝画面全体）
@@ -3851,8 +3851,8 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   clashCooldown: 0.35,     // 弾き合ったあと、この秒数のあいだは、同じ斬撃どうしで再びぶつからない
   clashLock: 0.45,         // 弾き合ったあと、この秒数のあいだは、曲がった向きを保つ（スティック・追尾で向きが戻らない）
   invuln: 0.6,             // 被弾したあとの無敵の秒数
-  // --- 💀 形態移行（敵のHPが 1/3 以下になると、一度だけ第2形態になる） ---
-  p2HpRatio: 0.3334,       // 敵のHPが最大HPのこの割合以下になったら、第2形態へ移行する
+  // --- 💀 形態移行（敵のHPが 1/2 以下になると、一度だけ第2形態になる） ---
+  p2HpRatio: 0.5,          // 敵のHPが最大HPのこの割合以下になったら、第2形態へ移行する
   p2TransTime: 1.8,        // 形態移行の演出の秒数（この間、敵は動かず撃たない）
   p2StopTime: 0.25,        // 移行の瞬間に、全体が止まる秒数（ヒットストップ）
   p2FirstDelay: 0.6,       // 移行が終わってから、最初に撃つまでの秒数
@@ -8332,7 +8332,7 @@ class GameScene extends Phaser.Scene {
     const en = this._vhEn, eh = this._vhEnemyHome, hh0 = this._vhHome;
     if (e && en && eh && hh0 && this.playerHp > 0 && !this.isGhost && !this.isDowned && !this.transitioning) {
       const eHpMax = e.maxHp || e.type.hp;
-      if (!en.p2 && e.hp > 0 && (e.hp <= eHpMax * V.p2HpRatio || (V.p2TestMode && e.hp < eHpMax))) { // 💀 HPが1/3以下：第2形態へ移行（今ある敵の斬撃は消え、少しのあいだ動きが止まる）
+      if (!en.p2 && e.hp > 0 && (e.hp <= eHpMax * V.p2HpRatio || (V.p2TestMode && e.hp < eHpMax))) { // 💀 HPが半分以下：第2形態へ移行（今ある敵の斬撃は消え、少しのあいだ動きが止まる）
         en.p2 = true; en.trans = V.p2TransTime; en.transT = 0; en.fx = 0; en.tele = 0; en.rap = null; en.atk = null; en.hold = true;
         for (const q of this._vhSlashes) if (!q.dead && q.owner === 'e') { q.dead = true; this._vhBurst(q.x, q.y, V.enemySlashColor, 3); }
         this._vhStopT = Math.max(this._vhStopT, V.p2StopTime);
