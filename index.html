@@ -369,7 +369,11 @@
   /* 装飾品の選択欄（旧：色の選択）。先頭は一覧を開くアイコン。未入手は灰色 */
   #accPicker { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; }
   /* 称号：ホーム画面のプレイヤー名の上。押すと称号の選択画面が開く。未装備の時は「プレイヤー名」の灰色の文字 */
-  #titlePickBtn { display: block; font-size: 12px; color: #a0a0b0; margin-bottom: 2px; padding: 4px 0; cursor: pointer; -webkit-user-select: none; user-select: none; }
+  #titlePickBtn { display: block; width: fit-content; max-width: 100%; box-sizing: border-box; margin: 0 auto 6px; font-size: 12px; color: #c8c8d8; padding: 5px 26px 5px 14px; position: relative; cursor: pointer; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+    background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.05)); border: 1px solid rgba(255,255,255,0.35); border-radius: 999px; box-shadow: 0 2px 0 rgba(0,0,0,0.45), 0 0 6px rgba(255,255,255,0.08); transition: background 0.12s, border-color 0.12s, transform 0.06s, box-shadow 0.06s; }
+  #titlePickBtn::after { content: '▾'; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 11px; opacity: 0.8; }
+  #titlePickBtn:hover { background: linear-gradient(180deg, rgba(255,255,255,0.24), rgba(255,255,255,0.10)); border-color: rgba(255,255,255,0.65); }
+  #titlePickBtn:active { transform: translateY(2px); box-shadow: 0 0 0 rgba(0,0,0,0.45); background: rgba(255,255,255,0.08); }
   #titlePickBtn.has { font-size: 14px; font-weight: bold; letter-spacing: 0.08em; }
   #titleModal { display: none; position: fixed; inset: 0; z-index: 130; background: rgba(0,0,0,0.72); align-items: center; justify-content: center; padding: 12px; box-sizing: border-box; color: #e8e8f0; }
   #titleModal .lobbyBox { max-width: min(96vw, 440px); width: 100%; max-height: 92vh; overflow-y: auto; box-sizing: border-box; padding: 12px 16px; }
