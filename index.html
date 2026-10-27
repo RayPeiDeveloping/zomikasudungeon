@@ -750,8 +750,8 @@ const IS_TOUCH_DEVICE = ('ontouchstart' in window) || navigator.maxTouchPoints >
 const IS_LOW_SPEC = (() => { try { return /CrOS/i.test(navigator.userAgent || '') || (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 4; } catch (e) { return false; } })();
 // 📱 iPhone・iPad（iOS）か。iOSのSafariはコア数を実際より少なく（2〜4に）丸めて返すので、新しい機種でも「コア数4以下」に見えてしまう
 const IS_IOS = (() => { try { return /iPhone|iPad|iPod/i.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); } catch (e) { return false; } })();
-// 🌿 草と花を「最初から出さない」かの判定（IS_LOW_SPEC のうち、コア数だけ iOS では見ない）。iOSはまず草と花を出して、本当に重ければ動的な軽量化（adaptRes）が数秒後に消す
-const IS_LOW_SPEC_GRASS = (() => { try { return /CrOS/i.test(navigator.userAgent || '') || (!IS_IOS && ((navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 4)); } catch (e) { return false; } })();
+// 🌿 草と花を「出さない」かの判定：低スペック端末（IS_LOW_SPEC）か、スマホ・タブレットなどのタッチ端末（IS_TOUCH_DEVICE）なら出さない
+const IS_LOW_SPEC_GRASS = IS_LOW_SPEC || IS_TOUCH_DEVICE;
 
 // ============== スマホでの拡大操作（ダブルタップ／ピンチ）を完全に無効化 ==============
 // viewportのuser-scalable=noだけではブラウザによってダブルタップ拡大が
@@ -2104,7 +2104,7 @@ function openGrassland(onClose, opt) {
   const NF = touch ? 420 : 700, flowers = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.1, 0), flowerMat, NF), fcols = [0xffffff, 0xff9ec4, 0xffe36b, 0xc9a8ff, 0xffb27a];
   for (let i = 0; i < NF; i++) { m4.makeTranslation((Math.random() - 0.5) * 70, 0, (Math.random() - 0.5) * 70); flowers.setMatrixAt(i, m4); cc.setHex(fcols[i % fcols.length]); flowers.setColorAt(i, cc); }
   flowers.frustumCulled = false; scene.add(flowers);
-  if (IS_LOW_SPEC_GRASS) { grass.visible = false; flowers.visible = false; } // 🔧 低スペック端末では、草と花は描かない（地形の計算が重いため）。iOSはコア数を見ない（IS_LOW_SPEC_GRASS）
+  if (IS_LOW_SPEC_GRASS) { grass.visible = false; flowers.visible = false; } // 🔧 低スペック端末では、草と花は描かない（地形の計算が重いため）。IS_LOW_SPEC_GRASS は、低スペック端末かタッチ端末（スマホ）なら true
 
   // ----- 木：40m四方のマスごとに、場所と大きさが「マスの番号」から必ず同じに決まる（何も保存しなくても、同じ場所に同じ木が出る）。自分の周り±3マス（約120m）のマスだけ木を作り、離れたマスの木は消す -----
   const CELL = 40, TR = lowSpec ? 3 : TALL ? 4 : 3, trees = new Map(); // 交流ルームの草原は、霧が遠くまで薄いので、木も遠く（±4マス＝160m以上）まで作る
@@ -4052,7 +4052,7 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   shakeHurtMs: 160,        // 　その揺れの長さ（ミリ秒）
   moveSmooth: 0.05         // 動き出し・止まりのなめらかさ（秒。0＝すぐ最高速／止まる。大きいほどぬるっと動く）
 };
-const PARTY_PORTAL_HERO = { i: -4, portal: true, hero: true, disabled: true, x: 320, y: 118 }; // 🚧 準備中（灰色で入れない。disabled を外すと元に戻る）⚔ 斬り合いへの入口（入るとボス部屋へ飛ぶ。装飾品は全部持っていけない）
+const PARTY_PORTAL_HERO = { i: -4, portal: true, hero: true, x: 320, y: 118 }; // ⚔ 斬り合いへの入口（入るとボス部屋へ飛ぶ。装飾品は全部持っていけない）
 const PARTY_PORTAL_LGRASS = { i: -5, portal: true, lgrass: true, x: 280, y: 118 }; // 💬 交流ルーム：🌿 草原（ホラーの影が出ない。何も起こらない）
 const PARTY_PORTAL_LDUNGEON = { i: -6, portal: true, ldungeon: true, x: 360, y: 118 }; // 💬 交流ルーム：🕳 ダンジョン（ホラーで影に追いつかれてワープした直後から始まる）
 const PARTY_PORTAL_LSTAIRS = { i: -7, portal: true, lstairs: true, x: 200, y: 118 }; // 💬 交流ルーム：🪜 階段（無限に続く暗い階段を上っていく。踊り場ごとに階数の数字とドアがある）
