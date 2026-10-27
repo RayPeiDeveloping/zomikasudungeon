@@ -27282,6 +27282,7 @@ class GameScene extends Phaser.Scene {
 
   goNextFloor() {
     if (this.transitioning || this._advancing) return;
+    if (this.s2Trial && this.s2Trial.phase === 'count') this.cancelS2Trial(); // カウントダウン中に出口へ入った：儀の準備は取り消す（次の階に持ち越さない）
 
     if (this.mp && this.net) {
       // パーティ全員で階層を共有する: checkPartyReady()で全員が出口に揃ったと判定された時だけ呼ばれる。
@@ -30295,7 +30296,7 @@ class GameScene extends Phaser.Scene {
       if (gid != null && !(rt.trialGids && rt.trialGids[gid])) rt.bossDefeats.push({ gid, pos: (rt.groupOrig && rt.groupOrig[gid]) || { x: rt.x, y: rt.y } });
       return;
     }
-    if (this.s2Trial) { // 調伏の儀の中：儀式の敵はボス撃破の報酬・記録の対象外。道連れにした本物のボスを倒した場合は、元の場所に戻ってから撃破として扱う
+    if (this.s2Trial && this.s2Trial.phase !== 'count') { // 調伏の儀の中（カウントダウン中は、まだ誰も道連れにしていないので除く）：儀式の敵はボス撃破の報酬・記録の対象外。道連れにした本物のボスを倒した場合は、元の場所に戻ってから撃破として扱う
       const tr = this.s2Trial;
       if (gid != null && tr.dragGroups && tr.dragGroups[gid]) tr.bossDefeats.push({ gid, pos: (tr.groupOrig && tr.groupOrig[gid]) || pos });
       return;
