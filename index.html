@@ -1771,9 +1771,9 @@ function openDungeon(onClose, opt) {
     knob.style.cssText = 'position:absolute;left:8.5vh;top:8.5vh;width:10vh;height:10vh;border-radius:50%;background:rgba(255,255,255,0.55);pointer-events:none;'; base.appendChild(knob); root.appendChild(base);
     let id = null;
     const apply = ev => { const r = base.getBoundingClientRect(), dx = ev.clientX - (r.left + r.width / 2), dy = ev.clientY - (r.top + r.height / 2), md = (r.width / 2) * 0.7778, raw = Math.hypot(dx, dy) || 1, d = Math.min(md, raw); knob.style.transform = 'translate(' + (dx / raw * d) + 'px,' + (dy / raw * d) + 'px)'; sv = { x: dx / raw * d / md, y: dy / raw * d / md }; };
-    base.onpointerdown = ev => { if (id !== null) return; ev.preventDefault(); id = ev.pointerId; try { base.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } apply(ev); };
+    base.onpointerdown = ev => { /* 前の指が離れた合図を取りこぼしても、新しく触れた指でスティックを取り直せるようにする */ ev.preventDefault(); id = ev.pointerId; try { base.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } apply(ev); };
     base.onpointermove = ev => { if (ev.pointerId === id) apply(ev); };
-    base.onpointerup = base.onpointercancel = ev => { if (ev.pointerId === id) { id = null; knob.style.transform = ''; sv = { x: 0, y: 0 }; } };
+    const endSt = ev => { if (ev.pointerId === id) { id = null; knob.style.transform = ''; sv = { x: 0, y: 0 } } }; base.onpointerup = base.onpointercancel = base.onlostpointercapture = endSt; const onBlurSt = () => { if (!base.isConnected) { window.removeEventListener('blur', onBlurSt); return; } if (id !== null) endSt({ pointerId: id }); }; window.addEventListener('blur', onBlurSt); // 指を離した合図が届かなくても、止まる
   }
   const blk = document.createElement('div'); blk.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity 0.6s;'; root.appendChild(blk); // 暗転用の黒い幕
   const resize = () => { const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
@@ -2164,9 +2164,9 @@ function openGrassland(onClose, opt) {
       knob.style.cssText = 'position:absolute;left:8.5vh;top:8.5vh;width:10vh;height:10vh;border-radius:50%;background:rgba(255,255,255,0.55);pointer-events:none;'; base.appendChild(knob); root.appendChild(base);
       let id = null;
       const apply = ev => { const r = base.getBoundingClientRect(), dx = ev.clientX - (r.left + r.width / 2), dy = ev.clientY - (r.top + r.height / 2), md = (r.width / 2) * 0.7778, raw = Math.hypot(dx, dy) || 1, d = Math.min(md, raw); knob.style.transform = 'translate(' + (dx / raw * d) + 'px,' + (dy / raw * d) + 'px)'; cb({ x: dx / raw * d / md, y: dy / raw * d / md }); };
-      base.onpointerdown = ev => { if (id !== null) return; ev.preventDefault(); id = ev.pointerId; try { base.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } apply(ev); };
+      base.onpointerdown = ev => { /* 前の指が離れた合図を取りこぼしても、新しく触れた指でスティックを取り直せるようにする */ ev.preventDefault(); id = ev.pointerId; try { base.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } apply(ev); };
       base.onpointermove = ev => { if (ev.pointerId === id) apply(ev); };
-      base.onpointerup = base.onpointercancel = ev => { if (ev.pointerId === id) { id = null; knob.style.transform = ''; cb({ x: 0, y: 0 }); } };
+      const endSt = ev => { if (ev.pointerId === id) { id = null; knob.style.transform = ''; cb({ x: 0, y: 0 }); } }; base.onpointerup = base.onpointercancel = base.onlostpointercapture = endSt; const onBlurSt = () => { if (!base.isConnected) { window.removeEventListener('blur', onBlurSt); return; } if (id !== null) endSt({ pointerId: id }); }; window.addEventListener('blur', onBlurSt); // 指を離した合図が届かなくても、止まる
     };
     mkStick(false, v => { sv = v; }); // 右スティックはなし：視点は、画面のスワイプで動かす（sr は常に0）
   }
@@ -3485,9 +3485,9 @@ function openStairs(onClose, opt) {
       knob.style.cssText = 'position:absolute;left:8.5vh;top:8.5vh;width:10vh;height:10vh;border-radius:50%;background:rgba(255,255,255,0.55);pointer-events:none;'; base.appendChild(knob); root.appendChild(base);
       let id = null;
       const apply = ev => { const r = base.getBoundingClientRect(), dx = ev.clientX - (r.left + r.width / 2), dy = ev.clientY - (r.top + r.height / 2), md = (r.width / 2) * 0.7778, raw = Math.hypot(dx, dy) || 1, d = Math.min(md, raw); knob.style.transform = 'translate(' + (dx / raw * d) + 'px,' + (dy / raw * d) + 'px)'; cb({ x: dx / raw * d / md, y: dy / raw * d / md }); };
-      base.onpointerdown = ev => { if (id !== null) return; ev.preventDefault(); id = ev.pointerId; try { base.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } apply(ev); };
+      base.onpointerdown = ev => { /* 前の指が離れた合図を取りこぼしても、新しく触れた指でスティックを取り直せるようにする */ ev.preventDefault(); id = ev.pointerId; try { base.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } apply(ev); };
       base.onpointermove = ev => { if (ev.pointerId === id) apply(ev); };
-      base.onpointerup = base.onpointercancel = ev => { if (ev.pointerId === id) { id = null; knob.style.transform = ''; cb({ x: 0, y: 0 }); } };
+      const endSt = ev => { if (ev.pointerId === id) { id = null; knob.style.transform = ''; cb({ x: 0, y: 0 }); } }; base.onpointerup = base.onpointercancel = base.onlostpointercapture = endSt; const onBlurSt = () => { if (!base.isConnected) { window.removeEventListener('blur', onBlurSt); return; } if (id !== null) endSt({ pointerId: id }); }; window.addEventListener('blur', onBlurSt); // 指を離した合図が届かなくても、止まる
     };
     mkStick(false, v => { sv = v; }); // 右スティックはなし：視点は、画面のスワイプで動かす（sr は常に0）
   }
@@ -3810,9 +3810,9 @@ function openPartyHall(onClose, opt) {
       knob.style.cssText = 'position:absolute;left:8.5vh;top:8.5vh;width:10vh;height:10vh;border-radius:50%;background:rgba(255,255,255,0.55);pointer-events:none;'; base.appendChild(knob); root.appendChild(base);
       let id = null;
       const apply = ev => { const r = base.getBoundingClientRect(), dx = ev.clientX - (r.left + r.width / 2), dy = ev.clientY - (r.top + r.height / 2), md = (r.width / 2) * 0.7778, raw = Math.hypot(dx, dy) || 1, d = Math.min(md, raw); knob.style.transform = 'translate(' + (dx / raw * d) + 'px,' + (dy / raw * d) + 'px)'; cb({ x: dx / raw * d / md, y: dy / raw * d / md }); };
-      base.onpointerdown = ev => { if (id !== null) return; ev.preventDefault(); id = ev.pointerId; try { base.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } apply(ev); };
+      base.onpointerdown = ev => { /* 前の指が離れた合図を取りこぼしても、新しく触れた指でスティックを取り直せるようにする */ ev.preventDefault(); id = ev.pointerId; try { base.setPointerCapture(ev.pointerId); } catch (e) { /* 何もしない */ } apply(ev); };
       base.onpointermove = ev => { if (ev.pointerId === id) apply(ev); };
-      base.onpointerup = base.onpointercancel = ev => { if (ev.pointerId === id) { id = null; knob.style.transform = ''; cb({ x: 0, y: 0 }); } };
+      const endSt = ev => { if (ev.pointerId === id) { id = null; knob.style.transform = ''; cb({ x: 0, y: 0 }); } }; base.onpointerup = base.onpointercancel = base.onlostpointercapture = endSt; const onBlurSt = () => { if (!base.isConnected) { window.removeEventListener('blur', onBlurSt); return; } if (id !== null) endSt({ pointerId: id }); }; window.addEventListener('blur', onBlurSt); // 指を離した合図が届かなくても、止まる
     };
     mkStick(false, v => { sv = v; }); // 右スティックはなし：視点は、画面のスワイプで動かす（sr は常に0）
   }
