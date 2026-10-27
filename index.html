@@ -748,6 +748,10 @@ window.moveVector = { x: 0, y: 0 };
 const IS_TOUCH_DEVICE = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 // 🔧 低スペック端末（学校のChromebookなど）：ChromeOS、またはCPUコアが4以下、またはメモリが4GB以下。草原・ボイスチャットを軽くする
 const IS_LOW_SPEC = (() => { try { return /CrOS/i.test(navigator.userAgent || '') || (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 4; } catch (e) { return false; } })();
+// 📱 iPhone・iPad（iOS）か。iOSのSafariはコア数を実際より少なく（2〜4に）丸めて返すので、新しい機種でも「コア数4以下」に見えてしまう
+const IS_IOS = (() => { try { return /iPhone|iPad|iPod/i.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); } catch (e) { return false; } })();
+// 🌿 草と花を「最初から出さない」かの判定（IS_LOW_SPEC のうち、コア数だけ iOS では見ない）。iOSはまず草と花を出して、本当に重ければ動的な軽量化（adaptRes）が数秒後に消す
+const IS_LOW_SPEC_GRASS = (() => { try { return /CrOS/i.test(navigator.userAgent || '') || (!IS_IOS && ((navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 4)); } catch (e) { return false; } })();
 
 // ============== スマホでの拡大操作（ダブルタップ／ピンチ）を完全に無効化 ==============
 // viewportのuser-scalable=noだけではブラウザによってダブルタップ拡大が
@@ -1899,6 +1903,14 @@ function openGrassland(onClose, opt) {
     for (let i = a0; i <= a1; i++) for (let j = c0; j <= c1; j++) { const q = pondOf(i, j); if (!q) continue; const dx = x - q.x, dz = z - q.z; best = Math.max(best, 1 - sstep(0, 30, Math.hypot(dx, dz) - pondRw(q, dx, dz))); }
     return best;
   };
+  // 💧 自分から水平距離 r 以内に、川か池の水が「あるかもしれない」か（あるかもしれなければ true。確実に無い時だけ false）。水があるのは、川の幅の中か池のふちの中だけ（丘の低さだけでは水面より下がらない）。水面の板を描くかどうかに使う。
+  //   川：蛇行する中心線までの横の距離 − 半幅 が、自分の前後 ±r の範囲のどこかで r より小さいか（16mおきに調べ、間の変化ぶん（最大約7m）は余裕 8m で見込む）。池：池の中心までの距離 < r + 池の最大の半径（半径×1.25）
+  const waterNear = r => {
+    for (let k = -r; k <= r + 16; k += 16) { const zz = P.z + k; if (riverD(P.x, zz) - riverW(zz) < r + 8) return true; }
+    const a0 = Math.floor((P.x - r - 60) / PCELL), a1 = Math.floor((P.x + r + 60) / PCELL), c0 = Math.floor((P.z - r - 60) / PCELL), c1 = Math.floor((P.z + r + 60) / PCELL);
+    for (let i = a0; i <= a1; i++) for (let j = c0; j <= c1; j++) { const q = pondOf(i, j); if (q && Math.hypot(P.x - q.x, P.z - q.z) < r + q.R * 1.25 + 2) return true; }
+    return false;
+  };
   const avY = (x, z) => Math.max(hh(x, z), WY - 0.5); // 他の人・影の足元の高さ（水の中なら、胸くらいの深さのところに立つ）
   const HORIZON = new THREE.Color(0xcfeaf7), TOP = new THREE.Color(0x4f9be0);
   const FOG_ORIG = THREE.ShaderChunk.fog_vertex; THREE.ShaderChunk.fog_vertex = FOG_ORIG.replace(/-\s*mvPosition\.z/, 'length(mvPosition.xyz)'); // 霧の濃さを、画面の奥行きではなく「自分からの直線距離」で決める（奥行きだと、同じ距離でも画面の端のほうが霧が薄くなり、端だけ遠くのものがはっきり見えていた）。草原を出る時に元に戻す
@@ -2046,8 +2058,8 @@ function openGrassland(onClose, opt) {
     '  float carve = (0.45 + 0.27*w + BK) * smoothstep(0.0, 1.0, 1.0 - d/w);',
     '  float m = 1.0 - smoothstep(0.0, mg, max(d - w, 0.0));',
     '  for (int i = 0; i < 16; i++) {',
-    '    vec4 q = uPonds[i]; vec2 dp = p - q.xy; float d2 = length(dp);',
-    '    if (q.z <= 0.0 || d2 > q.z*1.25 + 34.0) continue;',
+    '    vec4 q = uPonds[i]; if (q.z <= 0.0) break;', // 空き枠（半径0）から後ろは全部空き（syncPonds が前から詰めて入れる）ので、そこで終わり
+    '    vec2 dp = p - q.xy; float rr = q.z*1.25 + 34.0; if (dot(dp, dp) > rr*rr) continue; float d2 = length(dp);', // 遠い池は、平方根（length）を計算せずに除く
     '    vec2 pp = uPondP[i]; float ang = atan(dp.y, dp.x + 0.00001);',
     '    float Rw = q.z * (1.0 + 0.16*sin(3.0*ang + pp.x) + 0.09*sin(5.0*ang + pp.y));',
     '    carve = max(carve, (q.w + BK) * smoothstep(0.0, 1.0, 1.0 - d2/Rw));',
@@ -2083,7 +2095,7 @@ function openGrassland(onClose, opt) {
   const bladeGeo = new THREE.ConeGeometry(0.06, 1, 3, 1, true); bladeGeo.translate(0, 0.5, 0);
   const grassMat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
   patch(grassMat, 'float a = r * 6.2831; transformed.xz = mat2(cos(a), -sin(a), sin(a), cos(a)) * transformed.xz; transformed.y *= (0.35 + 0.7 * r) * fd; float s2 = sw * 0.14 * position.y; transformed.x += s2; transformed.z += s2 * 0.6; transformed.xz += wp - ip; transformed.y += hw; if (!gv) transformed = vec3(wp.x - ip.x, 0.0, wp.y - ip.y);');
-  const NG = lowSpec ? 9000 : touch ? 16000 : 26000, grass = new THREE.InstancedMesh(bladeGeo, grassMat, NG), m4 = new THREE.Matrix4(), cc = new THREE.Color();
+  const NG = IS_LOW_SPEC_GRASS ? 9000 : touch ? 16000 : 26000, grass = new THREE.InstancedMesh(bladeGeo, grassMat, NG), m4 = new THREE.Matrix4(), cc = new THREE.Color();
   const gN = Math.ceil(Math.sqrt(NG)), gR = Math.ceil(NG / gN); /* 🔧 草は70m四方を格子状に分けて、1マスに1本ずつランダムにずらして置く（番号が近い草は場所も近い→遠い草の計算省略がGPUで効く） */
   for (let i = 0; i < NG; i++) { m4.makeTranslation((((i % gN) + Math.random()) / gN - 0.5) * 70, 0, ((((i / gN) | 0) + Math.random()) / gR - 0.5) * 70); grass.setMatrixAt(i, m4); cc.setHSL(0.24 + Math.random() * 0.06, 0.55 + Math.random() * 0.2, 0.3 + Math.random() * 0.16); grass.setColorAt(i, cc); }
   grass.frustumCulled = false; scene.add(grass);
@@ -2092,7 +2104,7 @@ function openGrassland(onClose, opt) {
   const NF = touch ? 420 : 700, flowers = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.1, 0), flowerMat, NF), fcols = [0xffffff, 0xff9ec4, 0xffe36b, 0xc9a8ff, 0xffb27a];
   for (let i = 0; i < NF; i++) { m4.makeTranslation((Math.random() - 0.5) * 70, 0, (Math.random() - 0.5) * 70); flowers.setMatrixAt(i, m4); cc.setHex(fcols[i % fcols.length]); flowers.setColorAt(i, cc); }
   flowers.frustumCulled = false; scene.add(flowers);
-  if (lowSpec) { grass.visible = false; flowers.visible = false; } // 🔧 低スペック端末では、草と花は描かない（地形の計算が重いため）
+  if (IS_LOW_SPEC_GRASS) { grass.visible = false; flowers.visible = false; } // 🔧 低スペック端末では、草と花は描かない（地形の計算が重いため）。iOSはコア数を見ない（IS_LOW_SPEC_GRASS）
 
   // ----- 木：40m四方のマスごとに、場所と大きさが「マスの番号」から必ず同じに決まる（何も保存しなくても、同じ場所に同じ木が出る）。自分の周り±3マス（約120m）のマスだけ木を作り、離れたマスの木は消す -----
   const CELL = 40, TR = lowSpec ? 3 : TALL ? 4 : 3, trees = new Map(); // 交流ルームの草原は、霧が遠くまで薄いので、木も遠く（±4マス＝160m以上）まで作る
@@ -2602,8 +2614,8 @@ function openGrassland(onClose, opt) {
     'float pondIn(vec2 p) {', // 池の中へどれだけ入っているか（ふち0 → 中へ向かって1）。川の流れを池の中でゆるめるのに使う
     '  float r = 0.0;',
     '  for (int i = 0; i < 16; i++) {',
-    '    vec4 pq = uPonds[i]; if (pq.z <= 0.0) continue;',
-    '    vec2 dp = p - pq.xy; float d2 = length(dp); if (d2 > pq.z * 1.25 + 34.0) continue;',
+    '    vec4 pq = uPonds[i]; if (pq.z <= 0.0) break;',
+    '    vec2 dp = p - pq.xy; float rr = pq.z * 1.25 + 34.0; if (dot(dp, dp) > rr * rr) continue; float d2 = length(dp);',
     '    vec2 pp = uPondP[i]; float ang = atan(dp.y, dp.x + 0.00001);',
     '    float Rw = pq.z * (1.0 + 0.16 * sin(3.0 * ang + pp.x) + 0.09 * sin(5.0 * ang + pp.y));',
     '    r = max(r, smoothstep(0.0, 0.6, 1.0 - d2 / Rw));',
@@ -2618,6 +2630,7 @@ function openGrassland(onClose, opt) {
     'void main() {',
     '  vec2 p = vW.xz; float t = uTime;',
     '  float depth = WY - hh(p);', // その場所の水の深さ（地面の高さと同じ式から求める）
+    '  if (cameraPosition.y > WY && depth <= 0.0) discard;', // 💧 水の上から見ていて、そこに水がない（深さ0以下）なら、以降の計算は不要。もともと alpha が 0 になる場所なので、見た目は変わらない（水の中から見上げる時は alpha=1 なので対象外）
     '  float rv = clamp(1.0 - riverD(p) / riverW(p.y), 0.0, 1.0);',
     '  float fl = smoothstep(0.0, 0.2, rv) * (1.0 - pondIn(p));', // 流れの強さ：川の中ほど強く、池の中へ入るにつれて弱まる（川と池の境目で、波の動きがいきなり変わらないように）
     '  vec2 q = p - vec2(0.0, t * 1.5);', // 下流（+z）へ流れていく座標
@@ -2727,6 +2740,7 @@ function openGrassland(onClose, opt) {
     const fv = 70 - 14 * uk; if (Math.abs(fv - camera.fov) > 0.05) { camera.fov = fv; camera.updateProjectionMatrix(); }
     uwOv.style.opacity = uk.toFixed(2); uwOv.style.display = '';
     WU.uFogCol.value.copy(fog.color); WU.uFogNF.value.set(fog.near, fog.far); water.position.set(P.x, WY, P.z);
+    water.visible = waterNear(fog.far + 6); // 💧 霧で見えなくなる距離（fog.far）より近くに水が無ければ、水面の板は描かない（見た目は変わらない）
     if (amAc && amAc.state !== 'closed' && amOut && amUw) {
       const ct = amAc.currentTime;
       if (under !== wAudU) { wAudU = under; amOut.frequency.setTargetAtTime(under ? 520 : 20000, ct, 0.06); amAmb.gain.setTargetAtTime(under ? 0.25 : 1, ct, 0.12); amUw.gain.setTargetAtTime(under ? 0.5 : 0, ct, 0.3); } // 水の中：高い音が消えて、こもる
@@ -4038,7 +4052,7 @@ const VS_HERO = { // ⚔ 斬り合いの調整値
   shakeHurtMs: 160,        // 　その揺れの長さ（ミリ秒）
   moveSmooth: 0.05         // 動き出し・止まりのなめらかさ（秒。0＝すぐ最高速／止まる。大きいほどぬるっと動く）
 };
-const PARTY_PORTAL_HERO = { i: -4, portal: true, hero: true, x: 320, y: 118 }; // ⚔ 斬り合いへの入口（入るとボス部屋へ飛ぶ。装飾品は全部持っていけない）
+const PARTY_PORTAL_HERO = { i: -4, portal: true, hero: true, disabled: true, x: 320, y: 118 }; // 🚧 準備中（灰色で入れない。disabled を外すと元に戻る）⚔ 斬り合いへの入口（入るとボス部屋へ飛ぶ。装飾品は全部持っていけない）
 const PARTY_PORTAL_LGRASS = { i: -5, portal: true, lgrass: true, x: 280, y: 118 }; // 💬 交流ルーム：🌿 草原（ホラーの影が出ない。何も起こらない）
 const PARTY_PORTAL_LDUNGEON = { i: -6, portal: true, ldungeon: true, x: 360, y: 118 }; // 💬 交流ルーム：🕳 ダンジョン（ホラーで影に追いつかれてワープした直後から始まる）
 const PARTY_PORTAL_LSTAIRS = { i: -7, portal: true, lstairs: true, x: 200, y: 118 }; // 💬 交流ルーム：🪜 階段（無限に続く暗い階段を上っていく。踊り場ごとに階数の数字とドアがある）
@@ -27669,7 +27683,7 @@ class GameScene extends Phaser.Scene {
     tx(320, 432, '⭐', 14, '#ffffff');
     if (this.lounge) { tx(PARTY_PORTAL_LGRASS.x, 119, '🌿', 14, '#ffffff'); tx(PARTY_PORTAL_LGRASS.x, 151, '草原', 11, '#ffffff', { c: '#2f7a49', w: 3 }); tx(PARTY_PORTAL_LDUNGEON.x, 119, '🕳', 14, '#ffffff'); tx(PARTY_PORTAL_LDUNGEON.x, 151, 'ダンジョン', 11, '#ffffff', { c: '#4a3a7a', w: 3 }); tx(PARTY_PORTAL_LSTAIRS.x, 119, '🪜', 14, '#ffffff'); tx(PARTY_PORTAL_LSTAIRS.x, 151, '階段', 11, '#ffffff', { c: '#8a5a2a', w: 3 }); } // 💬 交流ルーム：草原とダンジョンの2つの入口（斬り合いの入口はない）
     if (this.lounge) { tx(PARTY_PORTAL_SOCIAL.x, 119, '🎙', 14, '#ffffff'); tx(PARTY_PORTAL_SOCIAL.x, 151, '交流ルーム', 11, '#ffffff', { c: '#2f5f9a', w: 3 }); } // パーティールームには、ホラーと交流ルームの入口はない（斬り合いだけ）
-    if (!this.lounge) { tx(PARTY_PORTAL_HERO.x, 119, '⚔', 14, '#ffffff'); tx(PARTY_PORTAL_HERO.x, 151, '斬り合い', 11, '#ffffff', { c: '#9a2f2f', w: 3 }); }
+    if (!this.lounge) { const dis = !!PARTY_PORTAL_HERO.disabled; tx(PARTY_PORTAL_HERO.x, 119, '⚔', 14, '#ffffff').setAlpha(dis ? 0.5 : 1); tx(PARTY_PORTAL_HERO.x, 151, '斬り合い', 11, dis ? '#dddddd' : '#ffffff', { c: dis ? '#555555' : '#9a2f2f', w: 3 }); if (dis) tx(PARTY_PORTAL_HERO.x, 164, '準備中', 10, '#dddddd', { c: '#555555', w: 3 }); }
     this.player.x += (Math.random() - 0.5) * 80; // 同時に入った人と重ならないように
     if (!this.lounge) this._partyLoadMemos(); // 💬 交流ルームには、メモがない
     this.events.once('shutdown', () => { const pb = document.getElementById('partyPrompt'); if (pb) pb.remove(); });
@@ -27691,9 +27705,9 @@ class GameScene extends Phaser.Scene {
       g.fillStyle(hsl(i * 67 + 10, 0.45, 0.66), 1); g.fillEllipse(bx, y, 22, 28); g.fillStyle(0xffffff, 0.5); g.fillEllipse(bx - 4, y - 5, 5, 8);
     });
     for (const PP of this._partyPortals()) { // 🌿 草原（緑）／🎙 みんなの広場（水色）／⚔ 斬り合い（赤）への入口：光る扉
-      const hero = !!PP.hero, soc = !!PP.social, px = PP.x, py = PP.y, gl = 0.55 + 0.25 * Math.sin(t * 3);
-      g.fillStyle(hero ? 0xff8a8a : soc ? 0x78b8ff : PP.ldungeon ? 0xa888e8 : PP.lstairs ? 0xf0b868 : 0x78dc8c, 0.28 * gl); g.fillCircle(px, py, 27); g.fillStyle(hero ? 0xce4a4a : soc ? 0x4f86ce : PP.ldungeon ? 0x6a4fae : PP.lstairs ? 0xb87a30 : 0x4fae6a, 1); g.fillEllipse(px, py, 30, 40); g.fillStyle(hero ? 0xffd0d0 : soc ? 0xc9e2ff : PP.ldungeon ? 0xd8c9f2 : PP.lstairs ? 0xf8e6c4 : 0xc9f2cf, 1); g.fillEllipse(px, py, 20, 30);
-      for (let k = 0; k < 5; k++) { const a = t * 1.6 + k * 1.26; g.fillStyle(0xffffff, 0.85); g.fillRect(px + Math.cos(a) * 21 - 1.5, py + Math.sin(a) * 25 - 1.5, 3, 3); }
+      const hero = !!PP.hero, soc = !!PP.social, dis = !!PP.disabled, px = PP.x, py = PP.y, gl = dis ? 0.4 : 0.55 + 0.25 * Math.sin(t * 3); // dis＝準備中（灰色で、光らない）
+      g.fillStyle(dis ? 0xb0b0b0 : hero ? 0xff8a8a : soc ? 0x78b8ff : PP.ldungeon ? 0xa888e8 : PP.lstairs ? 0xf0b868 : 0x78dc8c, 0.28 * gl); g.fillCircle(px, py, 27); g.fillStyle(dis ? 0x808080 : hero ? 0xce4a4a : soc ? 0x4f86ce : PP.ldungeon ? 0x6a4fae : PP.lstairs ? 0xb87a30 : 0x4fae6a, 1); g.fillEllipse(px, py, 30, 40); g.fillStyle(dis ? 0xc8c8c8 : hero ? 0xffd0d0 : soc ? 0xc9e2ff : PP.ldungeon ? 0xd8c9f2 : PP.lstairs ? 0xf8e6c4 : 0xc9f2cf, 1); g.fillEllipse(px, py, 20, 30);
+      if (!dis) for (let k = 0; k < 5; k++) { const a = t * 1.6 + k * 1.26; g.fillStyle(0xffffff, 0.85); g.fillRect(px + Math.cos(a) * 21 - 1.5, py + Math.sin(a) * 25 - 1.5, 3, 3); }
       if (tg === PP) { g.lineStyle(2, 0xffffff, 1); g.strokeEllipse(px, py, 38, 48); }
     }
     for (const n of this._partyNotes) { // メモ（付箋）
@@ -27728,7 +27742,7 @@ class GameScene extends Phaser.Scene {
     if (!this._partyFx || !this._partyFx.scene || !this.player) return;
     const p = this.player;
     let tg = null, bd = 46; // 近くの調べられる物（メモ・草原の入口）
-    if (!this.isGhost && !this.isDowned && !this._partyLeaving) for (const n of this._partyPortals().concat(PARTY_MEMOS_READABLE ? this._partyNotes : [])) { const d = Math.hypot(p.x - n.x, p.y - n.y); if (d < bd) { bd = d; tg = n; } }
+    if (!this.isGhost && !this.isDowned && !this._partyLeaving) for (const n of this._partyPortals().concat(PARTY_MEMOS_READABLE ? this._partyNotes : [])) { if (n.disabled) continue; const d = Math.hypot(p.x - n.x, p.y - n.y); if (d < bd) { bd = d; tg = n; } }
     this._partyTarget = tg;
     this._drawParty(t);
     if (this._partyTitle && this._partyTitle.scene) this._partyTitle.y = 30 + Math.sin(t * 3) * 2;
@@ -27750,7 +27764,7 @@ class GameScene extends Phaser.Scene {
     if (!this._partyLeaving && p.y > 416 + 6 && p.x > 288 && p.x < 352) this._partyLeave(); // 下の扉に入った：ロビーへ戻る
   }
   _partyAct() {
-    const tg = this._partyTarget; if (!tg || this._hutReading || this._partyLeaving) return;
+    const tg = this._partyTarget; if (!tg || tg.disabled || this._hutReading || this._partyLeaving) return;
     const pb = document.getElementById('partyPrompt'); if (pb) pb.style.display = 'none';
     if (tg.hero) { this._partyLeave(true); return; } // ⚔ 斬り合い：部屋を出て、ボス部屋へ
     if (tg.portal) { // 🌿 草原（3D）へ。入っている間は、この画面を止める（小屋の本を読んでいる間と同じ）
