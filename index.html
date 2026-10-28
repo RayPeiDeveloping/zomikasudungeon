@@ -33131,7 +33131,7 @@ function launchGame() {
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'game',
-    antialias: true, // テクスチャの拡大縮小を滑らかにする設定（文字や画像用。ここをfalseにするとカクカクになる）
+    pixelArt: true, // ドット絵向けの設定をまとめてオン：テクスチャの補間（にじみ）をやめる＋描画位置を整数ピクセルに丸める。滑らかに戻すなら pixelArt を消して antialias: true にする
     // 【省電力】WebGL本体のMSAA（図形の縁のギザギザ除去）を切る。画面全体の描画負荷が下がる。
     // 図形の縁が気になる場合は true に戻す。
     render: { antialiasGL: window.POWER_SAVE.antialiasGL },
