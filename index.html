@@ -6075,7 +6075,7 @@ const PLAYER_TITLES = [
   { key: 'deadline',     name: '死線',       color: '#e03c3c', desc: 'ルーレット：赤でダンジョンをクリアする' },
   { key: 'judge',        name: '審判者',     color: '#e8e8ff', desc: 'ボスを累計1000体倒す' },
   { key: 'end',          name: '終焉',       color: '#ff7a1a', desc: '敵を累計10万体倒す' },
-  { key: 'gale',         name: '疾風',       color: '#5fe3a1', desc: '10階層をランダムシードで3分以内にクリアする（悪魔装飾なし）' }, // ランダムシード＝シード欄を空にして始めたダンジョン（fixedSeed が null）
+  { key: 'gale',         name: '疾風',       color: '#5fe3a1', desc: '10階層を2分以内にクリアする（悪魔装飾なし）' }, // シードは問わない（固定シードでも、ランダムでも取れる）
   { key: 'soulslash',    name: '離魂斬り',   color: '#ffffff', outline: '#ff2030', desc: '斬り合いで主人公を倒す' }, // 白い字＋赤いふち（主人公の赤い目の色）
 ];
 function playerTitleByKey(k) { return (typeof k === 'string' && PLAYER_TITLES.find(t => t.key === k)) || null; }
@@ -27327,7 +27327,7 @@ class GameScene extends Phaser.Scene {
       if (!this.mp && !this.nightmare && !this.isDevMode && !this._endingRun) { // ⏱ 10階層の最短時間（ソロの通常ダンジョンのみ）をセーブに残す（クラウド同期の対象）
         const tm10 = Math.round(this.runStats.time * 100) / 100, sv10 = loadSave();
         if (tm10 > 0 && (!sv10.floor10BestSec || tm10 < sv10.floor10BestSec)) { sv10.floor10BestSec = tm10; writeSave(sv10); }
-        if (this.fixedSeed == null && tm10 > 0 && tm10 <= 180 && !SPECIAL_ACCS.some(a => this.hasSpecial(a.key))) this.earnTitle('gale', 3400); // 🏷 疾風：10階層をランダムシードで3分以内にクリア（悪魔の装飾品を1つも付けていないこと。鎧のバナーと重ならないよう、少し遅らせる）
+        if (tm10 > 0 && tm10 <= 120 && !SPECIAL_ACCS.some(a => this.hasSpecial(a.key))) this.earnTitle('gale', 3400); // 🏷 疾風：10階層を2分以内にクリア（シードは問わない。悪魔の装飾品を1つも付けていないこと。鎧のバナーと重ならないよう、少し遅らせる）
       }
     }
     if (this.pvp || this.bossRush || this.frontline || this.arms4Ritual || this.nightmare || this.isDevMode) return; // ナイトメアは対象外
