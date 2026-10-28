@@ -7357,7 +7357,7 @@ class GameScene extends Phaser.Scene {
         if (td !== rp._tdef) { rp._tdef = td; if (td) { rp.titleLabel.setText(td.name); applyTitleTextStyle(rp.titleLabel, td); } }
         // 画質：カメラのズーム（画面の高さ÷400）で拡大されてもぼやけないよう、文字をズーム×画面密度の解像度で作る（上限4）。
         // 位置は画面の1ピクセルに合わせて丸める（小数の位置だとにじむ）。
-        const zm = (this.cameras.main.zoom || 1), tres = Math.max(1, Math.min(4, Math.ceil(zm * Math.min(2, window.devicePixelRatio || 1))));
+        const zm = (this.cameras.main.zoom || 1), tres = Math.max(1, Math.min(4, Math.round(zm * 4) / 4));
         if (rp._tres !== tres) { rp._tres = tres; rp.titleLabel.setResolution(tres); }
         rp.titleLabel.x = Math.round(rp.gfx.x * zm) / zm; rp.titleLabel.y = Math.round((rp.gfx.y - 40) * zm) / zm;
       }
@@ -26476,7 +26476,7 @@ class GameScene extends Phaser.Scene {
       if (td && this.player) {
         if (!this._myTitleTxt || !this._myTitleTxt.scene) { this._myTitleTxt = this.add.text(0, 0, td.name, { fontSize: '10px', color: td.color, fontFamily: 'sans-serif', fontStyle: 'bold', stroke: '#000000', strokeThickness: 3 }).setOrigin(0.5).setDepth(5); applyTitleTextStyle(this._myTitleTxt, td); }
         // 画質：他のプレイヤーの称号と同じ（ズーム×画面密度の解像度、位置は画面の1ピクセルに丸める）
-        const zm = (this.cameras.main.zoom || 1), tres = Math.max(1, Math.min(4, Math.ceil(zm * Math.min(2, window.devicePixelRatio || 1))));
+        const zm = (this.cameras.main.zoom || 1), tres = Math.max(1, Math.min(4, Math.round(zm * 4) / 4));
         if (this._myTitleRes !== tres || this._myTitleTxt._res0 !== true) { this._myTitleRes = tres; this._myTitleTxt._res0 = true; this._myTitleTxt.setResolution(tres); }
         this._myTitleTxt.x = Math.round(this.player.x * zm) / zm; this._myTitleTxt.y = Math.round((this.player.y - 40) * zm) / zm;
         this._myTitleTxt.setVisible(!this.isGhost);
@@ -33125,6 +33125,38 @@ window.POWER_SAVE = (function () {
 })();
 
 function launchGame() {
+  // 【文字の解像度をズームに合わせる】pixelArt:true は補間なしなので、文字の画素と画面の画素が1対1だと荒れない。
+  // 解像度を自分で指定していない文字（既定の1のまま）は、描くたびにカメラのズームに合わせた解像度（0.25刻み、1〜4）にする。
+  // setResolution で自分で指定している文字（装飾品の絵文字、称号など）はそのまま。ズームが落ち着いたら（0.25秒変わらなければ）既存の文字も描き直す。
+  // やめるときはこのブロックを消す。
+  (function () {
+    const TP = Phaser.GameObjects.Text.prototype;
+    if (TP._autoResHooked) return;
+    TP._autoResHooked = true;
+    const origUpdate = TP.updateText;
+    const zoomRes = (t) => { const z = (t.scene && t.scene.cameras && t.scene.cameras.main && t.scene.cameras.main.zoom) || 1; return Math.max(1, Math.min(4, Math.round(z * 4) / 4)); };
+    TP.updateText = function () {
+      try {
+        const st = this.style, cur = st && st.resolution;
+        if (st && (!cur || cur <= 1 || cur === this._autoResVal)) { const r = zoomRes(this); st.resolution = r; this._autoResVal = r; }
+      } catch (e) {}
+      return origUpdate.apply(this, arguments);
+    };
+    let lastZ = 0, appliedZ = 0;
+    setInterval(() => {
+      try {
+        const g = Phaser.GAMES[0], sc = g && g.scene.getScene('game');
+        if (!sc || !sc.cameras || !sc.cameras.main || !sc.children) return;
+        const z = sc.cameras.main.zoom;
+        if (z === lastZ && z !== appliedZ) {
+          appliedZ = z;
+          const list = sc.children.list;
+          for (let i = 0; i < list.length; i++) { const o = list[i]; if (o && o.type === 'Text' && o._autoResVal !== undefined && o._autoResVal !== zoomRes(o)) o.updateText(); }
+        }
+        lastZ = z;
+      } catch (e) {}
+    }, 250);
+  })();
   // 画面の高さを基準に「見えるエリア」の比率を揃えるための係数。起動時の画面サイズから算出。
   window.GAME_VIEW_ZOOM = window.innerHeight / REF_VIEW_H;
 
