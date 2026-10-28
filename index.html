@@ -33116,6 +33116,11 @@ document.getElementById('joinRoomBtn').addEventListener('click', async () => {
 // 縦方向に見えるダンジョンの範囲がどの端末でもほぼ同じになるようにする
 // （横方向は画面のアスペクト比なりに広く/狭く見える＝横長端末ほど左右が広く見える）。
 const REF_VIEW_H = 400;
+// 🖼 描画する画素数（高さ）：どの端末でも、Phaser の画面はこの高さの画素数で描き、画面の大きさに合わせて拡大・縮小して表示する（画質と負荷が端末によらず一定になる）。
+//   大きくするほどくっきりするが重くなる。カメラの倍率（RENDER_H÷400）がちょうど整数になる値だと、絵の点が欠けにくい（800＝2倍／1200＝3倍）。見える世界の範囲は変わらない。
+const RENDER_H = 800;
+// 描く画素数（w×h）と、画面に合わせて縮める倍率（zoom）。横は画面の縦横比に合わせる
+function renderSizeNow() { const H = Math.max(1, window.innerHeight), K = RENDER_H / H; return { w: Math.max(1, Math.round(window.innerWidth * K)), h: RENDER_H, zoom: 1 / K }; }
 
 // 【省電力の設定】カクつきの原因を切り分けられるよう、URLの末尾に付けて個別にオフにできる（例: index.html?nofps=1&nobake=1）。
 //   ?nofps=1  … フレームレート制限をやめる／ ?nobake=1 … 床の焼き付けをやめる（従来どおりGraphicsで描く）／ ?msaa=1 … 図形の縁のギザギザ除去を戻す
@@ -33126,7 +33131,8 @@ window.POWER_SAVE = (function () {
 
 function launchGame() {
   // 画面の高さを基準に「見えるエリア」の比率を揃えるための係数。起動時の画面サイズから算出。
-  window.GAME_VIEW_ZOOM = window.innerHeight / REF_VIEW_H;
+  window.GAME_VIEW_ZOOM = RENDER_H / REF_VIEW_H; // 描く高さが固定なので、見える世界の範囲（高さREF_VIEW_H）もいつも同じ
+  const RS0 = renderSizeNow();
 
   const game = new Phaser.Game({
     type: Phaser.AUTO,
@@ -33139,9 +33145,11 @@ function launchGame() {
       // スマホはアドレスバーの出し引きなどで innerHeight が細かく変動し、その都度
       // RESIZEモードが追従してガタつく（レイアウトが「いい感じにならない」）原因になる。
       // スマホでは起動時点の画面サイズに一度だけ固定し、以後は自動追従させない。
-      mode: IS_TOUCH_DEVICE ? Phaser.Scale.NONE : Phaser.Scale.RESIZE,
-      width: window.innerWidth,
-      height: window.innerHeight,
+      // 描く画素数を固定するため、PCもスマホも NONE。画面の大きさが変わった時は、下の fitRender で合わせ直す
+      mode: Phaser.Scale.NONE,
+      width: RS0.w,
+      height: RS0.h,
+      zoom: RS0.zoom, // 描いた画素数を画面の大きさ（CSSピクセル）に縮める／広げる倍率
     },
     backgroundColor: '#0d0d12',
     // 起動直後などの重いフレーム後に、Phaserが数秒間deltaを16.7msに頭打ちにして
@@ -33156,15 +33164,17 @@ function launchGame() {
   // 全画面にした／解除した時は、ブラウザの画面サイズが落ち着いてから（少し待って、念のためもう一度）画面サイズを合わせ直す。
   // これが無いと、スマホ（Scale.NONE）では途中から全画面にしても元のサイズのままで、画面の下が黒く余ってしまう。
   // （PCは今まで通りズームは変えず、画面サイズだけ合わせる。スマホは回転した時と同じく、ズームも含めて合わせ直す）
-  const refit = () => { if (IS_TOUCH_DEVICE) fixToScreen(); else game.scale.resize(window.innerWidth, window.innerHeight); };
+  // pixelArt をオンにすると、Phaser はキャンバスの引き伸ばしも補間なし（角ばる）にする。描く画素数を固定して拡大縮小するので、ここでなめらかな補間に戻す
+  try { game.canvas.style.imageRendering = 'auto'; } catch (e) {}
+  // 画面の大きさに合わせて、描く画素数（高さ固定）と表示の倍率を合わせ直す
+  const fitRender = () => { const r = renderSizeNow(); game.scale.setZoom(r.zoom); game.scale.resize(r.w, r.h); };
+  const refit = () => { if (IS_TOUCH_DEVICE) fixToScreen(); else fitRender(); };
   const onFsChange = () => { setTimeout(refit, 300); setTimeout(refit, 900); };
   document.addEventListener('fullscreenchange', onFsChange);
   document.addEventListener('webkitfullscreenchange', onFsChange);
 
   if (!IS_TOUCH_DEVICE) {
-    window.addEventListener('resize', () => {
-      game.scale.resize(window.innerWidth, window.innerHeight);
-    });
+    window.addEventListener('resize', fitRender);
     return;
   }
 
@@ -33173,8 +33183,8 @@ function launchGame() {
   // 画面サイズだけでなく、GAME_VIEW_ZOOM（見えるエリアの比率を揃える係数）と
   // カメラズームもその時点の高さで再計算する。
   function fixToScreen() {
-    window.GAME_VIEW_ZOOM = window.innerHeight / REF_VIEW_H;
-    game.scale.resize(window.innerWidth, window.innerHeight);
+    window.GAME_VIEW_ZOOM = RENDER_H / REF_VIEW_H;
+    fitRender();
     const scene = game.scene.getScene('game');
     if (scene && scene.cameras && scene.cameras.main) {
       scene.cameras.main.setZoom(window.GAME_VIEW_ZOOM);
