@@ -7832,7 +7832,7 @@ class GameScene extends Phaser.Scene {
     const px = (warpDoor ? warpDoor.x : dungeon.playerStart.x) * TILE + TILE / 2;
     const py = (warpDoor ? warpDoor.y : dungeon.playerStart.y) * TILE + TILE / 2;
     this.player = this.add.circle(px, py, TILE * 0.32, this.playerColor);
-    this.player.setStrokeStyle(2, 0xffffff, 0.6);
+    this.player.setStrokeStyle(2, 0xffffff, 1);
     this.player.setDepth(5);
     this.facing = this.add.rectangle(px, py, 14, 3, 0xffffff).setDepth(5);
     this.accText = (this.accKey && accHeadIcon(this.accKey)) ? this.add.text(px, py - 13, accHeadIcon(this.accKey), { fontSize: '13px', fontFamily: 'sans-serif' }).setOrigin(0.5).setResolution(2).setDepth(6) : null; // 装飾品（頭の上）
@@ -30172,7 +30172,7 @@ class GameScene extends Phaser.Scene {
   // ダウン状態を抜ける（蘇生/ゴースト化どちらでも）時の見た目の後片付け。
   clearDownedVisual() {
     if (this._downedPulseTween) { this._downedPulseTween.stop(); this._downedPulseTween = null; }
-    if (this.player) { this.player.setStrokeStyle(2, 0xffffff, 0.6); this.player.setAlpha(1); }
+    if (this.player) { this.player.setStrokeStyle(2, 0xffffff, 1); this.player.setAlpha(1); }
     if (this.downedTimerLabel) this.downedTimerLabel.setVisible(false);
     if (this.reviveRadiusGfx) this.reviveRadiusGfx.setVisible(false);
   }
