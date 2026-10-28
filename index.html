@@ -1416,7 +1416,7 @@ function openLibrary(onClose, playerColor, accIcon, visits, countReach) { // cou
   raf = requestAnimationFrame(frame);
 }
 // 🎉 パーティールーム：クリア後のおまけの部屋（広めで明るい、陽気な部屋）。入れるのはエンディングを見た人（endingDone）だけ。メモを読んでおまけ情報が分かる。
-//   入り方：ロビーのダンジョン番号の欄に、Firebase の library/partyroom/number と同じ文字・数字を入れて「ダンジョン」を押す。
+//   入り方：ロビーのダンジョン番号の欄に、Firebase の library/partyroom/number と同じ文字・数字を入れて「ダンジョン」を押す。（マルチプレイの同期は無し：通信なしの偽Net＝OfflineNet で、一人だけで入る）
 //   メモは Firebase の library/partyroom/memos から読み込む（HTMLには本文を持たない）。1枚目（memos/0）は、机の上の案内書きとして置かれ、2枚目以降が壁に貼られる。
 //   形式：library/partyroom/memos/0 = { title: 'メモの題名', text: '本文' }, library/partyroom/memos/1 = …（最大20枚。本文は \n・¥n・￥n で改行）
 //   セキュリティルール：library は「読み取りのみ許可」にすること（書庫と同じ）。入れる元データは partyroom.json。
@@ -7221,9 +7221,9 @@ class GameScene extends Phaser.Scene {
   }
 
   setupMpPanel() {
-    document.getElementById('mpPanel').style.display = 'block';
+    document.getElementById('mpPanel').style.display = (this.party && !this.lounge) ? 'none' : 'block'; // パーティールーム（交流ルームではない方）は、右上のルーム名・退出ボタン・人の一覧は出さない（出口は部屋の下の扉）
     // 近接ボイスチャット：ルームごとに1つ。シーンが作り直されても、接続とマイクの状態は引き継ぐ
-    if (this.net.enabled && typeof VoiceChat !== 'undefined') {
+    if (this.net.enabled && !(this.party && !this.lounge) && typeof VoiceChat !== 'undefined') { // パーティールーム（交流ルームではない方）は、一人なのでボイスチャットは起こさない
       let v = this.net._voice;
       if (v && (v.stopped || v.roomId !== this.net.roomId)) { v.stop(); v = this.net._voice = null; }
       if (!v) { v = this.net._voice = new VoiceChat(this.net, this); v.start(); } else { v.attachScene(this); }
@@ -32867,6 +32867,11 @@ async function enterPartyRoom(lounge) { // 💬 lounge＝true：交流ルーム�
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   setLobbyBusy(true); setLobbyStatus(lounge ? '交流ルームに入室中...' : 'パーティールームに入室中...');
   try {
+    if (!lounge) { // 🎉 パーティールーム：マルチプレイの同期は無し。Firebaseのルーム（PARTYLIVE）には入らず、通信なしの偽Net（OfflineNet）で、一人だけで始める（メモは library/partyroom/memos から読むだけ）
+      setLobbyBusy(false); setLobbyStatus('');
+      startGame('mp', { net: new OfflineNet(), roomId: 'PARTYLIVE', baseSeed: (Math.random() * 1e9) | 0, floor: 1, mode: 'party', party: true, lounge: false });
+      return;
+    }
     if (typeof netInstance === 'undefined' || !netInstance || !netInstance.enabled) throw new Error('通信（Firebase）に接続できません');
     const info = await netInstance.enterPartyRoom(!!lounge);
     setLobbyBusy(false); setLobbyStatus('');
