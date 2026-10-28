@@ -33116,23 +33116,34 @@ document.getElementById('joinRoomBtn').addEventListener('click', async () => {
 // 縦方向に見えるダンジョンの範囲がどの端末でもほぼ同じになるようにする
 // （横方向は画面のアスペクト比なりに広く/狭く見える＝横長端末ほど左右が広く見える）。
 const REF_VIEW_H = 400;
-// 🖼 描画する画素数（高さ）：どの端末でも、Phaser の画面はこの高さの画素数で描き、画面の大きさに合わせて拡大・縮小して表示する（画質と負荷が端末によらず一定になる）。
-//   大きくするほどくっきりするが重くなる。カメラの倍率（RENDER_H÷400）がちょうど整数になる値だと、絵の点が欠けにくい（800＝2倍／1200＝3倍）。見える世界の範囲は変わらない。
-const RENDER_H = 800;
-// 描く画素数（w×h）と、画面に合わせて縮める倍率（zoom）。横は画面の縦横比に合わせる
-function renderSizeNow() { const H = Math.max(1, window.innerHeight), K = RENDER_H / H; return { w: Math.max(1, Math.round(window.innerWidth * K)), h: RENDER_H, zoom: 1 / K }; }
+// 🖼 描画する画素数（高さ）：その端末の画面の物理画素の高さ（innerHeight × devicePixelRatio）に合わせる。
+//   画面と1:1で描くので、スマホでも細かい字がくっきり見え、画面に出せない分は描かないので無駄がない。横は画面の縦横比に合わせる。
+//   見える世界の範囲（高さ REF_VIEW_H）は変わらない。
+const RENDER_H_MAX = 1080; // 上限（高解像度の画面で重くなりすぎないように）
+const RENDER_H_MIN = 400;  // 下限
+// 重い時に自動で下げる段階（1＝画面と同じ細かさ。0番目から始める）。下げる／戻す処理は launchGame の「自動で画質を下げる」を参照。
+const RENDER_LEVELS = [1, 0.75, 0.56];
+window.RENDER_LEVEL = 0;
+// 描く画素数（w×h）と、画面に合わせて縮める倍率（zoom）
+function renderSizeNow() {
+  const H = Math.max(1, window.innerHeight), dpr = window.devicePixelRatio || 1;
+  const phys = Math.min(RENDER_H_MAX, Math.max(RENDER_H_MIN, Math.round(H * dpr)));
+  const h = Math.max(RENDER_H_MIN, Math.round(phys * RENDER_LEVELS[window.RENDER_LEVEL || 0]));
+  const K = h / H;
+  return { w: Math.max(1, Math.round(window.innerWidth * K)), h, zoom: 1 / K };
+}
 
 // 【省電力の設定】カクつきの原因を切り分けられるよう、URLの末尾に付けて個別にオフにできる（例: index.html?nofps=1&nobake=1）。
-//   ?nofps=1  … フレームレート制限をやめる／ ?nobake=1 … 床の焼き付けをやめる（従来どおりGraphicsで描く）／ ?msaa=1 … 図形の縁のギザギザ除去を戻す
+//   ?noadapt=1 … 重い時に描く画素数を自動で下げる機能をやめる／ ?nofps=1  … フレームレート制限をやめる／ ?nobake=1 … 床の焼き付けをやめる（従来どおりGraphicsで描く）／ ?msaa=1 … 図形の縁のギザギザ除去を戻す
 window.POWER_SAVE = (function () {
   const q = new URLSearchParams(location.search);
-  return { fpsLimit: q.get('nofps') === '1' ? 0 : 70, floorBake: q.get('nobake') !== '1', antialiasGL: q.get('msaa') === '1' };
+  return { fpsLimit: q.get('nofps') === '1' ? 0 : 70, floorBake: q.get('nobake') !== '1', antialiasGL: q.get('msaa') === '1', adaptiveRes: q.get('noadapt') !== '1' };
 })();
 
 function launchGame() {
   // 画面の高さを基準に「見えるエリア」の比率を揃えるための係数。起動時の画面サイズから算出。
-  window.GAME_VIEW_ZOOM = RENDER_H / REF_VIEW_H; // 描く高さが固定なので、見える世界の範囲（高さREF_VIEW_H）もいつも同じ
   const RS0 = renderSizeNow();
+  window.GAME_VIEW_ZOOM = RS0.h / REF_VIEW_H; // 描く高さに合わせて、見える世界の範囲（高さREF_VIEW_H）はいつも同じにする
 
   const game = new Phaser.Game({
     type: Phaser.AUTO,
@@ -33140,7 +33151,7 @@ function launchGame() {
     antialias: true, // テクスチャの拡大縮小を滑らかにする設定（文字や画像用。ここをfalseにするとカクカクになる）
     // 【省電力】WebGL本体のMSAA（図形の縁のギザギザ除去）を切る。画面全体の描画負荷が下がる。
     // 図形の縁が気になる場合は true に戻す。
-    render: { antialiasGL: window.POWER_SAVE.antialiasGL, pixelArt: true }, // pixelArt：画像の拡大をドット絵向けのくっきり表示（補間なし）にする。不要なら false
+    render: { antialiasGL: window.POWER_SAVE.antialiasGL, pixelArt: false }, // pixelArt：true だと画像の拡大が補間なし（角ばる）。カメラの倍率が割り切れない値（画面の物理画素に合わせるため）だと細い線や点が欠けるので false。ドット絵風にしたい時は true
     scale: {
       // スマホはアドレスバーの出し引きなどで innerHeight が細かく変動し、その都度
       // RESIZEモードが追従してガタつく（レイアウトが「いい感じにならない」）原因になる。
@@ -33164,14 +33175,64 @@ function launchGame() {
   // 全画面にした／解除した時は、ブラウザの画面サイズが落ち着いてから（少し待って、念のためもう一度）画面サイズを合わせ直す。
   // これが無いと、スマホ（Scale.NONE）では途中から全画面にしても元のサイズのままで、画面の下が黒く余ってしまう。
   // （PCは今まで通りズームは変えず、画面サイズだけ合わせる。スマホは回転した時と同じく、ズームも含めて合わせ直す）
-  // pixelArt をオンにすると、Phaser はキャンバスの引き伸ばしも補間なし（角ばる）にする。描く画素数を固定して拡大縮小するので、ここでなめらかな補間に戻す
-  try { game.canvas.style.imageRendering = 'auto'; } catch (e) {}
-  // 画面の大きさに合わせて、描く画素数（高さ固定）と表示の倍率を合わせ直す
-  const fitRender = () => { const r = renderSizeNow(); game.scale.setZoom(r.zoom); game.scale.resize(r.w, r.h); };
+  // 画面の大きさ・向き・画質の段階が変わった時に、描く画素数と表示の倍率を合わせ直す。カメラの倍率も同じ比率で変えて、見える世界の範囲を保つ
+  let adaptReset = () => {};
+  const fitRender = () => {
+    const r = renderSizeNow(), oldZ = window.GAME_VIEW_ZOOM || 1, newZ = r.h / REF_VIEW_H;
+    game.scale.setZoom(r.zoom); game.scale.resize(r.w, r.h);
+    window.GAME_VIEW_ZOOM = newZ;
+    const sc = game.scene.getScene('game');
+    if (sc && sc.cameras && sc.cameras.main && Math.abs(newZ - oldZ) > 1e-6) sc.cameras.main.setZoom(sc.cameras.main.zoom * newZ / oldZ);
+    adaptReset(3000);
+  };
   const refit = () => { if (IS_TOUCH_DEVICE) fixToScreen(); else fitRender(); };
   const onFsChange = () => { setTimeout(refit, 300); setTimeout(refit, 900); };
   document.addEventListener('fullscreenchange', onFsChange);
   document.addEventListener('webkitfullscreenchange', onFsChange);
+
+  // 🔧 自動で画質を下げる／戻す：描くのが重くてカクつく時、描く画素数を RENDER_LEVELS の段階で下げる（?noadapt=1 でやめられる）。
+  //   「通信や処理が重い」のを「描画が重い」と取り違えないための工夫：
+  //   ・フレーム間隔の「中央値」で見る（通信の受信やGCで一瞬止まるだけなら中央値は動かない）。200ms以上の間隔は捨てる。
+  //   ・タブが裏の時、画面サイズが変わった直後、段階を変えた直後は計らない。
+  //   ・下げた後に「本当に速くなったか」を確かめ、ほとんど変わらなければ（＝原因は描画ではない）元に戻し、しばらく調整をやめる（失敗するたび待ち時間を倍にする）。
+  //   ・戻す（細かくする）のは、軽い状態が長く続いた時だけ。戻した直後にまた重くなったら下げ直し、次に戻すまでの時間を倍にする。
+  if (window.POWER_SAVE.adaptiveRes) {
+    const SLOW_MS = 22, HEALTHY_MS = 18.5, NEED = 90, WIN = 240, ring = new Float32Array(WIN);
+    let n = 0, idx = 0, last = 0, quietUntil = 0, lastEval = 0;
+    let verify = null;       // 下げた直後の確認中：{ prev: 下げる前の段階, before: 下げる前の中央値 }
+    let upTrial = null;      // 戻した直後の確認中：{ back: 戻す前の段階 }
+    let lockUntil = 0, lockMs = 180000, stableSince = 0, upWait = 30000;
+    const clear = (settle) => { n = 0; idx = 0; last = 0; stableSince = 0; quietUntil = performance.now() + settle; };
+    adaptReset = clear;
+    const median = () => { const a = Array.from(ring.subarray(0, Math.min(n, WIN))).sort((x, y) => x - y); return a.length ? a[a.length >> 1] : 0; };
+    // カメラが通常の倍率の時だけ段階を変える（演出中などで倍率が特別な間は待つ。演出が元の倍率を覚えているため）
+    const camNormal = () => { const sc = game.scene.getScene('game'), c = sc && sc.cameras && sc.cameras.main; return !!c && Math.abs(c.zoom - window.GAME_VIEW_ZOOM) < 0.02 * window.GAME_VIEW_ZOOM; };
+    const setLevel = (lv, why, m) => { console.info('[画質] 段階 ' + window.RENDER_LEVEL + ' → ' + lv + '（' + why + '、中央値 ' + m.toFixed(1) + 'ms）'); window.RENDER_LEVEL = lv; fitRender(); };
+    document.addEventListener('visibilitychange', () => clear(3000));
+    game.events.on('prerender', () => {
+      const t = performance.now();
+      if (document.hidden || t < quietUntil) { last = 0; return; }
+      if (last) { const d = t - last; if (d < 200) { ring[idx] = d; idx = (idx + 1) % WIN; if (n < WIN) n++; } }
+      last = t;
+      if (n < NEED || t - lastEval < 500) return;
+      lastEval = t;
+      const m = median(), lv = window.RENDER_LEVEL;
+      if (verify) { // 下げた結果の確認
+        const v = verify; verify = null;
+        if (m > v.before * 0.88) { lockUntil = t + lockMs; lockMs = Math.min(lockMs * 2, 1800000); setLevel(v.prev, '下げても速くならない＝描画以外が原因', m); }
+        return;
+      }
+      if (upTrial) { // 戻した結果の確認
+        const u = upTrial; upTrial = null;
+        if (m > SLOW_MS) { upWait = Math.min(upWait * 2, 600000); setLevel(u.back, '戻したら重くなった', m); }
+        return;
+      }
+      if (t < lockUntil || !camNormal()) return;
+      if (m > SLOW_MS && lv < RENDER_LEVELS.length - 1) { verify = { prev: lv, before: m }; setLevel(lv + 1, '重い', m); return; }
+      if (m < HEALTHY_MS) { if (!stableSince) stableSince = t; } else stableSince = 0;
+      if (lv > 0 && stableSince && t - stableSince > upWait) { upTrial = { back: lv }; setLevel(lv - 1, '軽い状態が続いた', m); }
+    });
+  }
 
   if (!IS_TOUCH_DEVICE) {
     window.addEventListener('resize', fitRender);
@@ -33182,14 +33243,7 @@ function launchGame() {
   // その時点のサイズに合わせて固定し直す（ブラウザUIが落ち着くのを少し待つ）。
   // 画面サイズだけでなく、GAME_VIEW_ZOOM（見えるエリアの比率を揃える係数）と
   // カメラズームもその時点の高さで再計算する。
-  function fixToScreen() {
-    window.GAME_VIEW_ZOOM = RENDER_H / REF_VIEW_H;
-    fitRender();
-    const scene = game.scene.getScene('game');
-    if (scene && scene.cameras && scene.cameras.main) {
-      scene.cameras.main.setZoom(window.GAME_VIEW_ZOOM);
-    }
-  }
+  function fixToScreen() { fitRender(); } // 画面サイズ・見える範囲の係数・カメラ倍率をまとめて合わせ直す
   if (window.screen && window.screen.orientation) {
     window.screen.orientation.addEventListener('change', () => setTimeout(fixToScreen, 300));
   } else {
