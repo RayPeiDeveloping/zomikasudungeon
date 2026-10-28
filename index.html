@@ -5967,10 +5967,10 @@ const DEFAULT_SAVE = {
   soloClears: 0,        // ダンジョン（ソロ）を全クリア（25階オールクリア）した回数（デベロッパーモード・ボスラッシュを除く）。1回で装飾品「時計」を入手
   demonKills: 0,        // 😈 悪魔を倒した回数（デベロッパーモード・?demon=1・エンディング演出は数えない）。大きいほうを同期
   totalBossKills: 0,    // 👑 ボスの累計撃破数（全モード：ソロ・協力プレイ・ボスラッシュ・ナイトメア・最北戦線。デベロッパーモード・PvPは除く）。soloTotalBosses とは別（あちらは通常ダンジョンだけ）
-  soloClearBestSecRandom: 0, // ⏱ 25階オールクリアの最短時間（秒）のうち、シード欄を空にして（ランダムのダンジョンで）クリアした記録。0＝記録なし。小さいほうを同期
-  soloClearBestSecSet: 0,    // ⏱ 同じく、シードを指定してクリアした記録。0＝記録なし。小さいほうを同期
-  floor10BestSecRandom: 0, // ⏱ ダンジョン（ソロ）の10階層のボスを倒した時点の最短時間（秒）のうち、シード欄を空にして（ランダムのダンジョンで）始めた記録。0＝記録なし。デベロッパーモード・ナイトメア・協力プレイは除く。小さいほうを同期
-  floor10BestSecSet: 0,    // ⏱ 同じく、シードを指定して始めた記録。0＝記録なし。小さいほうを同期
+  soloClearBestSecRandom: 0, // ⏱ 25階オールクリアの最短時間（秒）のうち、シード欄を空にして（ランダムのダンジョンで）クリアした記録。0＝記録なし。ルーレットの色の効果・悪魔の装飾品なしの記録だけ。小さいほうを同期
+  soloClearBestSecSet: 0,    // ⏱ 同じく、シードを指定してクリアした記録。0＝記録なし。ルーレットの色の効果・悪魔の装飾品なしの記録だけ。小さいほうを同期
+  floor10BestSecRandom: 0, // ⏱ ダンジョン（ソロ）の10階層のボスを倒した時点の最短時間（秒）のうち、シード欄を空にして（ランダムのダンジョンで）始めた記録。0＝記録なし。ルーレットの色の効果・悪魔の装飾品なしの記録だけ。デベロッパーモード・ナイトメア・協力プレイは除く。小さいほうを同期
+  floor10BestSecSet: 0,    // ⏱ 同じく、シードを指定して始めた記録。0＝記録なし。ルーレットの色の効果・悪魔の装飾品なしの記録だけ。小さいほうを同期
   angelTamed: 0,        // 🪽 天使（四つ腕）の調伏の儀に成功した回数（ダンジョン・ホームのボタン。デベロッパーモード・エンディング演出は除く）
   angelTamedLobby: 0,   // 🪽 そのうち、ホーム画面の「四つ腕の調伏の儀」ボタンから成功した回数
   titles: {},           // 🏷 入手済みの称号 { key: true }（PLAYER_TITLES）。引き継ぎ（クラウド同期）の対象
@@ -6100,6 +6100,7 @@ function checkStateTitles(save) {
   if (kills >= WING_FULLGLOW_KILLS) give('fallenwing');
   if ((Number(save.totalBossKills) || 0) >= 1000) give('judge'); // ボスの累計撃破数（totalBossKills：全モード）
   if (kills >= 100000) give('end'); // 敵の累計撃破数（雑魚敵＋ボス）
+  { const g1 = Number(save.floor10BestSecRandom) || 0, g2 = Number(save.floor10BestSecSet) || 0; if ((g1 > 0 && g1 <= 120) || (g2 > 0 && g2 <= 120)) give('gale'); } // 疾風：10階層の最短記録（ルーレットの色の効果なし・悪魔の装飾品なしの挑戦だけが残る）が2分以内
   return added;
 }
 function currentTitleKey() { // 付けている称号のkey（入手済みのものだけ。エンディング演出中は付けない）
@@ -27292,7 +27293,7 @@ class GameScene extends Phaser.Scene {
       if (this._allClear) {
         save.soloClears = (save.soloClears || 0) + 1; // 🕒 ダンジョン（ソロ）クリア
         if (this._rlEffect === 'red' && !this.mp && !this._endingRun && save.titles.deadline !== true) { save.titles.deadline = true; this.queueTitleBanners([playerTitleByKey('deadline')], 1200); } // 🏷 ルーレット赤でクリア
-        if (!this.mp && !this._endingRun) { // ⏱ 最短クリア時間（ソロのみ。エンディング演出は除く）
+        if (!this.mp && !this._endingRun && !this._rlEffect && !SPECIAL_ACCS.some(a => this.hasSpecial(a.key))) { // ⏱ 最短クリア時間（ソロのみ。エンディング演出は除く。ルーレットの色の効果が付いている／悪魔の装飾品を付けている時は、RTAの記録に残さない）
           const tm = Math.round((st.time || 0) * 100) / 100;
           const seedKey = this.fixedSeed != null ? 'soloClearBestSecSet' : 'soloClearBestSecRandom'; // シードを指定して始めたか（fixedSeed）で、記録を分ける
           if (tm > 0 && (!save[seedKey] || tm < save[seedKey])) save[seedKey] = tm;
@@ -27321,8 +27322,9 @@ class GameScene extends Phaser.Scene {
       this._floor10Sec = Math.floor(this.runStats.time);
       if (!this.mp && !this.nightmare && !this.isDevMode && !this._endingRun) { // ⏱ 10階層の最短時間（ソロの通常ダンジョンのみ）をセーブに残す（クラウド同期の対象）
         const tm10 = Math.round(this.runStats.time * 100) / 100, sv10 = loadSave();
-        if (tm10 > 0) { const k10 = this.fixedSeed != null ? 'floor10BestSecSet' : 'floor10BestSecRandom'; if (!sv10[k10] || tm10 < sv10[k10]) { sv10[k10] = tm10; writeSave(sv10); } } // シードを指定して始めたか（fixedSeed）で、記録を分ける
-        if (tm10 > 0 && tm10 <= 120 && !this._rlEffect && !SPECIAL_ACCS.some(a => this.hasSpecial(a.key))) this.earnTitle('gale', 3400); // 🏷 疾風：10階層を2分以内にクリア（シードは問わない。ルーレットの色の効果が付いていないこと。悪魔の装飾品を1つも付けていないこと。鎧のバナーと重ならないよう、少し遅らせる）
+        const clean10 = !this._rlEffect && !SPECIAL_ACCS.some(a => this.hasSpecial(a.key)); // ルーレットの色の効果なし・悪魔の装飾品なし（RTAの記録に残してよい挑戦）
+        if (tm10 > 0 && clean10) { const k10 = this.fixedSeed != null ? 'floor10BestSecSet' : 'floor10BestSecRandom'; if (!sv10[k10] || tm10 < sv10[k10]) { sv10[k10] = tm10; writeSave(sv10); } } // シードを指定して始めたか（fixedSeed）で、記録を分ける
+        if (tm10 > 0 && tm10 <= 120 && clean10) this.earnTitle('gale', 3400); // 🏷 疾風：10階層を2分以内にクリア（シードは問わない。ルーレットの色の効果が付いていないこと。悪魔の装飾品を1つも付けていないこと。鎧のバナーと重ならないよう、少し遅らせる）
       }
     }
     if (this.pvp || this.bossRush || this.frontline || this.arms4Ritual || this.nightmare || this.isDevMode) return; // ナイトメアは対象外
