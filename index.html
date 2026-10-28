@@ -33138,6 +33138,19 @@ function launchGame() {
       return t;
     };
   })();
+  // Phaser 3.70 は、文字の内容・色・縁取り・解像度を変えて描き直すたびにテクスチャを作り直し、そのとき antialias:false だと補間なしに戻してしまう。
+  // なので文字の描き直し(updateText)の直後にも毎回、補間ありを付け直す（作った時だけだと、称号のようにあとから setText する文字はドットのままになる）。
+  (function () {
+    const TP = Phaser.GameObjects.Text.prototype;
+    if (TP._smoothHooked) return;
+    TP._smoothHooked = true;
+    const origUpdate = TP.updateText;
+    TP.updateText = function () {
+      const r = origUpdate.apply(this, arguments);
+      try { if (this.texture) this.texture.setFilter(Phaser.Textures.FilterMode.LINEAR); } catch (e) {}
+      return r;
+    };
+  })();
   // 画面の高さを基準に「見えるエリア」の比率を揃えるための係数。起動時の画面サイズから算出。
   window.GAME_VIEW_ZOOM = window.innerHeight / REF_VIEW_H;
 
