@@ -15112,6 +15112,22 @@ class GameScene extends Phaser.Scene {
     //    そこで、層ごとに全部の根をまとめて描く（外側の光 → 縁 → 本体の順）。縁が、根全体の輪郭のように見える。
     const nPass = RD.length ? RD[0].wingPasses.length : 0;
     for (let pi = 0; pi < nPass; pi++) {
+      if (pi === nPass - 1) { // 🔺 とげ：縁より上、本体（いちばん最後の層）より下。全部の根の縁を描いたあと、本体を描く前に、全部の根のとげをまとめて描く
+        for (const rd of RD) {
+          const { pts, N2, BA, soul } = rd;
+        if (bigK > 0.3) { // とげ：体の左右から、後ろ向きにとがった赤いとげ（悪魔の根と同じ形）
+          g.fillStyle(soul ? soul.spike : 0xff2a3c, BA);
+          for (let k = 2; k < N2 - 1; k += 2) {
+            const p0 = pts[k - 1], p1 = pts[k + 1]; let ddx = p1.x - p0.x, ddy = p1.y - p0.y; const dl = Math.hypot(ddx, ddy) || 1; ddx /= dl; ddy /= dl;
+            const nx2 = -ddy, ny2 = ddx, hw = pts[k].th / 2, len = (6 + hw * 0.9) * Math.min(1, bigK), c = pts[k];
+            for (const sg of [1, -1]) {
+              const bx = c.x + nx2 * sg * hw * 0.8, by = c.y + ny2 * sg * hw * 0.8;
+              g.fillTriangle(bx + ddx * 5, by + ddy * 5, bx - ddx * 5, by - ddy * 5, c.x + nx2 * sg * (hw + len) - ddx * len * 0.7, c.y + ny2 * sg * (hw + len) - ddy * len * 0.7);
+            }
+          }
+        }
+        }
+      }
       for (const rd of RD) {
         const pass = rd.wingPasses[pi], pts = rd.pts, N2 = rd.N2;
         g.fillStyle(pass.col, pass.al);
@@ -15145,22 +15161,11 @@ class GameScene extends Phaser.Scene {
         }
       }
     }
-    for (const rd of RD) { // 光の粒ととげ：本体の上（今までと同じ見た目）
-      const { ri, pts, N2, LA, BA, lc2, soul } = rd;
+    for (const rd of RD) { // 光の粒：本体の上
+      const { ri, pts, N2, LA, lc2 } = rd;
       if (rvOn && LA > 0.02) { // ✨ 光の粒：根のまわりで、金・紫の粒がきらきら舞う
         g.fillStyle(lc2, LA);
         for (let j = 0; j < 3; j++) { const kk = Math.floor(((this.time.now / 600 + ri * 0.37 + j * 0.33) % 1) * N2), c = pts[Math.min(N2, kk)]; g.fillCircle(c.x + Math.sin(this.time.now / 130 + j + ri) * 7, c.y + Math.cos(this.time.now / 110 + j * 2 + ri) * 7, 2 + 2 * ((j + ri) % 2)); }
-      }
-      if (bigK > 0.3) { // とげ：体の左右から、後ろ向きにとがった赤いとげ（悪魔の根と同じ形）
-        g.fillStyle(soul ? soul.spike : 0xff2a3c, BA);
-        for (let k = 2; k < N2 - 1; k += 2) {
-          const p0 = pts[k - 1], p1 = pts[k + 1]; let ddx = p1.x - p0.x, ddy = p1.y - p0.y; const dl = Math.hypot(ddx, ddy) || 1; ddx /= dl; ddy /= dl;
-          const nx2 = -ddy, ny2 = ddx, hw = pts[k].th / 2, len = (6 + hw * 0.9) * Math.min(1, bigK), c = pts[k];
-          for (const sg of [1, -1]) {
-            const bx = c.x + nx2 * sg * hw * 0.8, by = c.y + ny2 * sg * hw * 0.8;
-            g.fillTriangle(bx + ddx * 5, by + ddy * 5, bx - ddx * 5, by - ddy * 5, c.x + nx2 * sg * (hw + len) - ddx * len * 0.7, c.y + ny2 * sg * (hw + len) - ddy * len * 0.7);
-          }
-        }
       }
     }
   }
