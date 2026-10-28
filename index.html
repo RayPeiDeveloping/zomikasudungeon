@@ -33125,6 +33125,19 @@ window.POWER_SAVE = (function () {
 })();
 
 function launchGame() {
+  // 文字だけ補間あり（にじませる）にする。pixelArt:true だと文字も補間なしで描かれて、称号などの小さい文字が欠けて見づらくなるため。
+  // add.text で作った文字のテクスチャに LINEAR（補間あり）を付ける。図形やドットは pixelArt のまま。戻すときはこのブロックを消す。
+  (function () {
+    const F = Phaser.GameObjects.GameObjectFactory.prototype;
+    if (F._textSmooth) return;
+    F._textSmooth = true;
+    const origText = F.text;
+    F.text = function () {
+      const t = origText.apply(this, arguments);
+      try { t.texture.setFilter(Phaser.Textures.FilterMode.LINEAR); } catch (e) {}
+      return t;
+    };
+  })();
   // 画面の高さを基準に「見えるエリア」の比率を揃えるための係数。起動時の画面サイズから算出。
   window.GAME_VIEW_ZOOM = window.innerHeight / REF_VIEW_H;
 
