@@ -33125,30 +33125,32 @@ window.POWER_SAVE = (function () {
 })();
 
 function launchGame() {
-  // 文字だけ補間あり（にじませる）にする。pixelArt:true だと文字も補間なしで描かれて、称号などの小さい文字が欠けて見づらくなるため。
-  // add.text で作った文字のテクスチャに LINEAR（補間あり）を付ける。図形やドットは pixelArt のまま。戻すときはこのブロックを消す。
+  // 【文字だけ滑らか】pixelArt:true だと文字のテクスチャも補間なしになるので、文字（Phaser の Text）だけ LINEAR（補間あり）に戻す。
+  // 作った直後と、描き直し(updateText＝setText/色/縁取り/解像度の変更)のたびに付け直す（描き直しでテクスチャが作り直されるとフィルタが戻るため）。
+  // 確認：コンソールで window.__textFilterCheck() → 文字が補間ありなら true。戻すときはこのブロックを消す。
   (function () {
+    const LIN = Phaser.Textures.FilterMode.LINEAR;
+    const smooth = (t) => { try { if (t && t.texture) t.texture.setFilter(LIN); } catch (e) {} };
     const F = Phaser.GameObjects.GameObjectFactory.prototype;
-    if (F._textSmooth) return;
-    F._textSmooth = true;
-    const origText = F.text;
-    F.text = function () {
-      const t = origText.apply(this, arguments);
-      try { t.texture.setFilter(Phaser.Textures.FilterMode.LINEAR); } catch (e) {}
-      return t;
-    };
-  })();
-  // Phaser 3.70 は、文字の内容・色・縁取り・解像度を変えて描き直すたびにテクスチャを作り直し、そのとき antialias:false だと補間なしに戻してしまう。
-  // なので文字の描き直し(updateText)の直後にも毎回、補間ありを付け直す（作った時だけだと、称号のようにあとから setText する文字はドットのままになる）。
-  (function () {
+    if (!F._textSmooth) {
+      F._textSmooth = true;
+      const origText = F.text;
+      F.text = function () { const t = origText.apply(this, arguments); smooth(t); return t; };
+    }
     const TP = Phaser.GameObjects.Text.prototype;
-    if (TP._smoothHooked) return;
-    TP._smoothHooked = true;
-    const origUpdate = TP.updateText;
-    TP.updateText = function () {
-      const r = origUpdate.apply(this, arguments);
-      try { if (this.texture) this.texture.setFilter(Phaser.Textures.FilterMode.LINEAR); } catch (e) {}
-      return r;
+    if (!TP._smoothHooked) {
+      TP._smoothHooked = true;
+      const origUpdate = TP.updateText;
+      TP.updateText = function () { const r = origUpdate.apply(this, arguments); smooth(this); return r; };
+    }
+    window.__textFilterCheck = function () {
+      try {
+        const g = Phaser.GAMES[0], sc = g.scene.getScene('game'), gl = g.renderer.gl;
+        const t = sc.children.list.find((o) => o.type === 'Text' && o.texture && o.texture.source[0] && o.texture.source[0].glTexture);
+        if (!t) return '文字が見つかりません';
+        const w = t.texture.source[0].glTexture;
+        return { magFilterは補間あり: w.magFilter === gl.LINEAR, minFilterは補間あり: w.minFilter === gl.LINEAR, mag: w.magFilter, min: w.minFilter };
+      } catch (e) { return 'エラー: ' + e.message; }
     };
   })();
   // 画面の高さを基準に「見えるエリア」の比率を揃えるための係数。起動時の画面サイズから算出。
@@ -33157,7 +33159,7 @@ function launchGame() {
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'game',
-    pixelArt: true, // ドット絵向けの設定をまとめてオン：テクスチャの補間（にじみ）をやめる＋描画位置を整数ピクセルに丸める。滑らかに戻すなら pixelArt を消して antialias: true にする
+    pixelArt: true, // ドット絵向け：テクスチャの補間（にじみ）をやめる＋描画位置を整数ピクセルに丸める。文字だけは launchGame 先頭の処理で補間ありに戻している。全部戻すなら pixelArt を消して antialias: true にする
     // 【省電力】WebGL本体のMSAA（図形の縁のギザギザ除去）を切る。画面全体の描画負荷が下がる。
     // 図形の縁が気になる場合は true に戻す。
     render: { antialiasGL: window.POWER_SAVE.antialiasGL },
