@@ -3936,7 +3936,7 @@ const PARTY_STATS_LIST = [ // 🖤 黒いメモに出す項目 [セーブのkey,
   ['arms4RitualClears', '天使・調伏の儀の成功回数'], ['angelTamedLobby', 'ホームのボタンからの調伏の儀の成功回数'],
   ['bossRushBestBosses', 'ボスラッシュの最高撃破ボス数'], ['demonKills', '悪魔を倒した回数'], ['demonMeets', '25階の悪魔に会った回数'],
   ['frontlineBestSec', '最北戦線の最長生存時間'], ['libraryVisits', '隠し書庫に来た回数'], ['nightmareClears', 'ナイトメアのクリア回数'],
-  ['pvpWins', 'PvPの勝利数'], ['soloClearBestSec', 'ダンジョン（ソロ）の最短クリア時間（0は未クリア）'], ['soloClears', 'ダンジョン（ソロ）の全クリア回数'],
+  ['pvpWins', 'PvPの勝利数'], ['soloClearBestSec', 'ダンジョン（ソロ）の最短クリア時間（0は未クリア）'], ['soloClearBestSecRandom', 'ダンジョン（ソロ）のランダムシードの最短クリア時間（0は記録なし）'], ['soloClearBestSecSet', 'ダンジョン（ソロ）のセットシードの最短クリア時間（0は記録なし）'], ['floor10BestSec', 'ダンジョン（ソロ）の10階層の最短クリア時間（0は記録なし）'], ['soloClears', 'ダンジョン（ソロ）の全クリア回数'],
   ['totalBossKills', 'ボスの累計撃破数'], ['soloTotalKills', '雑魚敵の累計撃破数']];
 const PARTY_PORTAL = { i: -2, portal: true, x: 320, y: 118 }; // 🌿 草原への入口（メモと同じ要領で、近づいて E／タップ）
 const VS_HERO = { // ⚔ 斬り合いの調整値
@@ -5938,6 +5938,8 @@ function escapeHtml(str) {
 // 項目は「足すだけ」で拡張できるようにしてある（読み出し時にDEFAULT_SAVEで不足分を補う）。キー名は変えないこと。
 const SAVE_KEY = 'zomikasudungeon_save';
 const LIBRARY_FLOORS_MAX = 500; // save.libraryFloors に控えておく「シード:階層」の最大件数（超えたら古いものから消す）
+// ⏱ 最短クリア時間の一回きりのリセット：昔の版で、10階層などの途中の時間が記録されていた疑いがあるため、この秒数以下の記録は一度だけ消す（消したあとは soloClearBestFixed が true になり、二度とやらない。クラウド同期にも載せる）
+const SOLO_CLEAR_RESET_SEC = 600;
 const DEFAULT_SAVE = {
   version: 1,
   soloBestFloor: 0,      // ソロ（通常ダンジョン）の最高到達階層
@@ -5968,6 +5970,10 @@ const DEFAULT_SAVE = {
   demonKills: 0,        // 😈 悪魔を倒した回数（デベロッパーモード・?demon=1・エンディング演出は数えない）。大きいほうを同期
   totalBossKills: 0,    // 👑 ボスの累計撃破数（全モード：ソロ・協力プレイ・ボスラッシュ・ナイトメア・最北戦線。デベロッパーモード・PvPは除く）。soloTotalBosses とは別（あちらは通常ダンジョンだけ）
   soloClearBestSec: 0,  // ⏱ ダンジョン（ソロ）をオールクリアした最短時間（秒。0＝まだクリアしていない）。小さいほうを同期
+  soloClearBestSecRandom: 0, // ⏱ 25階オールクリアの最短時間（秒）のうち、シード欄を空にして（ランダムのダンジョンで）クリアした記録。0＝記録なし。小さいほうを同期
+  soloClearBestSecSet: 0,    // ⏱ 同じく、シードを指定してクリアした記録。0＝記録なし。小さいほうを同期
+  floor10BestSec: 0,    // ⏱ ダンジョン（ソロ）の10階層のボスを倒した時点の最短時間（秒。0＝まだ記録なし）。デベロッパーモード・ナイトメア・協力プレイは除く。小さいほうを同期
+  soloClearBestFixed: false, // ⏱ 上の記録のリセット（SOLO_CLEAR_RESET_SEC 秒以下を一度だけ消す）を済ませた印。どちらかが true なら true で同期
   angelTamed: 0,        // 🪽 天使（四つ腕）の調伏の儀に成功した回数（ダンジョン・ホームのボタン。デベロッパーモード・エンディング演出は除く）
   angelTamedLobby: 0,   // 🪽 そのうち、ホーム画面の「四つ腕の調伏の儀」ボタンから成功した回数
   titles: {},           // 🏷 入手済みの称号 { key: true }（PLAYER_TITLES）。引き継ぎ（クラウド同期）の対象
@@ -5996,6 +6002,10 @@ function normalizeSave(s) {
   if (typeof s.titleEquipped !== 'string') s.titleEquipped = '';
   ['demonKills', 'totalBossKills', 'angelTamed', 'angelTamedLobby'].forEach(k => { s[k] = Math.max(0, Math.floor(Number(s[k]) || 0)); });
   s.soloClearBestSec = Math.max(0, Number(s.soloClearBestSec) || 0);
+  s.floor10BestSec = Math.max(0, Number(s.floor10BestSec) || 0);
+  s.soloClearBestSecRandom = Math.max(0, Number(s.soloClearBestSecRandom) || 0);
+  s.soloClearBestSecSet = Math.max(0, Number(s.soloClearBestSecSet) || 0);
+  if (!s.soloClearBestFixed) { if (s.soloClearBestSec > 0 && s.soloClearBestSec <= SOLO_CLEAR_RESET_SEC) s.soloClearBestSec = 0; s.soloClearBestFixed = true; } // ⏱ 一度だけ、10分以下の記録を消す
   if (s.soulSold && s.demonMeets < 1) s.demonMeets = 1; // 昔のセーブにあった「魂を売った印」は、1回会った扱いに引き継いでから消す
   delete s.soulSold;
   return s;
@@ -13616,6 +13626,7 @@ class GameScene extends Phaser.Scene {
       s2Unlocked: s2u,
       demonRun: !!this._demonRun, demonRedOn: !!this._demonRedOn, demonSeen: !!this._demonSeenEnemy, demonMet: !!(this._demonMetCounted || this._demonMetResumed), // 😈 25階の悪魔に会う条件（1階から全滅で来ているか）と、会った回数を数え済みか
       runStats: { time: +rs.time || 0, kills: +rs.kills || 0, bosses: +rs.bosses || 0 },
+      floor10Sec: (this._floor10Sec != null ? Math.max(0, Math.floor(this._floor10Sec)) : null), // ⏱ 10階層突破タイムも中断データに入れる（再開してもリザルトに出る）
       world: this._snapshotWorld(),
     };
     return writeSuspend(d) ? '' : 'この環境ではセーブできませんでした（ブラウザの保存が使えません）';
@@ -13661,6 +13672,7 @@ class GameScene extends Phaser.Scene {
       if (d.s2Unlocked && typeof d.s2Unlocked === 'object') { const u = this.s2Unlocked || (this.s2Unlocked = {}); Object.keys(d.s2Unlocked).forEach(k => { if (d.s2Unlocked[k] === true) u[k] = true; }); }
       const r = d.runStats || {};
       this.runStats = { time: Math.max(0, +r.time || 0), kills: Math.max(0, Math.floor(+r.kills) || 0), bosses: Math.max(0, Math.floor(+r.bosses) || 0) };
+      { const f10 = Number(d.floor10Sec); if (d.floor10Sec != null && Number.isFinite(f10) && f10 >= 0) this._floor10Sec = Math.floor(f10); } // ⏱ 10階層突破タイムを引き継ぐ
       this._resumedNote = '💾 ' + this.floor + '階から再開';
     } catch (err) { console.error('中断データの復元中にエラーが発生しました:', err); }
   }
@@ -27286,6 +27298,8 @@ class GameScene extends Phaser.Scene {
         if (!this.mp && !this._endingRun) { // ⏱ 最短クリア時間（ソロのみ。エンディング演出は除く）
           const tm = Math.round((st.time || 0) * 100) / 100;
           if (tm > 0 && (!save.soloClearBestSec || tm < save.soloClearBestSec)) save.soloClearBestSec = tm;
+          const seedKey = this.fixedSeed != null ? 'soloClearBestSecSet' : 'soloClearBestSecRandom'; // シードを指定して始めたか（fixedSeed）で、記録を分ける
+          if (tm > 0 && (!save[seedKey] || tm < save[seedKey])) save[seedKey] = tm;
         }
       }
     }
@@ -27306,6 +27320,14 @@ class GameScene extends Phaser.Scene {
 
   // 🪖 鎧の入手条件：ダンジョンを始めてから ARMOR_UNLOCK.sec 秒以内に、ARMOR_UNLOCK.floor 階のボスを倒す（ソロ・協力プレイとも）。デベロッパーモードなどでは記録しない
   recordArmorClear() {
+    // ⏱ リザルト用：10階層のボスを倒した時点の経過時間（秒）を記録する（鎧の判定とは別。最初の1回だけ。雪原・書庫・地獄にいた時間は runStats.time に含まれない）
+    if (this.floor === 10 && this._floor10Sec == null && !this.pvp && !this.bossRush && !this.frontline && !this.arms4Ritual) {
+      this._floor10Sec = Math.floor(this.runStats.time);
+      if (!this.mp && !this.nightmare && !this.isDevMode && !this._endingRun) { // ⏱ 10階層の最短時間（ソロの通常ダンジョンのみ）をセーブに残す（クラウド同期の対象）
+        const tm10 = Math.round(this.runStats.time * 100) / 100, sv10 = loadSave();
+        if (tm10 > 0 && (!sv10.floor10BestSec || tm10 < sv10.floor10BestSec)) { sv10.floor10BestSec = tm10; writeSave(sv10); }
+      }
+    }
     if (this.pvp || this.bossRush || this.frontline || this.arms4Ritual || this.nightmare || this.isDevMode) return; // ナイトメアは対象外
     if (this.floor !== ARMOR_UNLOCK.floor) return;
     if (this.runStats.time > ARMOR_UNLOCK.sec) return;
@@ -29816,6 +29838,7 @@ class GameScene extends Phaser.Scene {
     } else {
       rows.push(['到達階層', this.floor + '階']);
       rows.push(['経過時間', timeText]);
+      if (this._floor10Sec != null) rows.push(['10階層突破タイム', Math.floor(this._floor10Sec / 60) + '分' + String(this._floor10Sec % 60).padStart(2, '0') + '秒']); // 10階層のボスを倒した時点の経過時間
       rows.push(['倒した雑魚敵', st.kills + '体']);
       rows.push(['倒したボス', st.bosses + '体']);
     }
@@ -30007,7 +30030,8 @@ class GameScene extends Phaser.Scene {
       ? '<div class="mpTopItem"><span>生存時間</span><b>' + escapeHtml(timeText) + '</b></div>' +
         '<div class="mpTopItem"><span>みんなで倒した敵</span><b>' + escapeHtml(list.reduce((a, x) => a + num(x.st.kills), 0) + '体') + '</b></div>'
       : '<div class="mpTopItem"><span>経過時間</span><b>' + escapeHtml(timeText) + '</b></div>' +
-        '<div class="mpTopItem"><span>到達階層</span><b>' + escapeHtml(reached + '階') + '</b></div>';
+        '<div class="mpTopItem"><span>到達階層</span><b>' + escapeHtml(reached + '階') + '</b></div>' +
+        (this._floor10Sec != null ? '<div class="mpTopItem"><span>10階層突破タイム</span><b>' + escapeHtml(Math.floor(this._floor10Sec / 60) + '分' + String(this._floor10Sec % 60).padStart(2, '0') + '秒') + '</b></div>' : '');
 
     const cssColor = c => '#' + ((typeof c === 'number' ? c : 0x5bd1ff) & 0xffffff).toString(16).padStart(6, '0');
     const cards = list.map(x => {
@@ -30088,6 +30112,7 @@ class GameScene extends Phaser.Scene {
       { const o = document.getElementById('clockOverlay'); if (o) o.style.display = 'none'; }
       this._ritualNewAcc = []; // 前回の挑戦で入手した装飾品を、次のリザルトに引きずらない
       this.runStats = { time: 0, kills: 0, bosses: 0 };
+      this._floor10Sec = null; // 10階層突破タイムも最初から
       this.playerInvuln = 0; this.isDowned = false; this.isGhost = false;
       this.bossGroupCounts = {}; this._rushCleared = false; this._vsHeroWon = false; this._snakeRage = {}; this._lootClaimed = {};
       this.hideBossUi();
@@ -32348,8 +32373,8 @@ function askConfirm(message, opts) {
 const SYNC_CODE_KEY = 'zomikasudungeon_synccode';
 const SYNC_MAX = ['soloBestFloor', 'nightmareBestFloor', 'nightmareClears', 'soloTotalKills', 'soloTotalBosses', 'frontlineBestSec', 'pvpWins', 'bossRushBestBosses', 'armorFloor10Fast', 'arms4RitualClears', 'libraryVisits', 'demonMeets', 'soloClears', 'demonKills', 'totalBossKills', 'angelTamed', 'angelTamedLobby']; // 大きいほうを採用
 const SYNC_REMOTE = ['soulColor']; // 🎨 クラウドに値（1〜360）があれば、クラウドの値を優先（データベースで書き換えると、その人の色が変わる）。クラウドに値が無ければ、これまで通りこの端末の値を採用してクラウドに送る
-const SYNC_MIN = ['soloClearBestSec']; // 0（記録なし）を除いて、小さいほうを採用
-const SYNC_OR = ['arms4RitualPlayed', 'arms4RitualCounted', 'libraryReported', 'hutVisited', 'endingDone']; // どちらかが true なら true
+const SYNC_MIN = ['soloClearBestSec', 'soloClearBestSecRandom', 'soloClearBestSecSet', 'floor10BestSec']; // 0（記録なし）を除いて、小さいほうを採用
+const SYNC_OR = ['soloClearBestFixed', 'arms4RitualPlayed', 'arms4RitualCounted', 'libraryReported', 'hutVisited', 'endingDone']; // どちらかが true なら true
 const SYNC_UNION = ['accUnlocked', 'specialAccs', 'titles']; // 両方の合計
 const SYNC_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; // 0/1/O/I/L は使わない（読み間違い防止）
 let _syncTimer = 0, _syncChain = Promise.resolve(), _syncFail = 0;
@@ -32388,7 +32413,9 @@ function syncView(s) {
 function syncMerge(a, b) {
   const o = {};
   SYNC_MAX.forEach(k => { o[k] = Math.max(a[k], b[k]); });
-  SYNC_MIN.forEach(k => { o[k] = (a[k] > 0 && b[k] > 0) ? Math.min(a[k], b[k]) : (a[k] || b[k] || 0); });
+  // ⏱ リセット前の側（soloClearBestFixed が無い）の10分以下の記録は無視する（クラウドの古い値で、リセットが元に戻らないように）
+  const stale = (v, fixed) => (!fixed && v > 0 && v <= SOLO_CLEAR_RESET_SEC) ? 0 : v;
+  SYNC_MIN.forEach(k => { const av = k === 'soloClearBestSec' ? stale(a[k], a.soloClearBestFixed) : a[k], bv = k === 'soloClearBestSec' ? stale(b[k], b.soloClearBestFixed) : b[k]; o[k] = (av > 0 && bv > 0) ? Math.min(av, bv) : (av || bv || 0); });
   SYNC_REMOTE.forEach(k => { o[k] = b[k] > 0 ? b[k] : a[k]; }); // a＝この端末／b＝クラウド。クラウドに値があればそちら、無ければこの端末
   SYNC_OR.forEach(k => { o[k] = a[k] || b[k]; });
   SYNC_UNION.forEach(k => { const m = Object.assign({}, a[k], b[k]), s = {}; Object.keys(m).sort().forEach(x => { s[x] = true; }); o[k] = s; });
