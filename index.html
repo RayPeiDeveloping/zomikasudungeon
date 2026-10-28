@@ -1370,7 +1370,7 @@ function openLibrary(onClose, playerColor, accIcon, visits, countReach) { // cou
     ctx.fillStyle = '#6b4a2b'; ctx.fillRect(desk.x, desk.y, desk.w, desk.h); ctx.fillStyle = '#7d5a37'; ctx.fillRect(desk.x + 2, desk.y + 2, desk.w - 4, desk.h - 8); // 机
     ctx.fillStyle = '#d9cfae'; ctx.fillRect(238, desk.y + 14, 4, 10); ctx.fillStyle = '#ffc861'; ctx.beginPath(); ctx.arc(240, desk.y + 11, 2.5 + Math.sin(t * 9) * 0.5, 0, 6.3); ctx.fill(); // 蝋燭
     ctx.save(); ctx.translate(216, 166); ctx.rotate(-0.12); ctx.fillStyle = '#e9e0c4'; ctx.fillRect(-9, -7, 18, 14); ctx.fillStyle = '#8a7a58'; ctx.fillRect(-6, -4, 12, 1); ctx.fillRect(-6, -1, 12, 1); ctx.fillRect(-6, 2, 8, 1); ctx.restore(); // 机の上の紙（案内書き）
-    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(pl.x, pl.y, T * 0.32, 0, 6.3); ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 2; ctx.stroke(); // 自分（外と同じ：半径 TILE*0.32・白い縁）
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(pl.x, pl.y, T * 0.32, 0, 6.3); ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,1)'; ctx.lineWidth = 2; ctx.stroke(); // 自分（外と同じ：半径 TILE*0.32・白い縁）
     ctx.save(); ctx.translate(pl.x + Math.cos(pl.a) * 20, pl.y + Math.sin(pl.a) * 20); ctx.rotate(pl.a); ctx.fillStyle = '#fff'; ctx.fillRect(-7, -1.5, 14, 3); ctx.restore(); // 向きの棒（外と同じ：14x3・20px先）
     if (accIcon) { ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff'; ctx.fillText(accIcon, pl.x, pl.y - 13); } // 頭上の装飾品（新芽・王冠）
     const open = Math.min(1, (t - t0) / 3.2), e = open * open * (3 - 2 * open); // 暗闇の層：自分の周りと蝋燭の周りだけ明るい。最初は光が小さく、だんだん広がる
@@ -6144,8 +6144,8 @@ function getSoulHue() {
 }
 function soulColorsFromHue(hue) { // 光る縁（glow）・濃い縁（edge）・とげ（spike）の3色＋第二のソウルカラー（rim）
   const mk = (sat, l, dh) => Phaser.Display.Color.HSLToColor((((hue + (dh || 0)) % 360) + 360) % 360 / 360, sat, l).color;
-  // rim＝第二のソウルカラー：魂の色（色相）の反対側の色相。魂の色が人ごとに決まっているので、これも人ごとに決まる（他のプレイヤーにも、同じ色相から同じ色で見える）。進化した翼の最も外側の縁に使う
-  return { glow: mk(1, 0.55), edge: mk(0.9, 0.38), spike: mk(1, 0.66), rim: mk(1, 0.6, 180) };
+  // rim＝第二のソウルカラー：魂の色（色相）をそのまま少しだけ暗くした色（明度0.45。glow は0.55）。魂の色が人ごとに決まっているので、これも人ごとに決まる（他のプレイヤーにも、同じ色相から同じ色で見える）。進化した翼の最も外側の縁に使う
+  return { glow: mk(1, 0.55), edge: mk(0.9, 0.38), spike: mk(1, 0.66), rim: mk(1, 0.45) };
 }
 const ACC_UNDEAD = { delay: 0.2 }; // 不死の紋章：ダメージを受けてから、何秒後に受けたぶんを回復するか（1回ごとに数える）
 const ACC_GOLDSILVER = { count: 6, radius: 70 }; // 金銀のネックレス：階層を移動した時に、回復と宝箱を合わせて何個／自分からの距離（px。円形に並ぶ）
@@ -7317,7 +7317,7 @@ class GameScene extends Phaser.Scene {
       let rp = this.remotePlayers[uid];
       if (!rp) {
         const gfx = this.add.circle(p.x || 0, p.y || 0, TILE * 0.32, (typeof p.color === 'number') ? p.color : 0xffffff).setDepth(5).setAlpha(0.85);
-        gfx.setStrokeStyle(2, 0xffffff, 0.5);
+        gfx.setStrokeStyle(2, 0xffffff, 1);
         const facing = this.add.rectangle(p.x || 0, p.y || 0, 14, 3, 0xffffff).setDepth(5);
         const label = this.add.text(p.x || 0, (p.y || 0) - 28, clipName(p.name || '?', 16), { fontSize: '11px', color: '#fff', fontFamily: 'sans-serif' }).setOrigin(0.5).setDepth(5);
         const titleLabel = this.add.text(p.x || 0, (p.y || 0) - 40, '', { fontSize: '10px', color: '#fff', fontFamily: 'sans-serif', fontStyle: 'bold', stroke: '#000000', strokeThickness: 3 }).setOrigin(0.5).setDepth(5).setVisible(false); // 🏷 称号（名前の上）
@@ -7357,7 +7357,7 @@ class GameScene extends Phaser.Scene {
         if (td !== rp._tdef) { rp._tdef = td; if (td) { rp.titleLabel.setText(td.name); applyTitleTextStyle(rp.titleLabel, td); } }
         // 画質：カメラのズーム（画面の高さ÷400）で拡大されてもぼやけないよう、文字をズーム×画面密度の解像度で作る（上限4）。
         // 位置は画面の1ピクセルに合わせて丸める（小数の位置だとにじむ）。
-        const zm = (this.cameras.main.zoom || 1), tres = Math.max(1, Math.min(4, Math.round(zm * 4) / 4));
+        const zm = (this.cameras.main.zoom || 1), tres = Math.max(1, Math.min(4, Math.ceil(zm * Math.min(2, window.devicePixelRatio || 1))));
         if (rp._tres !== tres) { rp._tres = tres; rp.titleLabel.setResolution(tres); }
         rp.titleLabel.x = Math.round(rp.gfx.x * zm) / zm; rp.titleLabel.y = Math.round((rp.gfx.y - 40) * zm) / zm;
       }
@@ -7407,7 +7407,7 @@ class GameScene extends Phaser.Scene {
       if (rp._downedStroke !== isDowned) {
         rp._downedStroke = isDowned;
         if (isDowned) rp.gfx.setStrokeStyle(4, 0xff3b3b, 1);
-        else rp.gfx.setStrokeStyle(2, 0xffffff, 0.5);
+        else rp.gfx.setStrokeStyle(2, 0xffffff, 1);
       }
       rp.facing.setAlpha(hideGhost ? 0 : (isGhost ? 0.3 : (isDowned ? 0.92 : 1)));
       rp.hpBarBg.setVisible(!isGhost && !isDowned);
@@ -20662,7 +20662,7 @@ class GameScene extends Phaser.Scene {
     const icon = (this.accKey && accHeadIcon(this.accKey)) || null;
     for (const o of tr.ghosts) {
       if (!o.objs) {
-        const body = this.add.circle(o.x, o.y, R, this.playerColor).setStrokeStyle(2, 0xffffff, 0.6);
+        const body = this.add.circle(o.x, o.y, R, this.playerColor).setStrokeStyle(2, 0xffffff, 1);
         const face = this.add.rectangle(o.x, o.y - 20, 14, 3, 0xffffff).setRotation(-Math.PI / 2);
         o.objs = [body, face];
         if (icon) o.objs.push(this.add.text(o.x, o.y - 13, icon, { fontSize: '13px', fontFamily: 'sans-serif' }).setOrigin(0.5).setResolution(2));
@@ -26476,7 +26476,7 @@ class GameScene extends Phaser.Scene {
       if (td && this.player) {
         if (!this._myTitleTxt || !this._myTitleTxt.scene) { this._myTitleTxt = this.add.text(0, 0, td.name, { fontSize: '10px', color: td.color, fontFamily: 'sans-serif', fontStyle: 'bold', stroke: '#000000', strokeThickness: 3 }).setOrigin(0.5).setDepth(5); applyTitleTextStyle(this._myTitleTxt, td); }
         // 画質：他のプレイヤーの称号と同じ（ズーム×画面密度の解像度、位置は画面の1ピクセルに丸める）
-        const zm = (this.cameras.main.zoom || 1), tres = Math.max(1, Math.min(4, Math.round(zm * 4) / 4));
+        const zm = (this.cameras.main.zoom || 1), tres = Math.max(1, Math.min(4, Math.ceil(zm * Math.min(2, window.devicePixelRatio || 1))));
         if (this._myTitleRes !== tres || this._myTitleTxt._res0 !== true) { this._myTitleRes = tres; this._myTitleTxt._res0 = true; this._myTitleTxt.setResolution(tres); }
         this._myTitleTxt.x = Math.round(this.player.x * zm) / zm; this._myTitleTxt.y = Math.round((this.player.y - 40) * zm) / zm;
         this._myTitleTxt.setVisible(!this.isGhost);
@@ -33125,45 +33125,13 @@ window.POWER_SAVE = (function () {
 })();
 
 function launchGame() {
-  // 【文字の解像度をズームに合わせる】pixelArt:true は補間なしなので、文字の画素と画面の画素が1対1だと荒れない。
-  // 解像度を自分で指定していない文字（既定の1のまま）は、描くたびにカメラのズームに合わせた解像度（0.25刻み、1〜4）にする。
-  // setResolution で自分で指定している文字（装飾品の絵文字、称号など）はそのまま。ズームが落ち着いたら（0.25秒変わらなければ）既存の文字も描き直す。
-  // やめるときはこのブロックを消す。
-  (function () {
-    const TP = Phaser.GameObjects.Text.prototype;
-    if (TP._autoResHooked) return;
-    TP._autoResHooked = true;
-    const origUpdate = TP.updateText;
-    const zoomRes = (t) => { const z = (t.scene && t.scene.cameras && t.scene.cameras.main && t.scene.cameras.main.zoom) || 1; return Math.max(1, Math.min(4, Math.round(z * 4) / 4)); };
-    TP.updateText = function () {
-      try {
-        const st = this.style, cur = st && st.resolution;
-        if (st && (!cur || cur <= 1 || cur === this._autoResVal)) { const r = zoomRes(this); st.resolution = r; this._autoResVal = r; }
-      } catch (e) {}
-      return origUpdate.apply(this, arguments);
-    };
-    let lastZ = 0, appliedZ = 0;
-    setInterval(() => {
-      try {
-        const g = Phaser.GAMES[0], sc = g && g.scene.getScene('game');
-        if (!sc || !sc.cameras || !sc.cameras.main || !sc.children) return;
-        const z = sc.cameras.main.zoom;
-        if (z === lastZ && z !== appliedZ) {
-          appliedZ = z;
-          const list = sc.children.list;
-          for (let i = 0; i < list.length; i++) { const o = list[i]; if (o && o.type === 'Text' && o._autoResVal !== undefined && o._autoResVal !== zoomRes(o)) o.updateText(); }
-        }
-        lastZ = z;
-      } catch (e) {}
-    }, 250);
-  })();
   // 画面の高さを基準に「見えるエリア」の比率を揃えるための係数。起動時の画面サイズから算出。
   window.GAME_VIEW_ZOOM = window.innerHeight / REF_VIEW_H;
 
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'game',
-    pixelArt: true, // ドット絵向け：テクスチャの補間（にじみ）をやめる＋描画位置を整数ピクセルに丸める。副作用として文字もドットっぽくなる。全部戻すなら pixelArt を消して antialias: true にする
+    antialias: true, // テクスチャの拡大縮小を滑らかにする設定（文字や画像用。ここをfalseにするとカクカクになる）
     // 【省電力】WebGL本体のMSAA（図形の縁のギザギザ除去）を切る。画面全体の描画負荷が下がる。
     // 図形の縁が気になる場合は true に戻す。
     render: { antialiasGL: window.POWER_SAVE.antialiasGL },
