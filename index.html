@@ -33134,7 +33134,7 @@ function launchGame() {
     antialias: true, // テクスチャの拡大縮小を滑らかにする設定（文字や画像用。ここをfalseにするとカクカクになる）
     // 【省電力】WebGL本体のMSAA（図形の縁のギザギザ除去）を切る。画面全体の描画負荷が下がる。
     // 図形の縁が気になる場合は true に戻す。
-    render: { antialiasGL: window.POWER_SAVE.antialiasGL },
+    render: { antialiasGL: window.POWER_SAVE.antialiasGL, pixelArt: true }, // pixelArt：画像の拡大をドット絵向けのくっきり表示（補間なし）にする。不要なら false
     scale: {
       // スマホはアドレスバーの出し引きなどで innerHeight が細かく変動し、その都度
       // RESIZEモードが追従してガタつく（レイアウトが「いい感じにならない」）原因になる。
