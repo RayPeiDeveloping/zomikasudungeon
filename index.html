@@ -8438,20 +8438,21 @@ class GameScene extends Phaser.Scene {
     };
     const warp = (x, y) => { this.player.x = x; this.player.y = y; if (this.cameras && this.cameras.main) this.cameras.main.centerOn(x, y); };
     // ---- 💣 2つ目の攻撃：デトネーターのいる部屋へ。デトネーターが最初に放った爆弾が爆発したら、元の部屋へ戻る ----
-    const bType = Object.assign({}, ENEMY_TYPES.find(t => t.key === 'detonator'), { isBoss: false, bossSpawn: false, invulnerable: true, hideHpBar: true }); // 通常のデトネーターの動き・爆弾をそのまま使う（倒せない。ボス扱いにはしない）
+    const bType = Object.assign({}, ENEMY_TYPES.find(t => t.key === 'detonator'), { isBoss: false, bossSpawn: false, invulnerable: true, hideHpBar: false }); // HPバーもダンジョンのボスと同じに出す（倒せないのでずっと満タン）。通常のデトネーターの動き・爆弾をそのまま使う（倒せない。ボス扱いにはしない）
     const spawnDetonator = (rm) => {
       bType.aggroRange = 0; bType.bombRange = 0; // 動き出すまでは、追いかけも爆弾もしない
       const x = (rm.x + rm.w - 1.5) * TILE, y = (rm.y + rm.h / 2) * TILE;
-      const dg = this.add.circle(x, y, bType.radius, bType.color).setDepth(4); dg.setStrokeStyle(2, 0x000000, 0.3);
-      const hb = this.add.rectangle(x, y - bType.radius - 8, bType.radius * 2, 4, 0xff5b5b).setDepth(4).setVisible(false);
-      const de = { id: this.floor + '_glitchdet', type: bType, gfx: dg, hpBar: hb, hp: bType.hp, maxHp: bType.hp, damage: bType.damage, state: 'idle', timer: 0, dirX: 0, dirY: 0, hitCooldown: 0, bombTimer: 999 };
+      const dg = this.add.circle(x, y, bType.radius, bType.color).setDepth(4); dg.setStrokeStyle(3, 0xffd54c, 0.9); // ダンジョンのデトネーター（ボス）と同じ金色の縁
+      const hb = this.add.rectangle(x, y - bType.radius - 10, bType.radius * 2, 6, 0xff5b5b).setDepth(4);
+      const lb = this.add.text(x, y - bType.radius - 22, bType.bossLabel || 'ボス', { fontSize: '12px', color: '#ffd54c', fontStyle: 'bold', fontFamily: 'sans-serif' }).setOrigin(0.5).setDepth(4); // ダンジョンと同じ「ボス」ラベル
+      const de = { id: this.floor + '_glitchdet', type: bType, gfx: dg, hpBar: hb, label: lb, hp: bType.hp, maxHp: bType.hp, damage: bType.damage, state: 'idle', timer: 0, dirX: 0, dirY: 0, hitCooldown: 0, bombTimer: 999 };
       this.enemies.push(de); gl.de = de; gl.seen = null;
       this.spawnBurst(x, y, bType.color, 8);
     };
     const removeBombAttack = () => {
       for (const m of gl.mobs) m._glFrozen = false; // 止めたままにしない
       const de = gl.de;
-      if (de) { if (de.gfx && de.gfx.scene) de.gfx.destroy(); if (de.hpBar && de.hpBar.scene) de.hpBar.destroy(); de._removed = true; if (this.enemies) this.enemies = this.enemies.filter(x => x !== de); gl.de = null; }
+      if (de) { if (de.gfx && de.gfx.scene) de.gfx.destroy(); if (de.hpBar && de.hpBar.scene) de.hpBar.destroy(); if (de.label && de.label.scene) de.label.destroy(); de._removed = true; if (this.enemies) this.enemies = this.enemies.filter(x => x !== de); gl.de = null; }
       for (const bm of (this.bombs || [])) { bm.exploded = true; try { if (bm.halo) { this.tweens.killTweensOf(bm.halo); bm.halo.destroy(); } if (bm.gfx) bm.gfx.destroy(); } catch (err) {} } // 残りの爆弾は全部消す
       this.bombs = []; gl.seen = null;
     };
