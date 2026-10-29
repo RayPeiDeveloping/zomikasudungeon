@@ -4221,6 +4221,46 @@ function addDemonRooms(d, n) {
   d.height = d.grid.length; d.demonRooms = rooms;
   return d;
 }
+// 📺 グリッチ戦：グリッチに触れると飛ばされる、別の部屋を足す。ボス部屋の右の遠く（GLITCH_ROOM_GAPマス先）に、岩（壁）で隔てて作る。rooms には入れない（敵・宝箱が湧かないように）。
+// d.glitchRoom＝部屋の位置と大きさ（マス）
+const GLITCH_ROOM_GAP = 40, GLITCH_ROOM_W = 26, GLITCH_ROOM_H = 18;
+function addGlitchRoom(d) {
+  const W0 = d.width, H0 = d.height, RW = GLITCH_ROOM_W, RH = GLITCH_ROOM_H;
+  const bx = W0 + GLITCH_ROOM_GAP, W = bx + RW + 6, H = Math.max(H0, RH + 6);
+  for (let y = 0; y < H0; y++) { const row = d.grid[y]; for (let x = W0; x < W; x++) row.push(0); }
+  for (let y = H0; y < H; y++) d.grid.push(Array(W).fill(0));
+  const R = { x: bx + 3, y: 3, w: RW, h: RH };
+  for (let y = R.y; y < R.y + R.h; y++) for (let x = R.x; x < R.x + R.w; x++) d.grid[y][x] = 1;
+  d.width = W; d.height = H; d.glitchRoom = R;
+  return d;
+}
+// 📺 グリッチ戦の2つ目の攻撃：デトネーターのいる、実際のダンジョン。ダンジョンの通常の生成（generateDungeon）で作ったマップを、先に足した部屋のさらに右の遠くに、岩（壁）で隔てて埋め込む。
+// その中の部屋を1つ選び、いつも同じ狭さ（GLITCH_BOMB_ROOM_W × GLITCH_BOMB_ROOM_H）に整えて、デトネーターの部屋にする。ほかの部屋には雑魚敵がいる（spawnGlitchBoss側で置く）。
+// d.glitchBombRoom＝デトネーターの部屋の位置と大きさ（マス）／d.glitchDungeon＝埋め込んだダンジョンの部屋（rooms）・デトネーターの部屋（detRoom）／d.glitchDungeonBox＝埋め込んだ範囲。この範囲の壁は、爆風で壊れない（destroyWallsInRadiusで除外）
+const GLITCH_BOMB_ROOM_W = 10, GLITCH_BOMB_ROOM_H = 8, GLITCH_DUNGEON_FLOOR = 10; // GLITCH_DUNGEON_FLOOR＝何階相当のダンジョンを作るか（広さ・敵の強さ）
+function addGlitchBombRoom(d) {
+  const dd = generateDungeon(Math.floor(Math.random() * 2147483646) + 1, GLITCH_DUNGEON_FLOOR, {});
+  const W0 = d.width, H0 = d.height, ox = W0 + GLITCH_ROOM_GAP, oy = 0;
+  const W = ox + dd.width + 3, H = Math.max(H0, dd.height + 3);
+  for (let y = 0; y < H0; y++) { const row = d.grid[y]; for (let x = W0; x < W; x++) row.push(0); }
+  for (let y = H0; y < H; y++) d.grid.push(Array(W).fill(0));
+  for (let y = 0; y < dd.height; y++) for (let x = 0; x < dd.width; x++) if (dd.grid[y][x] !== 0) d.grid[y + oy][x + ox] = 1; // 出口（3）なども、ただの床にする
+  const rooms = dd.rooms.map(r => ({ x: r.x + ox, y: r.y + oy, w: r.w, h: r.h }));
+  const TW = GLITCH_BOMB_ROOM_W, TH = GLITCH_BOMB_ROOM_H;
+  const fits = r => { const cx = Math.floor(r.x + r.w / 2), cy = Math.floor(r.y + r.h / 2); return cx - Math.floor(TW / 2) >= ox + 1 && cx - Math.floor(TW / 2) + TW <= ox + dd.width - 1 && cy - Math.floor(TH / 2) >= oy + 1 && cy - Math.floor(TH / 2) + TH <= oy + dd.height - 1; };
+  const cands = rooms.filter(fits); // 端に寄りすぎていて、整えると はみ出す部屋は選ばない
+  let best = null, bd = Infinity;
+  for (const r of (cands.length ? cands : rooms)) { const sc = Math.abs(r.w * r.h - TW * TH) + Math.random(); if (sc < bd) { bd = sc; best = r; } } // 狭めの目標に面積がいちばん近い部屋
+  const cx = Math.floor(best.x + best.w / 2), cy = Math.floor(best.y + best.h / 2); // 通路はこの部屋の中心線からつながっているので、中心の行と列は残す
+  for (let y = best.y; y < best.y + best.h; y++) for (let x = best.x; x < best.x + best.w; x++) if (x !== cx && y !== cy) d.grid[y][x] = 0;
+  const tx0 = Math.max(ox + 1, Math.min(cx - Math.floor(TW / 2), ox + dd.width - 1 - TW)), ty0 = Math.max(oy + 1, Math.min(cy - Math.floor(TH / 2), oy + dd.height - 1 - TH));
+  for (let y = ty0; y < ty0 + TH; y++) for (let x = tx0; x < tx0 + TW; x++) d.grid[y][x] = 1; // いつも同じ大きさ
+  d.width = W; d.height = H;
+  d.glitchBombRoom = { x: tx0, y: ty0, w: TW, h: TH };
+  d.glitchDungeon = { rooms, detRoom: best };
+  d.glitchDungeonBox = { x: ox, y: oy, w: dd.width, h: dd.height };
+  return d;
+}
 function addRitualRoom(d) {
   const W0 = d.width, H0 = d.height, RW = 36, RH = 24;
   const bx = W0 + RITUAL_GAP, W = bx + RW + 6, H = Math.max(H0, RH + 6);
@@ -6616,7 +6656,7 @@ class GameScene extends Phaser.Scene {
     try { if (this.time) this.time.timeScale = 1; if (this.tweens) this.tweens.timeScale = 1; } catch (e) { /* 初回起動前 */ }
     { const o = document.getElementById('clockOverlay'); if (o) o.style.display = 'none'; const cb = document.getElementById('clockBtn'); if (cb) cb.style.display = 'none'; }
     this._spUndead = undefined; this._spWings = false; this._godAccGone = false; this._rootReviveOn = false; this._rootRevive = 0; this._rootRed = 0; this._godRF = null; this._neckFloor = null; this._spT = 0; // 特別な装飾品を付けているかの記録（1回の挑戦ごとに取り直す）
-    this.limitedKey = (this.vsHero || (app.arms4Ritual && !app.endingRitual)) ? '' : limitedEquippedKey(); /* 通常の天使・調伏の儀は、限定武器の固定もなし */ // 限定武器の装飾品を付けていれば、その装飾品のkey（付けている間、武器はその限定武器で固定される）
+    this.limitedKey = (this.vsHero || (!this.mp && app.glitchBoss) || (app.arms4Ritual && !app.endingRitual)) ? '' : limitedEquippedKey(); /* 通常の天使・調伏の儀は、限定武器の固定もなし */ // 限定武器の装飾品を付けていれば、その装飾品のkey（付けている間、武器はその限定武器で固定される）
     this.skullRevives = this.accKey === 'skull' ? SKULL_WISPS : 0; // ドクロ：残りの鬼火の数＝あと何回生き返れるか（1回の挑戦ごとに SKULL_WISPS 個）
     this._initAccKey = this.accKey; // 「もう一度」でやり直す時に、この状態（ロビーで付けていた装飾品）へ戻すために覚えておく
     this._paused = false; this._pauseAt = 0; this._pbChkAt = null; { const po = document.getElementById('pauseOverlay'); if (po) po.style.display = 'none'; const pb = document.getElementById('pauseBtn'); if (pb) { pb.style.display = 'none'; setPauseIcon(pb, false); } } // ⏸ ポーズは、始めるたびに解除しておく
@@ -7861,6 +7901,7 @@ class GameScene extends Phaser.Scene {
     this.bossFloor = !this.snowfield && !this.hell && !this.sanctuary && !this.bossRush && !this.frontline && !this.pvp && !this.party && this.isBossFloor(this.floor); // ダンジョンの5階ごと（10・15・20…）はボス階
     const dungeon = this._snowRestore ? this._snowRestore.dungeon : this.sanctuary ? generateSanctuaryMap() : this.hell ? generateHellMap() : this.snowfield ? generateSnowfieldMap(this._godExiled) : (this.bossRush || this.bossFloor) ? generateBossArena(this.vsHero ? { w: VS_HERO.roomTilesW, h: VS_HERO.roomTilesH } : null) : (this.pvp ? generatePvpMap() : this.party ? generatePartyMap(this.lounge) : (this.frontline ? generateFrontlineMap() : generateDungeon(seed, this.floor, { secretLibrary: !this.mp, whiteDoor: !this.mp && !this.isDevMode && isGodFloorSeed(this.baseSeed) && this.floor === 6, ghostFloor: !this.mp && !!this._ghostFloorOn && this.floor === 1 })));
     if (this.mp && !this.bossRush && !this.pvp && !this.party && !this.frontline) { addRitualRoom(dungeon); if (this.bossFloor && this.floor >= 25) addDemonRooms(dungeon, Math.min(10, Math.max(4, Object.keys(this.latestPlayers || {}).length + 2))); } // 協力プレイ：調伏の儀の部屋を遠くに足す
+    if (this.bossRush && !this.mp && !this.vsHero && window.APP && window.APP.glitchBoss) { addGlitchRoom(dungeon); addGlitchBombRoom(dungeon); } // 📺 グリッチ戦：触れると飛ばされる別の部屋（突進の部屋・デトネーターの部屋）を足す
     this.rt = null; if (this._rtGfx && this._rtGfx.scene) this._rtGfx.clear(); // 前の階の調伏の儀の進行は持ち越さない
     this.dungeon = dungeon;
     this._rushCleared = false;
@@ -8314,11 +8355,11 @@ class GameScene extends Phaser.Scene {
   //   当たり判定は普通のボスと同じ円（gfx）で、その円は隠して、上に重ねたブロックの絵（Graphics）だけを毎フレーム描き直す。
   spawnGlitchBoss() {
     const sl = ENEMY_TYPES.find(t => t.key === 'slime');
-    const type = Object.assign({}, sl, { key: 'glitch', isBoss: true, bossLabel: '', displayName: 'GLITCH', color: 0x00ffd5, radius: 34, hp: 900, speed: 100, damage: 22, behavior: 'erratic', aggroRange: 1200 });
+    const type = Object.assign({}, sl, { key: 'glitch', isBoss: true, bossLabel: '', displayName: 'GLITCH', color: 0x00ffd5, radius: 34, hp: 900, speed: 100, damage: 22, behavior: 'erratic', aggroRange: 1200, invulnerable: true, hideHpBar: true, noContactDamage: true });
     const room = this.dungeon.rooms[0];
     const bx = (room.x + room.w - 6 + 0.5) * TILE, by = (room.y + room.h / 2) * TILE;
     const gfx = this.add.circle(bx, by, type.radius, type.color).setDepth(4).setAlpha(0); // 当たり判定用（見えない）
-    const hpBar = this.add.rectangle(bx, by - type.radius - 10, type.radius * 2, 6, 0xff5b5b).setDepth(4);
+    const hpBar = this.add.rectangle(bx, by - type.radius - 10, type.radius * 2, 6, 0xff5b5b).setDepth(4).setVisible(false); // 無敵なのでHPバーは出さない
     const label = this.add.text(bx, by - type.radius - 22, '', { fontSize: '12px', color: '#ffd54c', fontStyle: 'bold', fontFamily: 'sans-serif' }).setOrigin(0.5).setDepth(4).setVisible(false);
     const bossId = this.floor + '_boss';
     this.bossGroupCounts = this.bossGroupCounts || {};
@@ -8326,6 +8367,7 @@ class GameScene extends Phaser.Scene {
     const e = { id: bossId, type, gfx, hpBar, label, hp: type.hp, maxHp: type.hp, damage: type.damage, state: 'idle', timer: 0, dirX: 0, dirY: 0, hitCooldown: 0, bossGroupId: bossId, _bossScale: 1 };
     this.enemies = [e];
     this.showBossUi(type, bossId);
+    { const hb = document.getElementById('bossHpBar'); if (hb) hb.style.opacity = '0'; } // 無敵なので、画面上のHPバーも隠す（名前だけ出す）
 
     // ---- 見た目：ブロックの塊 ----
     const g = this.add.graphics().setDepth(4.2);
@@ -8348,11 +8390,167 @@ class GameScene extends Phaser.Scene {
       }
     };
     regen();
-    const stop = () => { this.events.off('update', upd); if (g && g.scene) g.destroy(); };
+
+    // ---- 🔴 触れた時の仕掛け：ダメージは受けない。画面全体にノイズが走り → 別の部屋へ飛ばされ → 自分の周りに円状に並んだ赤い敵が6体、順に…ではなく一斉に突進 → 全員が突進し終えたら、またノイズが走って元の部屋へ戻る ----
+    const GL = { DASHERS: 6, RING: 190, HOLD: 0.6, TELE: 0.5, NOISE_OUT: 0.4, RETURN_WAIT: 0.3, TIMEOUT: 6, BOMB_FIRST: 1.0, BOMB_RETURN_WAIT: 0.35, BOMB_TIMEOUT: 12, DASH_SPEED: 420, DASH_DMG: 16, REENTRY_CD: 1.5, HP_FLOOR: 10 }; // （2つ目の攻撃）BOMB_FIRST＝動き出してから最初の爆弾をまくまでの秒数／BOMB_RETURN_WAIT＝最初の爆弾が爆発してから元の部屋へ戻るまでの間／BOMB_TIMEOUT＝爆弾が爆発しなかった時の安全装置（秒） // HOLD＝ワープ直後、敵が生成されたまま動かない秒数（自分は動ける）／TELE＝そのあとの突進の予備動作／NOISE_OUT＝ワープの瞬間のノイズが消えていくまでの秒数／RETURN_WAIT＝全員が突進し終えてから元の部屋へ戻るまでの間
+    const gl = { ph: 'idle', t: 0, cd: 0, nz: 0, ds: [], mobs: [], n: 0, kind: 'dash', de: null, seen: null }; // n＝触れた回数（攻撃は 突進→デトネーター→突進… と交互）／kind＝今の攻撃
+    let nc = null, nx = null; // 画面全体のノイズ用キャンバス（必要になった時に作る）
+    const noiseDraw = (amt) => {
+      if (amt <= 0.01) { if (nc) nc.style.display = 'none'; return; }
+      if (!nc) {
+        nc = document.createElement('canvas');
+        nc.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:60;pointer-events:none;image-rendering:pixelated;';
+        document.body.appendChild(nc); nx = nc.getContext('2d');
+      }
+      nc.style.display = 'block';
+      const w = nc.width = Math.max(80, Math.ceil(window.innerWidth / 4)), h = nc.height = Math.max(60, Math.ceil(window.innerHeight / 4)); // 幅を入れ直すと描き直しになる
+      nx.fillStyle = 'rgba(0,0,10,' + (0.5 * amt).toFixed(3) + ')'; nx.fillRect(0, 0, w, h);
+      const n = Math.floor(60 + 340 * amt);
+      for (let i = 0; i < n; i++) { // 色とりどりの横長のブロック
+        nx.globalAlpha = 0.35 + Math.random() * 0.65 * amt;
+        nx.fillStyle = '#' + PAL[Math.floor(Math.random() * PAL.length)].toString(16).padStart(6, '0');
+        nx.fillRect(Math.random() * w, Math.random() * h, 2 + Math.random() * w * 0.25 * amt, 1 + Math.random() * 3);
+      }
+      const bars = 1 + Math.floor(amt * 5);
+      for (let i = 0; i < bars; i++) { // 画面を横切る、ずれた帯
+        nx.globalAlpha = 0.5 * amt; nx.fillStyle = Math.random() < 0.5 ? '#ffffff' : '#00ffd5';
+        nx.fillRect(0, Math.random() * h, w, 1 + Math.random() * 5 * amt);
+      }
+      nx.globalAlpha = 1;
+    };
+    const dType = Object.assign({}, ENEMY_TYPES.find(t => t.key === 'charger'), { speed: 0, dashSpeed: GL.DASH_SPEED, damage: GL.DASH_DMG, aggroRange: Infinity, chargeCombo: 1, chargeAngleJitterDeg: 0, glitchDasher: true }); // 赤いダッシュの敵：見た目（色・大きさ）は通常のチャージャーと同じ。倒せる
+    const dHp = Math.round(dType.hp * (1 + (GL.HP_FLOOR - 1) * DUNGEON_DIFFICULTY.hpPerFloor)); // HPはダンジョンの GL.HP_FLOOR 階の敵と同じ
+    const spawnDashers = (cx, cy) => {
+      const a0 = Math.random() * Math.PI * 2;
+      for (let i = 0; i < GL.DASHERS; i++) {
+        const a = a0 + i * Math.PI * 2 / GL.DASHERS, x = cx + Math.cos(a) * GL.RING, y = cy + Math.sin(a) * GL.RING;
+        const dg = this.add.circle(x, y, dType.radius, dType.color).setDepth(4); dg.setStrokeStyle(2, 0x000000, 0.3);
+        const hb = this.add.rectangle(x, y - dType.radius - 8, dType.radius * 2, 4, 0xff5b5b).setDepth(4);
+        const de = { id: this.floor + '_glitchdash_' + i + '_' + Math.floor(this.time.now), type: dType, gfx: dg, hpBar: hb, hp: dHp, maxHp: dHp, damage: dType.damage, state: 'cooldown', timer: 999, dirX: 0, dirY: 0, hitCooldown: 0, comboLeft: 0, chargeAngleDecided: false, _aimLead: 0, _aimJitter: null, _aimDur: null, _glDash: false };
+        this.enemies.push(de); gl.ds.push(de);
+        this.spawnBurst(x, y, 0xff2020, 6);
+      }
+    };
+    const removeDashers = () => {
+      for (const d of gl.ds) { if (d.gfx && d.gfx.scene) d.gfx.destroy(); if (d.hpBar && d.hpBar.scene) d.hpBar.destroy(); d._removed = true; }
+      if (this.enemies) this.enemies = this.enemies.filter(x => !gl.ds.includes(x));
+      gl.ds = [];
+    };
+    const warp = (x, y) => { this.player.x = x; this.player.y = y; if (this.cameras && this.cameras.main) this.cameras.main.centerOn(x, y); };
+    // ---- 💣 2つ目の攻撃：デトネーターのいる部屋へ。デトネーターが最初に放った爆弾が爆発したら、元の部屋へ戻る ----
+    const bType = Object.assign({}, ENEMY_TYPES.find(t => t.key === 'detonator'), { isBoss: false, bossSpawn: false, invulnerable: true, hideHpBar: true }); // 通常のデトネーターの動き・爆弾をそのまま使う（倒せない。ボス扱いにはしない）
+    const spawnDetonator = (rm) => {
+      bType.aggroRange = 0; bType.bombRange = 0; // 動き出すまでは、追いかけも爆弾もしない
+      const x = (rm.x + rm.w - 1.5) * TILE, y = (rm.y + rm.h / 2) * TILE;
+      const dg = this.add.circle(x, y, bType.radius, bType.color).setDepth(4); dg.setStrokeStyle(2, 0x000000, 0.3);
+      const hb = this.add.rectangle(x, y - bType.radius - 8, bType.radius * 2, 4, 0xff5b5b).setDepth(4).setVisible(false);
+      const de = { id: this.floor + '_glitchdet', type: bType, gfx: dg, hpBar: hb, hp: bType.hp, maxHp: bType.hp, damage: bType.damage, state: 'idle', timer: 0, dirX: 0, dirY: 0, hitCooldown: 0, bombTimer: 999 };
+      this.enemies.push(de); gl.de = de; gl.seen = null;
+      this.spawnBurst(x, y, bType.color, 8);
+    };
+    const removeBombAttack = () => {
+      for (const m of gl.mobs) m._glFrozen = false; // 止めたままにしない
+      const de = gl.de;
+      if (de) { if (de.gfx && de.gfx.scene) de.gfx.destroy(); if (de.hpBar && de.hpBar.scene) de.hpBar.destroy(); de._removed = true; if (this.enemies) this.enemies = this.enemies.filter(x => x !== de); gl.de = null; }
+      for (const bm of (this.bombs || [])) { bm.exploded = true; try { if (bm.halo) { this.tweens.killTweensOf(bm.halo); bm.halo.destroy(); } if (bm.gfx) bm.gfx.destroy(); } catch (err) {} } // 残りの爆弾は全部消す
+      this.bombs = []; gl.seen = null;
+    };
+    // ---- 👾 デトネーターのダンジョンにいる雑魚敵：ダンジョンの通常の敵（GLITCH_DUNGEON_FLOOR 階相当の強さ）を、各部屋に1〜2体。デトネーターの部屋にも2体 ----
+    const spawnDungeonMobs = () => {
+      const gd = this.dungeon && this.dungeon.glitchDungeon, br = this.dungeon && this.dungeon.glitchBombRoom;
+      if (!gd) return;
+      const elig = ENEMY_TYPES.filter(t => t.minFloor <= GLITCH_DUNGEON_FLOOR && !t.isBoss && !t.mimic && !t.nightmareOnly && !t.invulnerable && t.key !== 'ghost');
+      const hpM = 1 + (GLITCH_DUNGEON_FLOOR - 1) * DUNGEON_DIFFICULTY.hpPerFloor, dmM = 1 + (GLITCH_DUNGEON_FLOOR - 1) * DUNGEON_DIFFICULTY.dmgPerFloor;
+      let k = 0;
+      for (const r of gd.rooms) {
+        const isDet = r === gd.detRoom, area = isDet ? br : r; // デトネーターの部屋は、整えたあとの範囲に置く
+        if (!area || area.w < 4 || area.h < 4) continue;
+        const n = isDet ? 2 : 1 + Math.floor(Math.random() * 2);
+        for (let i = 0; i < n; i++) {
+          let wx = 0, wy = 0;
+          for (let tries = 0; tries < 12; tries++) {
+            wx = (area.x + 1 + Math.random() * (area.w - 2)) * TILE; wy = (area.y + 1 + Math.random() * (area.h - 2)) * TILE;
+            if (!isDet) break;
+            const ex = (br.x + 1.5) * TILE, dx = (br.x + br.w - 1.5) * TILE, my = (br.y + br.h / 2) * TILE; // 自分の出る場所・デトネーターのすぐそばには置かない
+            if (Math.hypot(wx - ex, wy - my) > 3.5 * TILE && Math.hypot(wx - dx, wy - my) > 3 * TILE) break;
+          }
+          const mt = pickWeightedEnemyType(elig, Math.random);
+          const mg = this.add.circle(wx, wy, mt.radius, mt.color).setDepth(4); mg.setStrokeStyle(2, 0x000000, 0.3);
+          if (typeof mt.alpha === 'number') mg.setAlpha(mt.alpha);
+          const mb = this.add.rectangle(wx, wy - mt.radius - 8, mt.radius * 2, 4, 0xff5b5b).setDepth(4);
+          if (mt.hideHpBar) mb.setVisible(false);
+          const me = { id: this.floor + '_glmob_' + (k++), type: mt, gfx: mg, hpBar: mb, hp: Math.round(mt.hp * hpM), maxHp: Math.round(mt.hp * hpM), damage: Math.round(mt.damage * dmM), state: 'idle', timer: Math.random() * 2, dirX: 0, dirY: 0, hitCooldown: 0 };
+          this.enemies.push(me); gl.mobs.push(me);
+        }
+      }
+    };
+    spawnDungeonMobs();
+    const setFreeze = (on) => { for (const m of gl.mobs) m._glFrozen = on; if (gl.de) gl.de._glFrozen = on; }; // ワープ直後の間、雑魚敵とデトネーターを止める（動きも攻撃も接触ダメージも無し。自分は動ける）
+    const glitchSeq = (dt) => {
+      const pl = this.player, room = this.dungeon && this.dungeon.glitchRoom, bRoom = this.dungeon && this.dungeon.glitchBombRoom;
+      if (gl.cd > 0) gl.cd -= dt;
+      // ワープの瞬間は画面が一気に切り替わり、ノイズが最大から、ちらつきながら少し残って消えていく
+      if (gl.nz > 0) { gl.nz -= dt; noiseDraw(Math.min(1, Math.pow(Math.max(0, gl.nz / GL.NOISE_OUT), 1.4) * (0.75 + Math.random() * 0.25))); } else noiseDraw(0);
+      if (gl.ph === 'idle') {
+        if (!room || !bRoom || gl.cd > 0 || this.isGhost || this.isDowned) return;
+        if (Math.hypot(pl.x - gfx.x, pl.y - gfx.y) < type.radius + (pl.radius || 14)) { // 触れた：その場で別の部屋へ（パッと切り替わる）
+          gl.kind = (gl.n++ % 2 === 0) ? 'dash' : 'bomb'; // 突進の部屋 → デトネーターの部屋 → … と交互
+          if (gl.kind === 'dash') {
+            const cx = (room.x + room.w / 2) * TILE, cy = (room.y + room.h / 2) * TILE;
+            warp(cx, cy); spawnDashers(cx, cy);
+          } else {
+            warp((bRoom.x + 1.5) * TILE, (bRoom.y + bRoom.h / 2) * TILE); spawnDetonator(bRoom); setFreeze(true); // 自分は左、デトネーターは右。雑魚敵もろとも、動き出すまで止まる
+          }
+          gl.nz = GL.NOISE_OUT; gl.ph = 'hold'; gl.t = 0;
+        }
+        return;
+      }
+      gl.t += dt;
+      if (gl.ph === 'hold') { // ワープ直後：敵は生成されたまま動かない（自分は動ける）
+        if (gl.t >= GL.HOLD) {
+          if (gl.kind === 'dash') {
+            for (const d of gl.ds) { if (d.gfx && d.gfx.scene) { d.state = 'telegraph'; d.timer = GL.TELE; d.chargeAngleDecided = false; } } // 突進の予備動作へ
+            gl.ph = 'dash';
+          } else {
+            setFreeze(false); bType.aggroRange = Infinity; bType.bombRange = 620; // 動き出す：雑魚敵も、デトネーターも（追いかけて、爆弾をまく）
+            if (gl.de) gl.de.bombTimer = GL.BOMB_FIRST; // 最初の爆弾までの時間
+            gl.seen = new Set();
+            gl.ph = 'bomb';
+          }
+          gl.t = 0;
+        }
+      } else if (gl.ph === 'dash') { // 全員が突進し終わるまで待つ
+        for (const d of gl.ds) if (d.state === 'dash') d._glDash = true;
+        const done = gl.ds.every(d => !d.gfx || !d.gfx.scene || (d._glDash && d.state !== 'dash' && d.state !== 'telegraph'));
+        if (done || gl.t > GL.TIMEOUT) { gl.ph = 'wait'; gl.t = 0; }
+      } else if (gl.ph === 'bomb') { // 放たれた爆弾のどれか1つが爆発する（＝爆弾の一覧から消える）まで待つ
+        const cur = this.bombs || [];
+        let gone = false;
+        if (gl.seen) for (const bm of gl.seen) { if (bm.exploded || !cur.includes(bm)) { gone = true; break; } }
+        if (gl.seen) for (const bm of cur) gl.seen.add(bm);
+        if (gone || gl.t > GL.BOMB_TIMEOUT) { gl.ph = 'wait'; gl.t = 0; }
+      } else if (gl.ph === 'wait') { // 少し間をおく（爆発が見える）
+        if (gl.t >= (gl.kind === 'bomb' ? GL.BOMB_RETURN_WAIT : GL.RETURN_WAIT)) { // 元の部屋へ（パッと切り替わる）
+          if (gl.kind === 'bomb') removeBombAttack(); else removeDashers();
+          const ps = this.dungeon.playerStart;
+          warp((ps.x + 0.5) * TILE, (ps.y + 0.5) * TILE);
+          this.playerInvuln = Math.max(this.playerInvuln || 0, 1.0);
+          gl.nz = GL.NOISE_OUT; gl.ph = 'idle'; gl.cd = GL.REENTRY_CD;
+        }
+      }
+    };
+    const stop = () => {
+      this.events.off('update', upd); if (g && g.scene) g.destroy();
+      if (nc) { nc.remove(); nc = null; }
+      for (const d of gl.ds) { if (d.gfx && d.gfx.scene) d.gfx.destroy(); if (d.hpBar && d.hpBar.scene) d.hpBar.destroy(); }
+      gl.ds = [];
+      if (gl.de) { try { removeBombAttack(); } catch (err) {} } // 爆弾の部屋の途中で終わった時の後片付け
+    };
     const upd = (time, delta) => {
       const dt = delta / 1000;
       if (!this.enemies || !this.enemies.includes(e) || e.hp <= 0 || !gfx.scene) { stop(); return; }
       tNow += dt;
+      glitchSeq(dt); // 触れた時の仕掛け
       if (e.hp < lastHp) flashT = 0.12; // 攻撃を受けた：一瞬、真っ白
       lastHp = e.hp;
       if (flashT > 0) flashT -= dt;
@@ -9174,7 +9372,7 @@ class GameScene extends Phaser.Scene {
       else this._demonEnding();
     });
   }
-  hasSpecial(key) { if (this.vsHero && specialAccByKey(key)) return false; /* 斬り合い：悪魔の装飾品も使えない */ /* 🔧 通信プレイ（協力・PvP）でも付けられる。PvPでは見た目だけで、効果は止める（翼＝刺さない／ネックレス＝出さない／紋章＝回復しない。this.pvp で判定） */ if (this.arms4Ritual && !this._endingRun && specialAccByKey(key)) return false; /* ホームの天使・調伏の儀（通常）：悪魔の装飾品は使えない（エンディング演出の調伏の儀だけは使う） */ if (this._godAccGone && specialAccByKey(key)) return false; /* 宇宙が割れて聖域に戻ったあと：悪魔の装飾は外れている */ if (ENDING_STATE.run && specialAccByKey(key)) return true; /* エンディング演出中：悪魔の装飾は全部オン */ const sv = loadSave(); return !!((sv.specialAccs[key] && sv.specialOn[key]) || (this._tmpSpecial || {})[key]); } // その特別な装飾品を、いま付けているか（デベロッパーモードでもらった分は、このゲームの間だけ）
+  hasSpecial(key) { if (this.vsHero && specialAccByKey(key)) return false; /* 斬り合い：悪魔の装飾品も使えない */ if ((this.glitchBoss || (!this.mp && window.APP && window.APP.glitchBoss)) && specialAccByKey(key)) return false; /* 📺 グリッチのボス：悪魔の装飾品も持っていけない */ /* 🔧 通信プレイ（協力・PvP）でも付けられる。PvPでは見た目だけで、効果は止める（翼＝刺さない／ネックレス＝出さない／紋章＝回復しない。this.pvp で判定） */ if (this.arms4Ritual && !this._endingRun && specialAccByKey(key)) return false; /* ホームの天使・調伏の儀（通常）：悪魔の装飾品は使えない（エンディング演出の調伏の儀だけは使う） */ if (this._godAccGone && specialAccByKey(key)) return false; /* 宇宙が割れて聖域に戻ったあと：悪魔の装飾は外れている */ if (ENDING_STATE.run && specialAccByKey(key)) return true; /* エンディング演出中：悪魔の装飾は全部オン */ const sv = loadSave(); return !!((sv.specialAccs[key] && sv.specialOn[key]) || (this._tmpSpecial || {})[key]); } // その特別な装飾品を、いま付けているか（デベロッパーモードでもらった分は、このゲームの間だけ）
   _giveSpecialAcc(sp) { // 台本の item が特別な装飾品の key だった時：入手済みにして、付けた状態にする（ホーム画面に出る）。限定武器なら、その武器に持ち替えて固定する
     { // デベロッパーモードでも、通常と同じように記録に残す（ホーム画面にも出る）
       const sv = loadSave(); sv.specialAccs[sp.key] = true; sv.specialOn[sp.key] = true;
@@ -14531,6 +14729,7 @@ class GameScene extends Phaser.Scene {
         if (dungeon.grid[ty][tx] !== 0) continue; // 壁(=0)だけを破壊対象にする
         if (dungeon.hut && tx >= dungeon.hut.x && tx < dungeon.hut.x + dungeon.hut.w && ty >= dungeon.hut.y && ty < dungeon.hut.y + dungeon.hut.h) continue; // ❄ 雪原の小屋の壁（暖炉も）は壊れない
         if (dungeon.ritual && !this.ritualDiggable(tx, ty)) continue; // 儀式部屋のあるダンジョン：掘れない範囲
+        if (dungeon.glitchDungeonBox) { const G = dungeon.glitchDungeonBox; if (tx >= G.x - 3 && tx < G.x + G.w + 3 && ty >= G.y - 3 && ty < G.y + G.h + 3) continue; } // 📺 グリッチ戦のデトネーターのダンジョン：壁は壊れない（いつも同じ広さ・つながり）
         const centerX = tx * TILE + TILE / 2, centerY = ty * TILE + TILE / 2;
         if (Phaser.Math.Distance.Between(cx, cy, centerX, centerY) <= r) {
           dungeon.grid[ty][tx] = 1;
@@ -17352,7 +17551,7 @@ class GameScene extends Phaser.Scene {
 
   // 敵が現在いずれかの魔法陣に触れている、またはトラップのスタン中かどうか（動きと攻撃を止める）
   isEnemyFrozen(e) {
-    return this.isEnemyInMagicCircle(e) || (e.trapStunTimer > 0) || (this._clkOn && this.enemies.includes(e)); // 🕒 時計で時が止まっている間は、敵は全員止まる
+    return this.isEnemyInMagicCircle(e) || (e.trapStunTimer > 0) || !!e._glFrozen /* 📺 グリッチ戦：ワープ直後の間、敵は止まる */ || (this._clkOn && this.enemies.includes(e)); // 🕒 時計で時が止まっている間は、敵は全員止まる
   }
   isEnemyInMagicCircle(e) {
     if (!this.magicCircles || !this.magicCircles.length) return false;
