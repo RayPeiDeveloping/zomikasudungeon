@@ -312,6 +312,49 @@
   }
   #lobbyStats > button#resetSaveBtn:active, #lobbyStats > button#syncBtn:active { background: rgba(255, 217, 128, 0.3); }
   .challengeBtn { font-size: 1.9vh; padding: 1.8vh 1vh; margin-top: 0; }
+  /* 📺 ボスラッシュのボタンが、ごくまれにグリッチ（ノイズが走る）状態になる */
+  .challengeBtn.glitchBtn { position: relative; overflow: hidden; isolation: isolate; animation: glitchShake 2.6s infinite steps(1, end); }
+  .challengeBtn.glitchBtn::before, .challengeBtn.glitchBtn::after {
+    content: attr(data-text); position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: inherit; pointer-events: none; mix-blend-mode: normal;
+  }
+  .challengeBtn.glitchBtn::before { color: #ff2a55; text-shadow: -2px 0 #ff2a55; animation: glitchSliceA 1.7s infinite steps(1, end); }
+  .challengeBtn.glitchBtn::after { color: #2af0ff; text-shadow: 2px 0 #2af0ff; animation: glitchSliceB 2.1s infinite steps(1, end); }
+  .challengeBtn.glitchBtn .glitchNoise {
+    position: absolute; inset: 0; pointer-events: none; z-index: 3; opacity: 0.55; mix-blend-mode: overlay;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,0.35) 0 1px, transparent 1px 3px);
+    animation: glitchScan 0.35s infinite steps(3, end);
+  }
+  .challengeBtn.glitchBtn .glitchBar {
+    position: absolute; left: 0; right: 0; height: 22%; top: -30%; pointer-events: none; z-index: 4;
+    background: linear-gradient(180deg, transparent, rgba(255,255,255,0.75), transparent); mix-blend-mode: overlay;
+    animation: glitchBar 1.9s infinite linear;
+  }
+  @keyframes glitchShake {
+    0%, 100% { transform: translate(0, 0) skewX(0); filter: none; }
+    6% { transform: translate(-3px, 1px) skewX(-6deg); filter: hue-rotate(40deg) saturate(2); }
+    8% { transform: translate(3px, -1px) skewX(5deg); }
+    10% { transform: translate(0, 0) skewX(0); filter: none; }
+    47% { transform: translate(2px, 0) skewX(3deg); filter: invert(0.85); }
+    49% { transform: translate(-4px, 1px) skewX(-8deg); filter: hue-rotate(-60deg); }
+    51% { transform: translate(0, 0) skewX(0); filter: none; }
+    83% { transform: translate(-2px, -1px); filter: contrast(2.2) saturate(0); }
+    85% { transform: translate(0, 0); filter: none; }
+  }
+  @keyframes glitchSliceA {
+    0% { clip-path: inset(0 0 85% 0); transform: translateX(-5px); } 12% { clip-path: inset(40% 0 38% 0); transform: translateX(6px); }
+    25% { clip-path: inset(70% 0 8% 0); transform: translateX(-4px); } 38% { clip-path: inset(10% 0 72% 0); transform: translateX(5px); }
+    52% { clip-path: inset(55% 0 25% 0); transform: translateX(-7px); } 66% { clip-path: inset(0 0 95% 0); transform: translateX(0); }
+    80% { clip-path: inset(25% 0 55% 0); transform: translateX(4px); } 100% { clip-path: inset(85% 0 0 0); transform: translateX(-3px); }
+  }
+  @keyframes glitchSliceB {
+    0% { clip-path: inset(60% 0 20% 0); transform: translateX(5px); } 15% { clip-path: inset(5% 0 80% 0); transform: translateX(-6px); }
+    30% { clip-path: inset(80% 0 4% 0); transform: translateX(4px); } 45% { clip-path: inset(30% 0 50% 0); transform: translateX(-5px); }
+    60% { clip-path: inset(0 0 95% 0); transform: translateX(0); } 75% { clip-path: inset(48% 0 35% 0); transform: translateX(7px); }
+    100% { clip-path: inset(15% 0 70% 0); transform: translateX(-4px); }
+  }
+  @keyframes glitchScan { 0% { background-position: 0 0; } 100% { background-position: 0 3px; } }
+  @keyframes glitchBar { 0% { top: -30%; } 100% { top: 130%; } }
   .lobbyBox h1 { font-size: 20px; margin: 0 0 4px; }
   .lobbyBox h2 { font-size: 14px; color: #b388ff; margin: 18px 0 8px; }
   .lobbyBox label { display: block; font-size: 12px; color: #a0a0b0; margin-bottom: 14px; }
@@ -1049,6 +1092,7 @@ const DEMON_SENSOR_RATIO = 1 / 3;
 // 🔧 確認用のURLパラメータ（URLの末尾に付ける。例: index.html?library=1&demon=1）
 //   ?library=1 … 隠し書庫の扉が、確率に関係なく毎階（扉を置ける階なら）出る
 //   ?test=1    … テスト用ボタン（PvP一人テスト・小屋ワープ・エンディング・地獄）を出す。ただし、下の TEST_BUTTONS_SHOWN が true の時だけ（普段は false なので、?test=1 を付けても何も出ない。出したい時だけ true にする）
+//   ?glitch=1 … タイトル画面のボスラッシュのボタンが、確率（GLITCH_CHANCE）に関係なく必ずグリッチ（ノイズが走る）状態になる（今は確率が0％なので、これを付けた時だけグリッチになる）
 //   ?demon=1   … 25階（ソロ）に着いたら、全滅の記録やDEMON_ENABLEDに関係なく悪魔が出る（デベロッパーモードでも出る。デベロッパーモードは、?demon=1 が無い時だけ悪魔が出ない）
 const TEST_BUTTONS_SHOWN = false; // 🛠 テスト用ボタンを出せるようにするか。普段は false（?test=1 を付けても何も出ない）。出したい時だけ true にする（true の間も、URLに ?test=1 を付けた時だけ出る）
 const DEBUG_URL = (function () {
@@ -6565,7 +6609,7 @@ class GameScene extends Phaser.Scene {
     this.playerColor = (typeof app.color === 'number') ? app.color : 0x5bd1ff;
     this._bh = null; // ブラックホールのビームの状態（毎回作り直す）
     this.vsHero = !this.mp && !!app.vsHero; // ⚔ 斬り合い（ボス部屋。装飾品は全部持っていけない）
-    this.accKey = (!this.vsHero && (!app.arms4Ritual || app.endingRitual) && accessoryByKey(app.acc)) ? app.acc : ''; // 付けている装飾品のkey（無ければ''）。四つ腕の調伏の儀は装飾品なし
+    this.accKey = (!this.vsHero && !app.glitchBoss && (!app.arms4Ritual || app.endingRitual) && accessoryByKey(app.acc)) ? app.acc : ''; // 付けている装飾品のkey（無ければ''）。四つ腕の調伏の儀は装飾品なし
     this._usedAccKeys = this.accKey ? [this.accKey] : []; // リザルト用：このゲーム中に付けた装飾品のkey（最初から付けていたものも含む。付けた順）
     this._skFx = []; this._skG = null; this._skT = 0; // 🔪 シリアルキラーの斬撃線
     this._clkOn = false; this._clkMine = false; this._clkCd = 0; this._clkLeft = 0; // 🕒 時計：発動中か／次に使えるまでの秒数（最初は使える）
@@ -6668,6 +6712,7 @@ class GameScene extends Phaser.Scene {
       app.hellTest = false;
       if (!this.mp && !this.pvp && !this.frontline && !this.bossRush) { this.hell = true; this._hellDest = this.floor; this._hellT0 = performance.now(); }
     }
+    this.glitchBoss = !this.mp && !!app.bossRush && !!app.glitchBoss; this._glitchWon = false; // 📺 グリッチのボスの挑戦（装飾品なし。倒すとリザルト）
     this.rushWeaponKey = ((!this.mp && (app.bossRush || app.arms4Ritual || app.vsHero)) || app.frontline || app.pvp) ? (app.rushWeaponKey || null) : null;
     // ボスラッシュでは選んだ武器のLv.5でスタートする（デベロッパーモードの開始武器と同じ仕組みを流用）
     this.devWeaponKey = this.rushWeaponKey || app.devWeaponKey || null;
@@ -8210,6 +8255,7 @@ class GameScene extends Phaser.Scene {
   // 次の一巡の最初が直前のボスと同じにならないようにする）。撃破するごとに少しずつ強くなる。
   spawnBossRushBoss() {
     if (this.vsHero) { this.spawnVsHero(); return; }
+    if (this.floor === 1 && window.APP && window.APP.glitchBoss) { this.spawnGlitchBoss(); return; } // 📺 グリッチのボタンから始めた時の最初のボスだけ、グリッチの塊
     // 【テスト用】ここにボスのkeyを入れると、ボスラッシュで毎回そのボスだけが出る（出現率100%）。
     // 通常の抽選（全ボスをシャッフルして順番に）に戻すときは null にする。
     const TEST_FORCE_BOSS = null;
@@ -8261,6 +8307,73 @@ class GameScene extends Phaser.Scene {
       this.enemies[0].chargeLock = bossType.initialChargeDelay;
       this.enemies[0].chargeLockMax = bossType.initialChargeDelay;
     }
+  }
+
+  // 📺 グリッチのボス：色とりどりの四角いブロックの塊が、ノイズのようにちらつき、ずれながら動き回る。
+  //   動きはランダムに揺れながら追いかける（erratic）。遅く歩く時と急に速くなる時を交互に繰り返す。体当たりでダメージ。
+  //   当たり判定は普通のボスと同じ円（gfx）で、その円は隠して、上に重ねたブロックの絵（Graphics）だけを毎フレーム描き直す。
+  spawnGlitchBoss() {
+    const sl = ENEMY_TYPES.find(t => t.key === 'slime');
+    const type = Object.assign({}, sl, { key: 'glitch', isBoss: true, bossLabel: '', displayName: 'GLITCH', color: 0x00ffd5, radius: 34, hp: 900, speed: 100, damage: 22, behavior: 'erratic', aggroRange: 1200 });
+    const room = this.dungeon.rooms[0];
+    const bx = (room.x + room.w - 6 + 0.5) * TILE, by = (room.y + room.h / 2) * TILE;
+    const gfx = this.add.circle(bx, by, type.radius, type.color).setDepth(4).setAlpha(0); // 当たり判定用（見えない）
+    const hpBar = this.add.rectangle(bx, by - type.radius - 10, type.radius * 2, 6, 0xff5b5b).setDepth(4);
+    const label = this.add.text(bx, by - type.radius - 22, '', { fontSize: '12px', color: '#ffd54c', fontStyle: 'bold', fontFamily: 'sans-serif' }).setOrigin(0.5).setDepth(4).setVisible(false);
+    const bossId = this.floor + '_boss';
+    this.bossGroupCounts = this.bossGroupCounts || {};
+    this.bossGroupCounts[bossId] = 1;
+    const e = { id: bossId, type, gfx, hpBar, label, hp: type.hp, maxHp: type.hp, damage: type.damage, state: 'idle', timer: 0, dirX: 0, dirY: 0, hitCooldown: 0, bossGroupId: bossId, _bossScale: 1 };
+    this.enemies = [e];
+    this.showBossUi(type, bossId);
+
+    // ---- 見た目：ブロックの塊 ----
+    const g = this.add.graphics().setDepth(4.2);
+    const PAL = [0x00ffd5, 0xff2a6d, 0xffffff, 0x7a5cff, 0x39ff14, 0x111122, 0xffe600];
+    const CELL = 9, R = type.radius * 1.25;
+    let cells = [], bars = [], regenT = 0, flashT = 0, blinkT = 0, speedT = 0, lastHp = e.hp, tNow = 0;
+    const regen = () => {
+      cells = [];
+      for (let cx = -R; cx < R; cx += CELL) for (let cy = -R; cy < R; cy += CELL) {
+        if (Math.hypot(cx + CELL / 2, cy + CELL / 2) > R * (0.7 + Math.random() * 0.45)) continue; // 縁はギザギザに欠ける
+        if (Math.random() < 0.28) continue; // 所々、穴があく
+        cells.push({ x: cx + (Math.random() < 0.15 ? (Math.random() - 0.5) * CELL * 2 : 0), y: cy, w: CELL * (Math.random() < 0.2 ? 2 : 1), h: CELL, c: PAL[Math.floor(Math.random() * PAL.length)] });
+      }
+      bars = [];
+      const n = 2 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < n; i++) bars.push({ x: -R * (1 + Math.random() * 0.6), y: (Math.random() * 2 - 1) * R, w: R * (1.2 + Math.random() * 1.6), h: 2 + Math.random() * 5, c: PAL[Math.floor(Math.random() * 4)] }); // 横に走るノイズの線
+      if (this._bossUiGroup === bossId) { // ボス名もノイズでちらつく
+        const el = document.getElementById('bossNameBanner');
+        if (el) el.textContent = Math.random() < 0.35 ? 'GLITCH'.split('').map(ch => Math.random() < 0.4 ? '█▓▒░#@%&01?'[Math.floor(Math.random() * 11)] : ch).join('') : 'GLITCH';
+      }
+    };
+    regen();
+    const stop = () => { this.events.off('update', upd); if (g && g.scene) g.destroy(); };
+    const upd = (time, delta) => {
+      const dt = delta / 1000;
+      if (!this.enemies || !this.enemies.includes(e) || e.hp <= 0 || !gfx.scene) { stop(); return; }
+      tNow += dt;
+      if (e.hp < lastHp) flashT = 0.12; // 攻撃を受けた：一瞬、真っ白
+      lastHp = e.hp;
+      if (flashT > 0) flashT -= dt;
+      regenT -= dt; if (regenT <= 0) { regen(); regenT = 0.05 + Math.random() * 0.1; }
+      blinkT -= dt; // たまに1コマだけ消える
+      let hidden = false; if (blinkT <= 0) { hidden = Math.random() < 0.5; blinkT = hidden ? 0.04 : 0.3 + Math.random() * 1.2; }
+      speedT -= dt; if (speedT <= 0) { type.speed = type.speed < 150 ? 230 : 90; speedT = type.speed > 150 ? 0.35 : 0.8; } // 急に速くなる
+      g.clear();
+      if (hidden) return;
+      const x = gfx.x, y = gfx.y;
+      for (const c of cells) {
+        g.fillStyle(flashT > 0 ? 0xffffff : c.c, 1);
+        g.fillRect(x + c.x, y + c.y, c.w, c.h);
+      }
+      for (const b of bars) {
+        g.fillStyle(flashT > 0 ? 0xffffff : b.c, 0.85);
+        g.fillRect(x + b.x, y + b.y, b.w, b.h);
+      }
+    };
+    this.events.on('update', upd);
+    this.events.once('shutdown', stop);
   }
 
   // ⚔ 斬り合い：ボス部屋に、エンディングの主人公と同じ見た目（青い体＋シリアルキラーの赤い目）の敵が1体立っている。
@@ -27264,7 +27377,7 @@ class GameScene extends Phaser.Scene {
   // 最高到達階層・ボス撃破数・クリア回数は、ダンジョン／最北戦線だけ。PvP・デベロッパーは何も足さない。
   // 今回新しく入手した装飾品の配列を返す。同じ挑戦で二度足さないよう、runStatsの同一性で判定する。
   commitRunStats() {
-    if (this.pvp || this.isDevMode || this.vsHero) return []; // 斬り合いは、どの記録にも足さない
+    if (this.pvp || this.isDevMode || this.vsHero || this.glitchBoss) return []; // 斬り合い・グリッチのボスは、どの記録にも足さない
     if (this._committedStats === this.runStats) return [];
     this._committedStats = this.runStats;
     // 協力プレイでは、倒した数は自分の分（mpStats）を使う（runStats.kills/bosses はソロ専用の集計のため）
@@ -29830,6 +29943,9 @@ class GameScene extends Phaser.Scene {
     } else if (this.arms4Ritual) {
       rows.push(['結果', this._ritualWon ? '調伏成功' : '調伏失敗']);
       rows.push(['経過時間', timeText]);
+    } else if (this.glitchBoss) {
+      rows.push(['結果', this._glitchWon ? '撃破成功' : '撃破失敗']);
+      rows.push(['経過時間', timeText]);
     } else if (this.bossRush) {
       rows.push(['到達ボス', this.floor + '体目']);
       rows.push(['経過時間', timeText]);
@@ -29842,7 +29958,7 @@ class GameScene extends Phaser.Scene {
       rows.push(['倒したボス', st.bosses + '体']);
     }
     if (newAcc.length) rows.push(['🎁 新しい装飾品', newAcc.map(a => a.icon + a.name).join(' ')]);
-    document.getElementById('resultMode').textContent = this.arms4Ritual ? 'ANGEL' : (this.nightmare ? 'NIGHTMARE' : this.isDevMode ? 'DEVELOPER' : (this.vsHero ? 'VS HERO' : this.bossRush ? 'BOSS RUSH' : (this.frontline ? 'NORTHERN FRONT' : 'DUNGEON')));
+    document.getElementById('resultMode').textContent = this.arms4Ritual ? 'ANGEL' : this.glitchBoss ? 'GLITCH' : (this.nightmare ? 'NIGHTMARE' : this.isDevMode ? 'DEVELOPER' : (this.vsHero ? 'VS HERO' : this.bossRush ? 'BOSS RUSH' : (this.frontline ? 'NORTHERN FRONT' : 'DUNGEON')));
     document.getElementById('resultStats').innerHTML = rows.map(r =>
       '<div class="resultRow"><span>' + escapeHtml(r[0]) + '</span><b>' + escapeHtml(r[1]) + '</b></div>').join('');
     const weapons = Object.entries(this.weaponLevels).map(([key, lv]) => {
@@ -30143,7 +30259,7 @@ class GameScene extends Phaser.Scene {
       this.baseSeed = this.fixedSeed != null ? this.fixedSeed : ((Math.random() * 1e9) | 0); // シード指定ありなら、やり直しても同じダンジョン
       this.bossBag = []; this.lastBossKey = null; // ボスラッシュ：抽選をリセット
       this.buildFloor();
-      this._ritualWon = false;
+      this._ritualWon = false; this._glitchWon = false;
       this.autoStartArms4Ritual();
     } catch (err) {
       console.error('restartRun中にエラーが発生しました:', err);
@@ -30396,6 +30512,15 @@ class GameScene extends Phaser.Scene {
         // 協力プレイ：力尽きた仲間（ゴースト）だけが発信機のそばで復活する
         const t = this.tx;
         this.net.broadcastRevive(t ? { x: t.x, y: t.y - 50 } : pos);
+      }
+      return;
+    }
+    if (this.bossRush && this.glitchBoss) { // 📺 グリッチのボスを倒したら、そのままリザルト画面（GLITCH）へ
+      if (!this._glitchWon) {
+        this._glitchWon = true; this.transitioning = true; this.hideBossUi();
+        this.showBanner('GLITCH 撃破', 1500);
+        this.cameras.main.fadeOut(1200, 0, 0, 0);
+        this.cameras.main.once('camerafadeoutcomplete', () => { this.cameras.main.resetFX(); this.showResult(); });
       }
       return;
     }
@@ -32826,6 +32951,7 @@ function startGame(mode, extra) {
     devWeaponLevel: devMode ? Math.max(1, parseInt(document.getElementById('devWeaponLevelInput').value, 10) || 5) : null,
     devMode, // リザルト画面の表示（DEVELOPER）切り替え用
     bossRush: !!(extra && extra.bossRush),
+    glitchBoss: !!(extra && extra.glitchBoss), // 📺 グリッチ状態のボスラッシュのボタンから始めた：最初のボスが、ブロック状のグリッチの塊になる
     vsHero: !!(extra && extra.vsHero), // ⚔ パーティールームの「斬り合い」：ボス部屋で主人公と戦う（ソロ。装飾品なし）
     arms4Ritual: !!(extra && extra.arms4Ritual), // 【期間限定】四つ腕の調伏の儀：始まったらすぐ調伏の儀に入る
     endingRitual: !!(extra && extra.endingRitual), // エンディング演出の調伏の儀：装飾品はシリアルキラー＋悪魔の装飾3つ、天使は動かず、翼が大きくなる
@@ -33025,8 +33151,25 @@ let askWeapon = null;
   });
   // ボスラッシュ／最北戦線（ひとり）：まず武器選択画面を出して、選んだ武器のLv.5でスタートする。
   document.getElementById('bossRushBtn').addEventListener('click', () => {
+    // 📺 グリッチ状態のボタンを押すと、武器選択なし（剣）で、グリッチのボスがいるボス部屋へ直行する
+    if (document.getElementById('bossRushBtn').classList.contains('glitchBtn')) { startGame('solo', { bossRush: true, weaponKey: 'sword', glitchBoss: true }); return; }
     askWeapon('ボスラッシュ', w => startGame('solo', { bossRush: true, weaponKey: w.key }));
   });
+  // 📺 タイトル画面を開いた時、GLITCH_CHANCE の確率でボスラッシュのボタンがグリッチ（ノイズが走る）状態になる。今は 0（0％）なので、確率では起こらない。
+  //   URLに ?glitch=1（すでに ? がある時は &glitch=1）を付けると、確率に関係なく必ずなる。ボタンの見た目がグリッチになり、押すとグリッチのボスの部屋へ直行する。確率を戻す時は、GLITCH_CHANCE を 0.05（5％）などにする。
+  (function () {
+    const GLITCH_CHANCE = 0; // グリッチになる確率（0＝URLの ?glitch=1 を付けた時だけ。0.05＝5％）
+    let force = false;
+    try { force = new URLSearchParams(location.search).get('glitch') === '1'; } catch (e) { /* 取れなければ通常の確率 */ }
+    if (!force && !(Math.random() < GLITCH_CHANCE)) return;
+    const btn = document.getElementById('bossRushBtn');
+    if (!btn) return;
+    btn.classList.add('glitchBtn');
+    btn.setAttribute('data-text', btn.textContent.trim());
+    const noise = document.createElement('span'); noise.className = 'glitchNoise';
+    const bar = document.createElement('span'); bar.className = 'glitchBar';
+    btn.appendChild(noise); btn.appendChild(bar);
+  })();
   // 【期間限定】天使・調伏の儀：武器選択なしで、降魔術（四つ腕の調伏の儀に挑めるLv）で始まり、すぐ四つ腕との調伏の儀に入る
   updateArms4RitualBtn(); // 起動時：未解放なら灰色にする
   refreshArms4RitualCount(); // 起動時：調伏成功者数をボタンの上に出す
@@ -33195,6 +33338,25 @@ function launchGame() {
     fps: { panicMax: 0, limit: window.POWER_SAVE.fpsLimit },
     scene: [GameScene],
   });
+
+  // 🔧 画面の揺れの強さを、描画解像度を上げる前（Latest以前）と同じ見た目に戻す。
+  //   Phaser のカメラ揺れの幅は「強さ×カメラ幅×ズーム」で、これをさらに camera.matrix.translate が（ズームを掛けて）画面に反映するため、
+  //   画面に見える揺れは「カメラ幅×ズーム²」に比例する（測定で確認済み：ratio＝ズーム、p＝2.00）。
+  //   描く画素数を画面の物理画素に合わせたことで、カメラ幅・ズームが K倍（K＝描く高さ÷innerHeight）になり、画面に縮める倍率が 1/K になった結果、
+  //   見える揺れは「K×K×K ÷ K ＝ K²」倍に強まっていた。揺れの強さに (1/K)² を掛けて打ち消す。
+  //   揺れを始めるたびに、そのカメラの画面倍率（scaleManager.zoom＝1/K）を読むので、画質の段階が変わっても追従する。
+  //   やめる時は、このブロックを消す。
+  (function () {
+    const camProto = Phaser.Cameras.Scene2D.Camera.prototype;
+    if (camProto._shakeFixed) return;
+    camProto._shakeFixed = true;
+    const origShake = camProto.shake;
+    camProto.shake = function (duration, intensity, force, callback, context) {
+      let i = intensity;
+      try { const k = (this.scaleManager && this.scaleManager.zoom) || 1; if (typeof i === 'number') i = i * k * k; } catch (e) { /* 取れなければそのまま */ }
+      return origShake.call(this, duration, i, force, callback, context);
+    };
+  })();
 
   // 全画面にした／解除した時は、ブラウザの画面サイズが落ち着いてから（少し待って、念のためもう一度）画面サイズを合わせ直す。
   // これが無いと、スマホ（Scale.NONE）では途中から全画面にしても元のサイズのままで、画面の下が黒く余ってしまう。
