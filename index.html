@@ -8355,7 +8355,48 @@ class GameScene extends Phaser.Scene {
     this.events.on('update', flicker);
     this.events.once('shutdown', stop);
     this._sharkInit(); // 🦈 本体（サメ）を部屋に出す
+    this._glitchIntro(); // 📟 戦いの最初に、床へ緑色のエラーメッセージを出す
   }
+  _glitchIntro() { // 📟 グリッチ戦の最初の演出：プレイヤーの足元の床に、緑に輝くシステムのエラーメッセージが左揃えで打ち出される（エラーコード → 「削除をプレイヤーに委ね、データベースの最上位ティアの武器『古代魔法』を付与する」という意味の英文）。しばらく出たあと、ノイズで崩れながら消える
+    //   見た目：明るい緑の文字＋にじむ光（加算合成）＋赤とシアンの色ずれ（グリッチ本体と同じ）＋末尾の点滅カーソル＋ときどきのちらつき
+    const room = this.dungeon && this.dungeon.rooms[0]; if (!room) return;
+    if (this._glitchIntroStop) this._glitchIntroStop(); // 前の演出が残っていれば片付ける
+    const full = 'ERROR 0xDEAD_C0DE: FATAL EXCEPTION\n> UNRECOVERABLE CORRUPTION DETECTED\n> DELETION DELEGATED TO THE PLAYER.\n> GRANTING THE TOP-TIER WEAPON IN THE DATABASE:\n> "ANCIENT MAGIC"';
+    const CPS = 38, HOLD = 4.5, FADE = 0.9; // 文字を打つ速さ（文字/秒）／打ち終わってから残る秒数／消えるまでの秒数
+    const WW = Math.max(160, Math.min(380, room.w * TILE - 48)); // 文字の折り返し幅
+    const base = { fontSize: '12px', fontFamily: 'monospace', align: 'left', wordWrap: { width: WW } };
+    const mk = (color, depth, extra) => this.add.text(0, 0, '', Object.assign({}, base, { color }, extra || {})).setOrigin(0, 0).setDepth(depth).setVisible(false); // 左揃え・左上を基準。床の層（血だまり3.5・サメ4より下）
+    const gl = mk('#2aff5a', 3.16).setShadow(0, 0, '#2aff5a', 22, true, true).setBlendMode(Phaser.BlendModes.ADD); // いちばん下：大きくにじむ緑の光
+    const rd = mk('#ff2a4a', 3.18).setBlendMode(Phaser.BlendModes.ADD), cy = mk('#2affff', 3.18).setBlendMode(Phaser.BlendModes.ADD); // 赤とシアンの色ずれ（左右に1.5pxずらす）
+    const layers = [gl, rd, cy], OFF = [0, -1.5, 1.5]; // 実体の文字の層は無し（光る文字＋色ずれのみ）
+    let t = 0, gt = 0, bx = 0, by = 0, placed = false; const J = '█▓▒░#@%&01?/<>{}';
+    const upd = (time, delta) => {
+      t += Math.min(delta / 1000, 0.1); gt -= delta / 1000;
+      if (!gl.scene) return;
+      if (!placed) { // 最初の1フレームで、プレイヤーの足元の地面に置く（以後は動かない＝床に書かれた文字）
+        const pl = this.player, L0 = room.x * TILE + 8, R0 = (room.x + room.w) * TILE - 8, T0 = room.y * TILE + 8, B0 = (room.y + room.h) * TILE - 8;
+        gl.setText(full); const h = gl.height; gl.setText(''); // 全文の高さを測る（壁にかからないように位置を寄せるため）
+        const px = pl ? pl.x : (L0 + R0) / 2, py = pl ? pl.y + (pl.radius || 12) + 4 : (T0 + B0) / 2;
+        bx = Math.max(L0, Math.min(px - 12, R0 - WW)); by = Math.max(T0, Math.min(py, B0 - h));
+        layers.forEach((q, i) => { q.setPosition(bx + OFF[i], by); q.setVisible(true); }); placed = true;
+      }
+      const tEnd = full.length / CPS + HOLD, typing = t * CPS < full.length, fading = t > tEnd;
+      const n = Math.min(full.length, Math.floor(t * CPS)); let out = full.slice(0, n);
+      if (gt <= 0) { gt = 0.07; gl._gl = []; for (let i = 0; i < 3; i++) if (Math.random() < 0.5) gl._gl.push(Math.floor(Math.random() * Math.max(1, n))); } // ときどき、数文字がバグった記号に入れ替わる
+      if (gl._gl && !typing) { const ch = out.split(''); for (const k of gl._gl) if (ch[k] && ch[k] !== '\n' && ch[k] !== ' ') ch[k] = J[Math.floor(Math.random() * J.length)]; out = ch.join(''); }
+      if (!fading) out += (Math.floor(t * 2.4) % 2 === 0 || typing) ? '█' : ' '; // 末尾のカーソル（打っている間は出しっぱなし、そのあとは点滅）
+      layers.forEach(q => q.setText(out));
+      const u = fading ? Math.min(1, (t - tEnd) / FADE) : 0, fl = Math.max(0.35, 0.9 + 0.1 * Math.sin(t * 38) - (Math.random() < 0.06 ? 0.45 : 0)), fa = (1 - u) * (u > 0 && Math.random() < 0.25 ? 0.5 : 1); // ちらつき（ときどき一瞬暗くなる）／消える時のちらつき
+      gl.setAlpha(fl * fa); rd.setAlpha(0.3 * fa * (Math.random() < 0.12 ? 1.8 : 1)); cy.setAlpha(0.3 * fa * (Math.random() < 0.12 ? 1.8 : 1));
+      if (u > 0) { const j = (Math.random() - 0.5) * 6 * u; layers.forEach((q, i) => q.x = bx + OFF[i] + j); } // 消える時は、横にずれる
+      if (u >= 1) stop();
+    };
+    const stop = () => { this.events.off('update', upd); layers.forEach(q => { try { if (q.scene) q.destroy(); } catch (e) { /* 破棄済み */ } }); if (this._glitchIntroStop === stop) this._glitchIntroStop = null; };
+    this._glitchIntroStop = stop;
+    this.events.on('update', upd);
+    this.events.once('shutdown', stop);
+  }
+
   // 🦈 グリッチの本体（サメ）：部屋の中を、尾ひれを振って泳ぐように動き回る。★今は移動だけ（攻撃もダメージも、自分との当たりもまだない）。
   //   見た目は、これまでのグリッチの塊と同じ：暗い緑の体＋緑の縁＋赤とシアンの色ずれ＋四角い欠片＋壊れたコードの行＋横ずれ。ちらつきは控えめ（切り替えは0.2秒ごと以上）。
   _sharkInit() {
@@ -8607,7 +8648,7 @@ class GameScene extends Phaser.Scene {
       if (!plOk || S.mt <= 0) { S.mode = 'fin'; S.mt = 3 + R() * 3; S.wpT = 0; } // 追いつけない・見失ったら、泳ぎ回りに戻る
       else if (Math.hypot(plr.x - shp.sp[0].x, plr.y - shp.sp[0].y) < TILE * 3.5) { S.mode = 'emerge'; S.mt = 0.45; splashBurst(34); } // 距離が一定以内→水しぶきが飛び散り、体が出てくる
     } else if (m0 === 'emerge') {
-      splashBurst(3);
+      S.noNose = S.atk === 'shell'; /* 🥤 シェルゲームの出現中（本体が出てくる時〜三匹が揃っている間）は、鼻先のしぶきを出さない（_sgToOrbit で戻す） */ splashBurst(3);
       if (S.mt <= 0) { // 体が出きったら、選んだ攻撃を始める
         if (S.atk === 'shoot') { S.mode = 'aim'; S.mt = 1.8; S.aimFired = false; S.bp = 0; splashBurst(24); } // 射撃：少しだけ狙って、弾を放つ
         else if (S.atk === 'shell') { this._sgStart(S); splashBurst(24); } // 🥤 シェルゲーム：両隣にダミーを出して、背びれをシャッフルする（_sgStart〜_sgUpdate）
@@ -8726,7 +8767,7 @@ class GameScene extends Phaser.Scene {
   _sharkSplashUpdate(S, shp, dt) {
     const R = Math.random, SPC = [0x2aff5a, 0x9dffb4, 0x2aff5a, 0xc8ffd4], fbP = shp.sp[10], fb0 = shp.sp[9], fb1 = shp.sp[12];
     S.spT -= dt; if (S.dive > 0.3 && S.spT <= 0) { S.spT = 0.04; for (let i = 0; i < 2 && S.splash.length < 420; i++) S.splash.push({ x: fb0.x + (fb1.x - fb0.x) * R() + (R() - 0.5) * 10, y: fbP.y + 2 + (R() - 0.5) * 6, z: R() * 5, vx: (R() - 0.5) * 50 - Math.cos(S.a) * 40, vy: (R() - 0.5) * 30 - Math.sin(S.a) * 40, vz: 40 + R() * (R() < 0.3 ? 150 : 80), life: 0.45 + R() * 0.5, sz: 5 + Math.floor(R() * 5), c: SPC[Math.floor(R() * 4)] }); } // 背びれの根元いっぱいから、緑のしぶきを出し続ける（根元がしぶきに覆われる）
-    S.spU = (S.spU || 0) - dt; if (S.dive < 0.7 && S.spU <= 0) { S.spU = 0.025; const upk = 1 - S.dive, nz = shp.sp[0], rs = Math.sqrt(S.sc); for (const sg of [1, -1]) for (let i = 0; i < 2 && S.splash.length < 420; i++) { if (R() > upk * (i === 0 ? 1 : 0.5)) continue; const an = S.a + sg * (Math.PI / 2 + 0.15 + R() * 0.55), sp0 = (60 + R() * 100) * rs; S.splash.push({ x: nz.x + Math.cos(S.a) * 4 + (R() - 0.5) * 6, y: nz.y + Math.sin(S.a) * 4 + (R() - 0.5) * 6, z: R() * 4, vx: Math.cos(an) * sp0, vy: Math.sin(an) * sp0, vz: 50 + R() * 110, life: 0.5 + R() * 0.45, sz: 4 + Math.floor(R() * 5), c: SPC[Math.floor(R() * 4)] }); } } // 🌊 浮いている時：鼻先から左右へ、水をかき分けるように大きめのしぶきを飛ばす
+    S.spU = (S.spU || 0) - dt; if (S.dive < 0.7 && S.spU <= 0 && !S.noNose) { S.spU = 0.025; const upk = 1 - S.dive, nz = shp.sp[0], rs = Math.sqrt(S.sc); for (const sg of [1, -1]) for (let i = 0; i < 2 && S.splash.length < 420; i++) { if (R() > upk * (i === 0 ? 1 : 0.5)) continue; const an = S.a + sg * (Math.PI / 2 + 0.15 + R() * 0.55), sp0 = (60 + R() * 100) * rs; S.splash.push({ x: nz.x + Math.cos(S.a) * 4 + (R() - 0.5) * 6, y: nz.y + Math.sin(S.a) * 4 + (R() - 0.5) * 6, z: R() * 4, vx: Math.cos(an) * sp0, vy: Math.sin(an) * sp0, vz: 50 + R() * 110, life: 0.5 + R() * 0.45, sz: 4 + Math.floor(R() * 5), c: SPC[Math.floor(R() * 4)] }); } } // 🌊 浮いている時：鼻先から左右へ、水をかき分けるように大きめのしぶきを飛ばす
     for (let i = S.splash.length - 1; i >= 0; i--) { const q = S.splash[i]; q.life -= dt; if (q.life <= 0 || (q.z <= 0 && q.vz < 0)) { S.splash.splice(i, 1); continue; } q.vz -= 260 * dt; q.z += q.vz * dt; q.x += q.vx * dt; q.y += q.vy * dt; }
   }
 
@@ -8751,7 +8792,7 @@ class GameScene extends Phaser.Scene {
     return d;
   }
   _sgMakeDummy(S, x, y, a) { // ダミーのサメを1体作る（本体と同じ形・同じ描き方。自分の描画面を持つ）
-    const D = { isDummy: true, sc: S.sc, len: S.len, wid: S.wid, room: S.room, x, y, a, v: 0, ph: Math.random() * 6.28, bend: 0, age: 0, sh: 2, vis: true, frag: [], tears: [], bits: [], trail: [], txts: [], dive: 0, z: 0, splash: [], spT: 0, spU: 0, stepT: 0, dm: 1, down: false, cs: '', sgAng: 0, sgR: 0 };
+    const D = { isDummy: true, noNose: true, sc: S.sc, len: S.len, wid: S.wid, room: S.room, x, y, a, v: 0, ph: Math.random() * 6.28, bend: 0, age: 0, sh: 2, vis: true, frag: [], tears: [], bits: [], trail: [], txts: [], dive: 0, z: 0, splash: [], spT: 0, spU: 0, stepT: 0, dm: 1, down: false, cs: '', sgAng: 0, sgR: 0 };
     for (let i = 0; i < 48; i++) D.frag.push(this._sharkFrag());
     D.g = this.add.graphics().setDepth(4); D.g2 = this.add.graphics().setDepth(4.2);
     return D;
@@ -8769,7 +8810,7 @@ class GameScene extends Phaser.Scene {
     const th0 = Math.atan2(S.y - sg.cy, S.x - sg.cx), rel = d => wrap(Math.atan2(d.y - sg.cy, d.x - sg.cx) - th0);
     const so = ds.slice().sort((p, q) => rel(p) - rel(q));
     S.sgAng = th0; so[0].sgAng = th0 - TAU / 3; so[1].sgAng = th0 + TAU / 3;
-    for (const e of ents) { e.sgR = 0; e.sg0 = { x: e.x, y: e.y, a: e.a }; }
+    for (const e of ents) { e.sgR = 0; e.sg0 = { x: e.x, y: e.y, a: e.a }; e.noNose = false; } // 三匹が揃って見せている間が終わったら、鼻先のしぶきを元に戻す
     S.sgDown = true; for (const d of ds) d.down = true;
   }
   _sgToSpread(S, plr) { // 三方向へ距離を取る：3体全体を少し回して、部屋の中に収まりやすい向きを選ぶ
@@ -16344,9 +16385,9 @@ class GameScene extends Phaser.Scene {
   }
   _ancientCol(fr) { // 🎨 パリィゲージの溜まり具合（0〜1）から、シールドの色を式で計算する（段階ではなく連続したグラデーション）。水色 → 緑 → 青紫 → 黒っぽい紫。返り値：f＝六角形の塗り、s＝輪郭、o＝外のにじむ光
     const t = Math.max(0, Math.min(1, fr || 0));
-    const HUE0 = 190, HUE1 = -85; // 色相（度）：水色(190°)から、色相環を一定の速さで下っていく。緑(120°)→黄(60°)→赤(0°)→赤紫(-60°)→紫(-85°＝275°)の順に通る。色相・明るさの式はここだけ直す
-    const hue = HUE0 + (HUE1 - HUE0) * t; // 色相は、ゲージに比例して均等に進む
-    const sat = 0.85, lig = 0.74 - 0.62 * Math.pow(t, 2.2); // 明るさ：最初は明るく、終盤にかけて黒っぽくなる
+    const HUE0 = 190, HUE1 = -85, T_P = 0.75, LIG = 0.74, SAT = 0.85; // 色相（度）：水色(190°)から色相環を一定の速さで下り、緑(120°)→黄(60°)→赤(0°)→赤紫(-60°)→紫(-85°＝275°)の順に通る。T_P＝紫に着く時点のゲージ割合（その後に暗くなる）。色相・明るさの式はここだけ直す
+    const hue = HUE0 + (HUE1 - HUE0) * Math.min(1, t / T_P); // 色相：0〜T_P の間、ゲージに比例して均等に進む（T_P で紫に着いて止まる）
+    const sat = SAT, lig = LIG * (1 - Math.max(0, (t - T_P) / (1 - T_P))); // 明るさ：紫に着くまでは一定。着いてから満タン(t=1)にかけて、真っ黒まで暗くなる
     const hsl = (h, sa, l) => { l = Math.max(0, Math.min(1, l)); const c = (1 - Math.abs(2 * l - 1)) * sa, hh = (((h % 360) + 360) % 360) / 60, x = c * (1 - Math.abs(hh % 2 - 1)), m = l - c / 2; let r = 0, g = 0, b = 0; if (hh < 1) { r = c; g = x; } else if (hh < 2) { r = x; g = c; } else if (hh < 3) { g = c; b = x; } else if (hh < 4) { g = x; b = c; } else if (hh < 5) { r = x; b = c; } else { r = c; b = x; } return (Math.round((r + m) * 255) << 16) | (Math.round((g + m) * 255) << 8) | Math.round((b + m) * 255); };
     return { f: hsl(hue, sat, lig), s: hsl(hue, sat, Math.min(0.85, lig + 0.28)), o: hsl(hue, sat, Math.min(0.85, lig + 0.14)) }; // 輪郭と光は、同じ色相で少し明るく（暗い色でも背景から見えるように）
   }
@@ -33105,7 +33146,7 @@ const SYNC_MIN = ['soloClearBestSecRandom', 'soloClearBestSecSet', 'floor10BestS
 const SYNC_OR = ['arms4RitualPlayed', 'arms4RitualCounted', 'libraryReported', 'hutVisited', 'endingDone']; // どちらかが true なら true
 const SYNC_UNION = ['accUnlocked', 'specialAccs', 'titles']; // 両方の合計
 const SYNC_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; // 0/1/O/I/L は使わない（読み間違い防止）
-let _syncTimer = 0, _syncChain = Promise.resolve(), _syncFail = 0;
+let _syncTimer = 0, _syncChain = Promise.resolve(), _syncFail = 0, _syncDirty = false; // _syncDirty＝まだクラウドへ送っていないセーブの変更がある（タブを離れた時の同期は、これが true の時だけ送る）
 function syncGetCode() { try { return localStorage.getItem(SYNC_CODE_KEY) || ''; } catch (e) { return ''; } }
 const SYNC_NICK_KEY = 'zomikasudungeon_syncnick'; // 回復用のニックネーム（この端末に控えておく。連携を解除したら消す）
 function syncSetCode(c) { try { if (c) localStorage.setItem(SYNC_CODE_KEY, c); else { localStorage.removeItem(SYNC_CODE_KEY); localStorage.removeItem(SYNC_NICK_KEY); } } catch (e) {} }
@@ -33181,24 +33222,26 @@ function syncRun(code, opts) {
 // セーブを書いたあと（writeSave）に呼ぶ：数秒まとめてから同期する。コードが無ければ何もしない
 function cloudSyncSchedule(delay) {
   if (!syncGetCode()) return;
+  _syncDirty = true; // 送っていない変更がある印
   clearTimeout(_syncTimer);
   _syncTimer = setTimeout(cloudSyncNow, delay == null ? 4000 : delay);
 }
 async function cloudSyncNow() {
   const code = syncGetCode();
   if (!code) return null;
+  _syncDirty = false; // 送る前に下ろす（送っている間にセーブが書かれたら、書いた側がまた立てる）
   try { const r = await syncRun(code); _syncFail = 0; return r; }
   catch (err) { console.warn('セーブの同期に失敗しました（あとでやり直します）:', err); if (++_syncFail <= 5) cloudSyncSchedule(60000); return null; }
 }
 // 起動したら一度同期する。クラウドのほうが進んでいて、まだ読み込み直後なら、画面を一度だけ読み込み直して反映する
-setTimeout(async () => {
+setTimeout(async () => { // 5秒待ってから：短い間隔のリロードでは、ここまで来ないので匿名ログインが走らない（auth/too-many-requests 対策）
   const r = await cloudSyncNow();
-  if (r && r.changedLocal && performance.now() < 15000) {
+  if (r && r.changedLocal && performance.now() < 20000) { // 5秒待つぶん、読み込み直しを許す時間も15秒→20秒に広げた
     let last = 0; try { last = Number(sessionStorage.getItem('zk_sync_reload')) || 0; } catch (e) {}
     if (Date.now() - last > 20000) { try { sessionStorage.setItem('zk_sync_reload', String(Date.now())); } catch (e) {} location.reload(); }
   }
-}, 0);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && syncGetCode()) syncRun(syncGetCode()).catch(() => {}); }); // 画面を離れる時に、最後にもう一度送る
+}, 5000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && syncGetCode() && _syncDirty) { _syncDirty = false; syncRun(syncGetCode()).catch(() => { _syncDirty = true; }); } }); // 画面を離れる時に、最後にもう一度送る
 // ロビーの「☁ 引き継ぎ」ボタンから開く画面
 function openSyncDialog() {
   let ov = document.getElementById('syncOverlay');
@@ -33504,9 +33547,12 @@ let _arms4CountChain = Promise.resolve(); // 同時に2回走って二重に数�
 function refreshArms4RitualCount() { _arms4CountChain = _arms4CountChain.then(_refreshArms4RitualCountOnce); return _arms4CountChain; }
 async function _refreshArms4RitualCountOnce() {
   const el = document.getElementById('arms4RitualCount'); if (!el) return;
+  const CK = 'zomikasudungeon_arms4count', TTL = 5 * 60 * 1000; let cache = null; try { cache = JSON.parse(localStorage.getItem(CK) || 'null'); } catch (e) { /* 読めなければ、キャッシュなしとして扱う */ } // 🗄 成功者数のキャッシュ：リロードのたびに匿名ログイン(auth/too-many-requests の原因)と読み込みをしないための控え
+  if (!(cache && typeof cache.n === 'number')) cache = null;
   try {
     if (typeof netInstance === 'undefined' || !netInstance.enabled) { el.textContent = '調伏成功者：Firebase未接続'; el.style.display = ''; return; }
-    await netInstance.signIn();
+    { const svQ = loadSave(); if (cache && Date.now() - cache.t < TTL && !((svQ.arms4RitualClears || 0) > 0 && !svQ.arms4RitualCounted)) { el.textContent = '調伏成功者 ' + cache.n + '人'; el.style.display = ''; return; } } // 5分以内の控えがあって、自分を加算する必要もなければ、ログインも読み込みもせずにそれを出す
+ await netInstance.signIn();
     const ref = netInstance.db.ref('stats/arms4Ritual/winnerCount');
     let sv = loadSave();
     if ((sv.arms4RitualClears || 0) > 0 && !sv.arms4RitualCounted) {
@@ -33520,8 +33566,10 @@ async function _refreshArms4RitualCountOnce() {
     }
     const n = (await ref.once('value')).val() || 0;
     el.textContent = '調伏成功者 ' + n + '人'; el.style.display = '';
+ try { localStorage.setItem(CK, JSON.stringify({ n, t: Date.now() })); } catch (e) { /* 保存できなくても表示はできている */ }
   } catch (e) { // 原因が分かるように、いったん画面にエラーを出す（直ったら el.style.display = 'none' に戻してよい）
     console.warn('調伏成功者数の取得に失敗', e);
+ if (cache) { el.textContent = '調伏成功者 ' + cache.n + '人'; el.style.display = ''; return; } // 取得できなくても、前に読めた人数が控えにあればそれを出す（エラー文は出さない）
     el.textContent = '調伏成功者：取得失敗（' + ((e && (e.code || e.message)) || 'unknown') + '）'; el.style.display = '';
   }
 }
