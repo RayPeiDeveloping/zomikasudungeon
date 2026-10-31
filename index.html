@@ -5970,7 +5970,9 @@ function applyWeaponLevel(base, level) {
 // ============== Phaserシーン ==============
 const TILE = 32;
 // 📺 グリッチ戦の攻撃のテスト用：'shell'（シェルゲーム）／'shoot'（射撃）／'rush'（追撃）を入れると、毎回その攻撃だけになる。普段は null（ランダム）
-const GLITCH_TEST_ATK = null;
+const GLITCH_TEST_ATK = null; // テストで毎回同じ攻撃にする時は 'shoot' / 'rush' / 'shell' / 'fork'
+// 🪟 フォークボム（ウイルスのウィンドウが右下へ次々と増える攻撃）の調整値
+const GLITCH_FORK = { w: TILE * 2.6, h: TILE * 1.8, stepX: TILE * 0.85, stepY: TILE * 0.95, maxN: 12, openT: 0.7, interval: 0.065, waitT: 0.7, riseDelay: 0.5, hold: 3.2, minGap: TILE * 4.5, margin: TILE * 1.3 }; // w,h＝ウィンドウの大きさ／stepX,stepY＝次のウィンドウへのずれ（右下）／maxN＝1列の最大数／openT＝最初の2枚が出てからサメが動くまで／interval＝1枚ずつ増える間隔／waitT＝サメが潜ってから増え始めるまでの間／riseDelay＝増え終わってからサメが浮かぶまで／hold＝増え終わってから消え始めるまで／minGap＝2列の最小の間隔／margin＝プレイヤーが列に近すぎないための余白
 // 🥤 グリッチの攻撃「シェルゲーム」の調整値（秒・px。_sgUpdate の流れの順）
 const GLITCH_SHELL = {
   showT: 1.1,        // 姿を現して、両隣にダミーが出ている時間
@@ -8405,6 +8407,7 @@ class GameScene extends Phaser.Scene {
     this._sharkG = this.add.graphics().setDepth(4);
     if (this._sharkG2 && this._sharkG2.scene) this._sharkG2.destroy();
     if (this._sharkG0 && this._sharkG0.scene) this._sharkG0.destroy();
+    if (this._forkG && this._forkG.scene) this._forkG.destroy(); this._forkG = null; this._fork = null; // 🪟 前のフォークボムのウィンドウが残っていれば消す
     this._bloodPools = []; this._bloodDirty = false; if (this._bloodG && this._bloodG.scene) this._bloodG.destroy(); this._bloodG = this.add.graphics().setDepth(3.5); // 🩸 血だまりの層
     if (this._sharkGS && this._sharkGS.scene) this._sharkGS.destroy(); this._sharkGS = this.add.graphics().setDepth(12); // 🟩 グリッチ弾・照準の層
     this._sharkG0 = this.add.graphics().setDepth(3.9); // 🌊 空中にいる間の、床に落ちる影
@@ -8626,6 +8629,7 @@ class GameScene extends Phaser.Scene {
       const tv = S.speed * 3.5 * (0.9 + 0.1 * Math.cos(S.ph * 2)) * (1 - 0.25 * Math.abs(S.bend)); S.v += (tv - S.v) * Math.min(1, dt * 4);
       S.ph += dt * Math.PI * 2 * S.beat * 2.2;
       S.x += Math.cos(S.a) * S.v * dt; S.y += Math.sin(S.a) * S.v * dt;
+    } else if (m0 === 'fork') { this._forkMove(S, dt, plOk, plr); // 🪟 フォークボム中の泳ぎ（ウィンドウへ向かう）
     }
     // --- 見た目の切り替え（ゆっくり：0.2秒ごと以上）---
     S.stepT -= dt;
@@ -8643,7 +8647,7 @@ class GameScene extends Phaser.Scene {
     const splashBurst = (n, pt = fbP) => { for (let i = 0; i < n && S.splash.length < 420; i++) S.splash.push({ x: pt.x + (R() - 0.5) * 18, y: pt.y + (R() - 0.5) * 8, z: 2 + R() * 10, vx: (R() - 0.5) * 110, vy: (R() - 0.5) * 50, vz: 70 + R() * 150, life: 0.5 + R() * 0.5, sz: 2 + Math.floor(R() * 3), c: SPC[Math.floor(R() * 4)] }); };
     S.mt -= dt;
     if (m0 === 'fin') {
-      if (S.mt <= 0) { if (S.sg) S.mt = 0.5; else if (plOk) { const ra = Math.random(); S.atk = GLITCH_TEST_ATK || (ra < 0.34 ? 'shoot' : ra < 0.67 ? 'rush' : 'shell'); S.mode = 'emerge'; S.mt = 0.45; splashBurst(34); } else S.mt = 2; } // しばらく泳ぎ回ったら、距離に関係なくその場で姿を現して、追撃を始める
+      if (S.mt <= 0) { if (S.sg) S.mt = 0.5; else if (plOk) { const ra = Math.random(); S.atk = GLITCH_TEST_ATK || (ra < 0.25 ? 'shoot' : ra < 0.5 ? 'rush' : ra < 0.75 ? 'shell' : 'fork'); S.mode = 'emerge'; S.mt = 0.45; splashBurst(34); } else S.mt = 2; } // しばらく泳ぎ回ったら、距離に関係なくその場で姿を現して、追撃を始める
     } else if (m0 === 'chase') {
       if (!plOk || S.mt <= 0) { S.mode = 'fin'; S.mt = 3 + R() * 3; S.wpT = 0; } // 追いつけない・見失ったら、泳ぎ回りに戻る
       else if (Math.hypot(plr.x - shp.sp[0].x, plr.y - shp.sp[0].y) < TILE * 3.5) { S.mode = 'emerge'; S.mt = 0.45; splashBurst(34); } // 距離が一定以内→水しぶきが飛び散り、体が出てくる
@@ -8652,6 +8656,7 @@ class GameScene extends Phaser.Scene {
       if (S.mt <= 0) { // 体が出きったら、選んだ攻撃を始める
         if (S.atk === 'shoot') { S.mode = 'aim'; S.mt = 1.8; S.aimFired = false; S.bp = 0; splashBurst(24); } // 射撃：少しだけ狙って、弾を放つ
         else if (S.atk === 'shell') { this._sgStart(S); splashBurst(24); } // 🥤 シェルゲーム：両隣にダミーを出して、背びれをシャッフルする（_sgStart〜_sgUpdate）
+        else if (S.atk === 'fork') { this._forkStart(S); splashBurst(24); } // 🪟 フォークボム：右上と真ん中にウィンドウが出て、サメが真ん中のウィンドウに潜る（_forkStart〜_forkPhase）
         else { S.mode = 'rush'; S.mt = 4.5; S.rushHit = false; S.rushFixed = false; splashBurst(24); } // 追撃：高速で追いかける（4.5秒間）
       }
     } else if (m0 === 'aim') { // 🟩 射撃：溜めながら狙う(1.25秒)→向きを固定(0.55秒)→発射→少し止まって潜る
@@ -8670,8 +8675,8 @@ class GameScene extends Phaser.Scene {
         try { this.cameras.main.shake(120, 0.003); } catch (e) {}
         S.mode = 'fin'; S.mt = 3.5 + R() * 3; S.wpT = 0;
       }
-    }
-    S.dive = Math.max(0, Math.min(1, S.dive + ((S.mode === 'fin' || S.mode === 'chase' || (S.mode === 'sg' && S.sgDown)) ? 1 : -1) * dt / ((S.mode === 'emerge' || (S.mode === 'sg' && !S.sgDown)) ? 0.4 : 0.28))); // 出る：0.4秒／潜る：0.28秒
+    } else if (m0 === 'fork') { this._forkPhase(S, shp, dt, splashBurst); } // 🪟 フォークボムの進行
+    S.dive = Math.max(0, Math.min(1, S.dive + ((S.mode === 'fin' || S.mode === 'chase' || (S.mode === 'sg' && S.sgDown) || (S.mode === 'fork' && S.fk && S.fk.down)) ? 1 : -1) * dt / ((S.mode === 'emerge' || (S.mode === 'sg' && !S.sgDown)) ? 0.4 : 0.28))); // 出る：0.4秒／潜る：0.28秒
     // --- 🦈 体の当たり判定：体が出ていて低い間は、体に重なれない（押し出される）／飛びかかり中に頭に当たると噛まれる ---
     if (plOk && S.dive < 0.4) {
       const pl = this.player, pr = pl.radius, zz = S.z || 0;
@@ -8700,10 +8705,112 @@ class GameScene extends Phaser.Scene {
     this._sharkSplashUpdate(S, shp, dt); // 背びれ・鼻先のしぶきの発生と動き
     S.bitT -= dt; if (S.bitT <= 0 && S.bits.length < 24) { S.bitT = 0.09; S.bits.push({ x: shp.tp.x + (R() - 0.5) * 10, y: shp.tp.y + (R() - 0.5) * 10, vx: (R() - 0.5) * 14, vy: (R() - 0.5) * 14, life: 0.9, sz: 2 + Math.floor(R() * 3) }); } // 尾から落ちる、データのかけら
     for (let i = S.bits.length - 1; i >= 0; i--) { const b = S.bits[i]; b.life -= dt; if (b.life <= 0) { S.bits.splice(i, 1); continue; } b.x += b.vx * dt; b.y += b.vy * dt; }
+    this._forkUpdate(dt); // 🪟 フォークボムのウィンドウ（出現・消滅・描画）
     // --- 描く ---
     if (S.sg) { S.trail.length = 0; S.bits.length = 0; } // 🥤 シェルゲーム中：残像と欠片は出さない（本体だけに出ると、見分けがついてしまう）
     this._sharkDrawOne(S, shp, g, this._sharkG0, this._sharkG2);
+    if (S.fkHide) { g.clear(); this._sharkG0.clear(); this._sharkG2.clear(); } // 🪟 ウィンドウの中に潜っている間は、背びれも見せない
     if (S.sg) this._sgDrawDummies(S, dt); // 🥤 ダミーのサメも描く
+  }
+
+  // ================= 🪟 グリッチの攻撃「フォークボム」 =================
+  // パソコンのウイルスの、ウィンドウが右下へ次々と出てくるやつがモチーフ。流れ（S.fk.ph）：
+  //   open ：部屋の右上寄りと真ん中あたりに、ウィンドウが1枚ずつ出る（サメはその場で止まる）
+  //   swim ：サメが、真ん中のウィンドウへ向かって泳ぐ
+  //   sink ：背びれがウィンドウの中央に収まり、潜って見えなくなる
+  //   wait ：少し間をおく
+  //   chain：2つのウィンドウから、右下へ向かってウィンドウが「ダダダダ」と増えていく（2本の列。プレイヤーは列のあいだに入るように位置を決める）
+  //   rise ：増え終わったら、サメが最初の真ん中のウィンドウから浮かんで、泳ぎ回りに戻る。ウィンドウはしばらく残ったあと、崩れて消える
+  // ※ いまは見た目と動きだけ（ウィンドウの当たり判定・ダメージは未実装）。調整値は GLITCH_FORK、テストで毎回この攻撃にする時は GLITCH_TEST_ATK = 'fork'。
+  _forkStart(S) {
+    const room = S.room, pl = this.player, F = GLITCH_FORK, rx = room.x * TILE, ry = room.y * TILE, rw = room.w * TILE, rh = room.h * TILE;
+    const mx = F.w * 0.5 + 8, my = F.h * 0.5 + 8, clampP = p => ({ x: Math.max(rx + mx, Math.min(rx + rw - mx, p.x)), y: Math.max(ry + my, Math.min(ry + rh - my, p.y)) });
+    const dl = Math.hypot(F.stepX, F.stepY), nx = F.stepY / dl, ny = -F.stepX / dl; // nx,ny＝列に直角な向き（右上向き）
+    let A = { x: rx + rw * 0.72, y: ry + rh * 0.2 }, B = { x: rx + rw * 0.5, y: ry + rh * 0.5 }; // 右上寄りと、真ん中
+    const gap = (A.x - B.x) * nx + (A.y - B.y) * ny; if (gap < F.minGap) { const k = F.minGap - gap; A.x += nx * k; A.y += ny * k; } // 2列の間隔が狭すぎないように
+    if (pl && this.playerHp > 0) { // プレイヤーが2列のあいだに入るように、2枚をそろえて列に直角な向きへずらす
+      const sp = pl.x * nx + pl.y * ny, sa = A.x * nx + A.y * ny, sb = B.x * nx + B.y * ny;
+      if (sp > sa - F.margin || sp < sb + F.margin) { const d = sp - (sa + sb) / 2; A.x += nx * d; A.y += ny * d; B.x += nx * d; B.y += ny * d; }
+    }
+    A = clampP(A); B = clampP(B);
+    const chain = o => { const pts = []; for (let i = 1; i <= F.maxN; i++) { const q = { x: o.x + F.stepX * i, y: o.y + F.stepY * i }; if (q.x > rx + rw - mx || q.y > ry + rh - my) break; pts.push(q); } return pts; }; // 部屋の右・下の端に着いたら、そこで終わり
+    if (this._forkG && this._forkG.scene) this._forkG.destroy();
+    this._forkG = this.add.graphics().setDepth(3.6); // 床の血だまり(3.5)より上、サメ(4)より下
+    this._fork = { wins: [], clock: 0, done: false };
+    const sp10 = this._sharkShape(S, S.x, S.y, S.a, S.ph, S.bend).sp[10];
+    const f = S.fk = { ph: 'open', t: 0, A, B, chA: chain(A), chB: chain(B), i: 0, tick: 0, down: false, off: { x: S.x - sp10.x, y: S.y - sp10.y } }; // off＝体の中心から背びれまでのずれ（背びれをウィンドウの中央に合わせるため）
+    f.n = Math.max(f.chA.length, f.chB.length);
+    S.mode = 'fork'; S.mt = 99; S.fkHide = false;
+    this._forkPop(A.x, A.y); this._forkPop(B.x, B.y);
+    try { this.cameras.main.shake(120, 0.004); } catch (e) {}
+  }
+  _forkPop(x, y) { // ウィンドウを1枚出す
+    const F = GLITCH_FORK, R = Math.random;
+    this._fork.wins.push({ x, y, w: F.w, h: F.h, born: this._fork.clock, kill: null, lens: [0.5 + R() * 0.5, 0.35 + R() * 0.55, 0.25 + R() * 0.6] });
+    this.spawnBurst(x, y, 0x2aff5a, 6);
+  }
+  _forkMove(S, dt, plOk, plr) { // フォークボム中のサメの動き
+    const f = S.fk; if (!f) return; const wrap = d => Math.atan2(Math.sin(d), Math.cos(d));
+    if (f.ph === 'open') { // その場で止まって、プレイヤーの方を向く
+      S.v *= Math.max(0, 1 - dt * 5); if (plOk) { const d = wrap(Math.atan2(plr.y - S.y, plr.x - S.x) - S.a); S.a += Math.max(-4 * dt, Math.min(4 * dt, d)); }
+      S.bend *= Math.max(0, 1 - dt * 4); S.ph += dt * Math.PI * 2 * S.beat * 0.8;
+    } else if (f.ph === 'swim') { // 真ん中のウィンドウへ。背びれがそこに着くように、体の中心はずれの分だけ先を狙う
+      const want = Math.atan2(f.B.y + f.off.y - S.y, f.B.x + f.off.x - S.x), tn = S.turn * 3, d = wrap(want - S.a), step = Math.max(-tn * dt, Math.min(tn * dt, d));
+      S.a += step; S.bend += (Math.max(-1, Math.min(1, step / (tn * dt || 1))) - S.bend) * Math.min(1, dt * 3.5);
+      const tv = S.speed * 4.5 * (0.9 + 0.1 * Math.cos(S.ph * 2)) * (1 - 0.25 * Math.abs(S.bend)); S.v += (tv - S.v) * Math.min(1, dt * 5);
+      S.ph += dt * Math.PI * 2 * S.beat * 2.5;
+    } else if (f.ph === 'sink') { S.v *= Math.max(0, 1 - dt * 6); S.bend *= Math.max(0, 1 - dt * 4); S.ph += dt * Math.PI * 2 * S.beat * 0.7; }
+    else { S.v = 0; S.ph += dt * Math.PI * 2 * S.beat * 0.4; }
+    S.x += Math.cos(S.a) * S.v * dt; S.y += Math.sin(S.a) * S.v * dt;
+  }
+  _forkPhase(S, shp, dt, splashBurst) { // フォークボムの進行（shp＝いまのサメの形）
+    const f = S.fk, F = GLITCH_FORK, R = Math.random; if (!f) { S.mode = 'fin'; S.mt = 3; return; }
+    const fb = shp.sp[10]; f.t += dt; f.off.x = S.x - fb.x; f.off.y = S.y - fb.y;
+    if (f.ph === 'open') { if (f.t >= F.openT) { f.ph = 'swim'; f.t = 0; } }
+    else if (f.ph === 'swim') {
+      if (Math.hypot(fb.x - f.B.x, fb.y - f.B.y) < TILE * 0.9 || f.t > 3.5) { f.ph = 'sink'; f.t = 0; f.down = true; splashBurst(20, { x: f.B.x, y: f.B.y }); } // 背びれがウィンドウの中央に来たら潜る（着かないまま3.5秒たっても潜る）
+    } else if (f.ph === 'sink') {
+      S.x += (f.B.x - fb.x) * Math.min(1, dt * 8); S.y += (f.B.y - fb.y) * Math.min(1, dt * 8); // 背びれをウィンドウの中央へ寄せる
+      if (S.dive >= 1 && f.t >= 0.5) { f.ph = 'wait'; f.t = 0; S.fkHide = true; splashBurst(30, { x: f.B.x, y: f.B.y }); this.spawnBurst(f.B.x, f.B.y, 0x2aff5a, 16); } // ウィンドウに飲み込まれて見えなくなる
+    } else if (f.ph === 'wait') { if (f.t >= F.waitT) { f.ph = 'chain'; f.t = 0; f.i = 0; f.tick = 0; try { this.cameras.main.shake(F.interval * 1000 * Math.max(1, f.n) + 100, 0.003); } catch (e) {} } }
+    else if (f.ph === 'chain') { // ダダダダ：2つのウィンドウから、右下へ1枚ずつ同時に増えていく
+      f.tick -= dt;
+      while (f.tick <= 0 && f.i < f.n) { f.tick += F.interval; const a = f.chA[f.i], b = f.chB[f.i]; if (a) this._forkPop(a.x, a.y); if (b) this._forkPop(b.x, b.y); f.i++; }
+      if (f.i >= f.n && !this._fork.done) this._forkFinish();
+      if (f.i >= f.n && f.t >= f.n * F.interval + F.riseDelay) f.ph = 'rise';
+    } else { // rise：最初の真ん中のウィンドウから浮かんで、泳ぎ回りに戻る
+      S.fkHide = false; S.fk = null; splashBurst(34, { x: f.B.x, y: f.B.y }); this.spawnBurst(f.B.x, f.B.y, 0x2aff5a, 14);
+      S.mode = 'fin'; S.mt = 3.5 + R() * 3; S.wpT = 0;
+    }
+  }
+  _forkFinish() { // 増え終わった：しばらく残したあと、順番に崩れて消える
+    const F = GLITCH_FORK, Fk = this._fork; if (!Fk) return; Fk.done = true;
+    Fk.wins.forEach((w, i) => { w.kill = Fk.clock + F.hold + i * 0.02; });
+  }
+  _forkUpdate(dt) { // ウィンドウの出現・消滅・描画（サメの状態とは関係なく、毎フレーム）
+    const Fk = this._fork; if (!Fk) return; const g = this._forkG; if (!g || !g.scene) { this._fork = null; return; }
+    Fk.clock += dt; g.clear(); const R = Math.random, FADE = 0.45;
+    Fk.wins = Fk.wins.filter(w => w.kill == null || Fk.clock - w.kill < FADE);
+    for (const w of Fk.wins) {
+      const age = Fk.clock - w.born, u = w.kill == null ? 0 : Math.min(1, (Fk.clock - w.kill) / FADE); // age＝出てからの秒数／u＝消え始めてからの進み（0〜1）
+      const pk = Math.min(1, age / 0.12), k = 0.35 + 0.65 * (1 - (1 - pk) * (1 - pk)); // 出る時は、小さい所からぽんと開く
+      const gj = Math.max(0, 1 - age / 0.3) * 6 + u * 10, jx = (R() - 0.5) * gj, jy = (R() - 0.5) * gj * 0.4; // 出る時と消える時は、横にぶれる
+      const a = Math.min(1, 0.3 + age / 0.06) * (1 - u) * (u > 0 && R() < 0.3 ? 0.5 : 1);
+      const ww = w.w * k, hh = w.h * k, x = w.x + jx - ww / 2, y = w.y + jy - hh / 2, th = Math.max(5, hh * 0.2);
+      g.fillStyle(0x000000, 0.35 * a); g.fillRect(x + 5, y + 5, ww, hh); // 影
+      g.fillStyle(0x03150a, 0.96 * a); g.fillRect(x, y, ww, hh); // 本体
+      g.fillStyle(0x0b6b22, 0.95 * a); g.fillRect(x, y, ww, th); // タイトルバー
+      g.fillStyle(0x9dffb4, 0.8 * a); g.fillRect(x + 4, y + th * 0.3, th * 0.4, th * 0.4); g.fillRect(x + th * 0.4 + 8, y + th * 0.4, ww * 0.28, th * 0.2); // タイトルの小さな印
+      const bs = th * 0.62, by = y + (th - bs) / 2;
+      for (let b = 0; b < 3; b++) { const bx = x + ww - (b + 1) * (bs + 3) - 1; g.fillStyle(b === 0 ? 0xff2a55 : 0x1c8a38, 0.95 * a); g.fillRect(bx, by, bs, bs); if (b === 0) { g.lineStyle(1, 0xffffff, 0.9 * a); g.lineBetween(bx + 2, by + 2, bx + bs - 2, by + bs - 2); g.lineBetween(bx + bs - 2, by + 2, bx + 2, by + bs - 2); } } // 右端が赤い「×」
+      const ix = x + ww * 0.2, iy = y + th + (hh - th) * 0.5, is = Math.min(ww * 0.14, (hh - th) * 0.32); // 赤い警告マーク
+      g.fillStyle(0xff2a55, 0.85 * a); g.fillTriangle(ix, iy - is, ix - is * 1.1, iy + is, ix + is * 1.1, iy + is);
+      g.fillStyle(0x03150a, 0.95 * a); g.fillRect(ix - 1, iy - is * 0.35, 2, is * 0.7); g.fillRect(ix - 1, iy + is * 0.5, 2, 2);
+      g.fillStyle(0x2aff5a, 0.5 * a); for (let l = 0; l < 3; l++) g.fillRect(x + ww * 0.38, y + th + (hh - th) * (0.22 + l * 0.24), ww * 0.52 * w.lens[l], 3); // 文字のつもりの線
+      g.lineStyle(1, 0xff2a55, 0.45 * a); g.strokeRect(x - 1.5, y, ww, hh); g.lineStyle(1, 0x2af0ff, 0.45 * a); g.strokeRect(x + 1.5, y, ww, hh); // 赤とシアンの色ずれ
+      g.lineStyle(2, 0x2aff5a, 0.9 * a); g.strokeRect(x, y, ww, hh); // 緑の縁
+    }
+    if (Fk.done && !Fk.wins.length) { g.destroy(); this._forkG = null; this._fork = null; }
   }
 
   // 🦈 サメ1体を描く（本体もダミーも同じ関数）。S＝サメの状態／shp＝形／g＝体／g0＝空中の影（無ければ null）／g2＝背びれ・波紋・しぶき。
