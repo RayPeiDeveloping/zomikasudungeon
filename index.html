@@ -5972,7 +5972,7 @@ const TILE = 32;
 // 📺 グリッチ戦の攻撃のテスト用：'shell'（シェルゲーム）／'shoot'（射撃）／'rush'（追撃）を入れると、毎回その攻撃だけになる。普段は null（ランダム）
 const GLITCH_TEST_ATK = null; // テストで毎回同じ攻撃にする時は 'shoot' / 'rush' / 'shell' / 'fork'
 // 🪟 フォークボム（ウイルスのウィンドウが右下へ次々と増える攻撃）の調整値
-const GLITCH_FORK = { w: TILE * 2.6, h: TILE * 1.8, stepX: TILE * 0.85, stepY: TILE * 0.95, maxN: 12, openT: 0.7, interval: 0.065, waitT: 0.7, riseDelay: 0.5, hold: 3.2, minGap: TILE * 4.5, margin: TILE * 1.3 }; // w,h＝ウィンドウの大きさ／stepX,stepY＝次のウィンドウへのずれ（右下）／maxN＝1列の最大数／openT＝最初の2枚が出てからサメが動くまで／interval＝1枚ずつ増える間隔／waitT＝サメが潜ってから増え始めるまでの間／riseDelay＝増え終わってからサメが浮かぶまで／hold＝増え終わってから消え始めるまで／minGap＝2列の最小の間隔／margin＝プレイヤーが列に近すぎないための余白
+const GLITCH_FORK = { w: TILE * 13, h: TILE * 9, corridor: TILE * 4, damage: 30, pushSpeed: 700, stepX: TILE * 0.85, stepY: TILE * 0.95, maxN: 30, openT: 0.7, interval: 0.065, waitT: 0.7, riseDelay: 0.5, hold: 3.2 }; // w,h＝ウィンドウの大きさ（部屋が小さい時は部屋の8割まで縮む）／stepX,stepY＝次のウィンドウへのずれ（右下）／corridor＝2本の列のあいだに空ける通り道の幅（窓が斜めに重なって太くなる分を除いた、あいている幅）／damage＝出たウィンドウに重なっていたプレイヤーへのダメージ／pushSpeed＝通り道へ押し出される速さ（px/秒）／maxN＝1列の最大数（下の端に着くと、それより前で止まる）／openT＝最初の2枚が出てからサメが動くまで／interval＝1枚ずつ増える間隔／waitT＝サメが潜ってから増え始めるまでの間／riseDelay＝増え終わってからサメが浮かぶまで／hold＝増え終わってから消え始めるまで
 // 🥤 グリッチの攻撃「シェルゲーム」の調整値（秒・px。_sgUpdate の流れの順）
 const GLITCH_SHELL = {
   showT: 1.1,        // 姿を現して、両隣にダミーが出ている時間
@@ -8715,28 +8715,26 @@ class GameScene extends Phaser.Scene {
 
   // ================= 🪟 グリッチの攻撃「フォークボム」 =================
   // パソコンのウイルスの、ウィンドウが右下へ次々と出てくるやつがモチーフ。流れ（S.fk.ph）：
-  //   open ：部屋の右上寄りと真ん中あたりに、ウィンドウが1枚ずつ出る（サメはその場で止まる）
-  //   swim ：サメが、真ん中のウィンドウへ向かって泳ぐ
+  //   open ：右下へ向かう2本の列でプレイヤーを挟める位置に、同じ高さ（ウィンドウの上端が部屋の上端に接する）でウィンドウが1枚ずつ出る（サメはその場で止まる）
+  //   swim ：サメが、部屋の真ん中に近いほうのウィンドウへ向かって泳ぐ
   //   sink ：背びれがウィンドウの中央に収まり、潜って見えなくなる
   //   wait ：少し間をおく
-  //   chain：2つのウィンドウから、右下へ向かってウィンドウが「ダダダダ」と増えていく（2本の列。プレイヤーは列のあいだに入るように位置を決める）
+  //   chain：2つのウィンドウから、右下へ向かってウィンドウが「ダダダダ」と増えていく（平行な2本の列。右の壁を越えても止まらず、下の端で止まる）
   //   rise ：増え終わったら、サメが最初の真ん中のウィンドウから浮かんで、泳ぎ回りに戻る。ウィンドウはしばらく残ったあと、崩れて消える
-  // ※ いまは見た目と動きだけ（ウィンドウの当たり判定・ダメージは未実装）。調整値は GLITCH_FORK、テストで毎回この攻撃にする時は GLITCH_TEST_ATK = 'fork'。
+  // 当たり判定：ウィンドウは壁と同じで、入れない（縁にそって滑れる）。出た瞬間にそこにいたプレイヤーは、ダメージを受けて、2本の列のあいだの通り道へ横に押し出される（_forkCollide）。調整値は GLITCH_FORK、テストで毎回この攻撃にする時は GLITCH_TEST_ATK = 'fork'。
   _forkStart(S) {
-    const room = S.room, pl = this.player, F = GLITCH_FORK, rx = room.x * TILE, ry = room.y * TILE, rw = room.w * TILE, rh = room.h * TILE;
-    const mx = F.w * 0.5 + 8, my = F.h * 0.5 + 8, clampP = p => ({ x: Math.max(rx + mx, Math.min(rx + rw - mx, p.x)), y: Math.max(ry + my, Math.min(ry + rh - my, p.y)) });
-    const dl = Math.hypot(F.stepX, F.stepY), nx = F.stepY / dl, ny = -F.stepX / dl; // nx,ny＝列に直角な向き（右上向き）
-    let A = { x: rx + rw * 0.72, y: ry + rh * 0.2 }, B = { x: rx + rw * 0.5, y: ry + rh * 0.5 }; // 右上寄りと、真ん中
-    const gap = (A.x - B.x) * nx + (A.y - B.y) * ny; if (gap < F.minGap) { const k = F.minGap - gap; A.x += nx * k; A.y += ny * k; } // 2列の間隔が狭すぎないように
-    if (pl && this.playerHp > 0) { // プレイヤーが2列のあいだに入るように、2枚をそろえて列に直角な向きへずらす
-      const sp = pl.x * nx + pl.y * ny, sa = A.x * nx + A.y * ny, sb = B.x * nx + B.y * ny;
-      if (sp > sa - F.margin || sp < sb + F.margin) { const d = sp - (sa + sb) / 2; A.x += nx * d; A.y += ny * d; B.x += nx * d; B.y += ny * d; }
-    }
-    A = clampP(A); B = clampP(B);
-    const chain = o => { const pts = []; for (let i = 1; i <= F.maxN; i++) { const q = { x: o.x + F.stepX * i, y: o.y + F.stepY * i }; if (q.x > rx + rw - mx || q.y > ry + rh - my) break; pts.push(q); } return pts; }; // 部屋の右・下の端に着いたら、そこで終わり
+    const room = S.room, F = GLITCH_FORK, pl = this.player, plOk = !!pl && this.playerHp > 0, rx = room.x * TILE, ry = room.y * TILE, rw = room.w * TILE, rh = room.h * TILE;
+    const W = Math.min(F.w, rw * 0.8), H = Math.min(F.h, rh * 0.8); // 部屋が小さい時は、収まる大きさまで小さくする
+    const y0 = ry + H / 2; // 2つとも同じ高さ：ウィンドウの上端が、部屋の上端にぴったり接する
+    const kx = F.stepX / F.stepY, gap = W + kx * H + F.corridor; // kx＝列の傾き（下へ1進むと右へいくつ進むか）／gap＝2つの中心の横の間隔：窓の幅W＋斜めに重なって太くなる分(kx*H)を引いても、通り道が corridor だけ空く広さ
+    const xp = plOk ? pl.x - kx * (pl.y - y0) : rx + rw / 2; // プレイヤーを通る「右下へ向かう直線」が、ウィンドウの高さ(y0)を通る横位置
+    const Lw = { x: xp - gap / 2, y: y0 }, Rw = { x: xp + gap / 2, y: y0 }; // プレイヤーの左側を通る列と、右側を通る列：どちらも右下へ進むので、プレイヤーは2列の間に入る（窓が部屋から大きくはみ出してもよい＝いつでも挟むことを優先）
+    const cxm = rx + rw / 2, nearL = Math.abs(Lw.x - cxm) <= Math.abs(Rw.x - cxm);
+    const B = nearL ? Lw : Rw, A = nearL ? Rw : Lw; // B＝部屋の真ん中に近いほう（サメが潜る）／A＝もう一方
+    const chain = o => { const pts = []; for (let i = 1; i <= F.maxN; i++) { const q = { x: o.x + F.stepX * i, y: o.y + F.stepY * i }; if (q.y > ry + rh - H / 2 - 8) break; pts.push(q); } return pts; }; // 横の壁（部屋の左右の端）では止まらず、下の端に着いたら止まる
     if (this._forkG && this._forkG.scene) this._forkG.destroy();
     this._forkG = this.add.graphics().setDepth(3.6); // 床の血だまり(3.5)より上、サメ(4)より下
-    this._fork = { wins: [], clock: 0, done: false };
+    this._fork = { wins: [], clock: 0, done: false, w: W, h: H, mid: { x0: (Lw.x + Rw.x) / 2, y0, kx }, last: null, push: 0, pushT: 0 }; // mid＝2本の列のまん中を通る線（通り道の中心。y0の高さでの横位置x0、下へ進むと右へkxずつ寄る）／last＝最後に窓と重なっていなかった位置／push＝押し出し中の向き（±1）
     const sp10 = this._sharkShape(S, S.x, S.y, S.a, S.ph, S.bend).sp[10];
     const f = S.fk = { ph: 'open', t: 0, A, B, chA: chain(A), chB: chain(B), i: 0, tick: 0, down: false, off: { x: S.x - sp10.x, y: S.y - sp10.y } }; // off＝体の中心から背びれまでのずれ（背びれをウィンドウの中央に合わせるため）
     f.n = Math.max(f.chA.length, f.chB.length);
@@ -8745,8 +8743,8 @@ class GameScene extends Phaser.Scene {
     try { this.cameras.main.shake(120, 0.004); } catch (e) {}
   }
   _forkPop(x, y) { // ウィンドウを1枚出す
-    const F = GLITCH_FORK, R = Math.random;
-    this._fork.wins.push({ x, y, w: F.w, h: F.h, born: this._fork.clock, kill: null, lens: [0.5 + R() * 0.5, 0.35 + R() * 0.55, 0.25 + R() * 0.6] });
+    const R = Math.random;
+    this._fork.wins.push({ x, y, w: this._fork.w, h: this._fork.h, born: this._fork.clock, kill: null, fresh: true, lens: [0.5 + R() * 0.5, 0.35 + R() * 0.55, 0.25 + R() * 0.6, 0.4 + R() * 0.5, 0.2 + R() * 0.6] });
     this.spawnBurst(x, y, 0x2aff5a, 6);
   }
   _forkMove(S, dt, plOk, plr) { // フォークボム中のサメの動き
@@ -8787,6 +8785,29 @@ class GameScene extends Phaser.Scene {
     const F = GLITCH_FORK, Fk = this._fork; if (!Fk) return; Fk.done = true;
     Fk.wins.forEach((w, i) => { w.kill = Fk.clock + F.hold + i * 0.02; });
   }
+  _forkCollide(Fk, dt) { // 🪟 ウィンドウの当たり判定：出た瞬間にそこにいたらダメージ→通り道へ横に押し出す／すでにあるウィンドウには入れない
+    const pl = this.player, F = GLITCH_FORK; if (!pl || this.playerHp <= 0 || this.isGhost || this.isDowned) { Fk.push = 0; return; }
+    const pr = pl.radius || TILE * 0.32, act = Fk.wins.filter(w => w.kill == null || Fk.clock < w.kill); // 消え始めたウィンドウには、もう当たらない
+    const hitW = (w, x, y) => { const ex = Math.max(Math.abs(x - w.x) - w.w / 2, 0), ey = Math.max(Math.abs(y - w.y) - w.h / 2, 0); return ex * ex + ey * ey < pr * pr; };
+    const hit = (x, y) => act.some(w => hitW(w, x, y));
+    for (const w of act) { // 出たばかりのウィンドウに重なっていたら：ダメージ＋押し出し開始（通り道は、2本の列のまん中。そちら側へ横に押す）
+      if (!w.fresh) continue; w.fresh = false;
+      if (Fk.push || !hitW(w, pl.x, pl.y)) continue;
+      const xc = Fk.mid.x0 + Fk.mid.kx * (pl.y - Fk.mid.y0); Fk.push = xc >= pl.x ? 1 : -1; Fk.pushT = 0;
+      this._sharkHurt(F.damage, 0.8); this.spawnBurst(pl.x, pl.y, 0x2aff5a, 12); try { this.cameras.main.shake(160, 0.008); } catch (e) {}
+    }
+    if (Fk.push) { // 押し出し中：通り道へ向かって、横へ速く動かす（壁があれば、そこで止まる）
+      Fk.pushT += dt; const nx = pl.x + Fk.push * F.pushSpeed * dt;
+      if (!this.circleHitsWall(nx, pl.y, pr)) pl.x = nx; else Fk.pushT = 99;
+      if (!hit(pl.x, pl.y)) { Fk.push = 0; Fk.last = { x: pl.x, y: pl.y }; } // 窓から出た
+      else if (Fk.pushT > 1.2) Fk.push = 0; // 出きれない時はあきらめて、下の「入れない」の処理で、最後に窓と重なっていなかった位置へ戻す
+      else return;
+    }
+    if (hit(pl.x, pl.y)) { // すでにあるウィンドウには入れない：入ろうとした方向の動きだけ止める（縁にそって滑れる）
+      const L = Fk.last; if (!L) return;
+      if (!hit(pl.x, L.y)) pl.y = L.y; else if (!hit(L.x, pl.y)) pl.x = L.x; else { pl.x = L.x; pl.y = L.y; }
+    } else Fk.last = { x: pl.x, y: pl.y };
+  }
   _forkUpdate(dt) { // ウィンドウの出現・消滅・描画（サメの状態とは関係なく、毎フレーム）
     const Fk = this._fork; if (!Fk) return; const g = this._forkG; if (!g || !g.scene) { this._fork = null; return; }
     Fk.clock += dt; g.clear(); const R = Math.random, FADE = 0.45;
@@ -8796,8 +8817,8 @@ class GameScene extends Phaser.Scene {
       const pk = Math.min(1, age / 0.12), k = 0.35 + 0.65 * (1 - (1 - pk) * (1 - pk)); // 出る時は、小さい所からぽんと開く
       const gj = Math.max(0, 1 - age / 0.3) * 6 + u * 10, jx = (R() - 0.5) * gj, jy = (R() - 0.5) * gj * 0.4; // 出る時と消える時は、横にぶれる
       const a = Math.min(1, 0.3 + age / 0.06) * (1 - u) * (u > 0 && R() < 0.3 ? 0.5 : 1);
-      const ww = w.w * k, hh = w.h * k, x = w.x + jx - ww / 2, y = w.y + jy - hh / 2, th = Math.max(5, hh * 0.2);
-      g.fillStyle(0x000000, 0.35 * a); g.fillRect(x + 5, y + 5, ww, hh); // 影
+      const ww = w.w * k, hh = w.h * k, x = w.x + jx - ww / 2, y = w.y + jy - hh / 2, th = Math.min(24, Math.max(5, hh * 0.2)), sd = Math.max(5, ww * 0.012), lh = Math.max(3, hh * 0.022); // th＝タイトルバーの高さ／sd＝影のずれ／lh＝文字線の太さ
+      g.fillStyle(0x000000, 0.35 * a); g.fillRect(x + sd, y + sd, ww, hh); // 影
       g.fillStyle(0x03150a, 0.96 * a); g.fillRect(x, y, ww, hh); // 本体
       g.fillStyle(0x0b6b22, 0.95 * a); g.fillRect(x, y, ww, th); // タイトルバー
       g.fillStyle(0x9dffb4, 0.8 * a); g.fillRect(x + 4, y + th * 0.3, th * 0.4, th * 0.4); g.fillRect(x + th * 0.4 + 8, y + th * 0.4, ww * 0.28, th * 0.2); // タイトルの小さな印
@@ -8806,10 +8827,11 @@ class GameScene extends Phaser.Scene {
       const ix = x + ww * 0.2, iy = y + th + (hh - th) * 0.5, is = Math.min(ww * 0.14, (hh - th) * 0.32); // 赤い警告マーク
       g.fillStyle(0xff2a55, 0.85 * a); g.fillTriangle(ix, iy - is, ix - is * 1.1, iy + is, ix + is * 1.1, iy + is);
       g.fillStyle(0x03150a, 0.95 * a); g.fillRect(ix - 1, iy - is * 0.35, 2, is * 0.7); g.fillRect(ix - 1, iy + is * 0.5, 2, 2);
-      g.fillStyle(0x2aff5a, 0.5 * a); for (let l = 0; l < 3; l++) g.fillRect(x + ww * 0.38, y + th + (hh - th) * (0.22 + l * 0.24), ww * 0.52 * w.lens[l], 3); // 文字のつもりの線
+      g.fillStyle(0x2aff5a, 0.5 * a); for (let l = 0; l < 5; l++) g.fillRect(x + ww * 0.38, y + th + (hh - th) * (0.16 + l * 0.15), ww * 0.52 * w.lens[l], lh); // 文字のつもりの線
       g.lineStyle(1, 0xff2a55, 0.45 * a); g.strokeRect(x - 1.5, y, ww, hh); g.lineStyle(1, 0x2af0ff, 0.45 * a); g.strokeRect(x + 1.5, y, ww, hh); // 赤とシアンの色ずれ
       g.lineStyle(2, 0x2aff5a, 0.9 * a); g.strokeRect(x, y, ww, hh); // 緑の縁
     }
+    this._forkCollide(Fk, dt); // 🪟 当たり判定
     if (Fk.done && !Fk.wins.length) { g.destroy(); this._forkG = null; this._fork = null; }
   }
 
