@@ -16420,7 +16420,7 @@ class GameScene extends Phaser.Scene {
         A.held = false;
         if (A.cd <= 0 && !this._autoWalk && !A.shield) {
           A.shield = { t: 0, dur: w.shieldDur || 0.2, a: A.angle }; A.cd = w.cooldown || 0.9; A.snapT = 0; // パリィの効力があるのは0.2秒
-          for (const h of this._ancientHexes(pl.x, pl.y, A.angle)) for (let j = 0; j < 4; j++) A.sp.push({ x: h.x + (Math.random() - 0.5) * 16, y: h.y + (Math.random() - 0.5) * 16, vx: (Math.random() - 0.5) * 40, vy: (Math.random() - 0.5) * 40, life: 0.5, max: 0.5, s: 3 + Math.random() * 3 }); // 輝く火花
+          for (const h of this._ancientHexes(pl.x, pl.y, A.angle).slice(1)) for (let j = 0; j < 4; j++) A.sp.push({ x: h.x + (Math.random() - 0.5) * 16, y: h.y + (Math.random() - 0.5) * 16, vx: (Math.random() - 0.5) * 40, vy: (Math.random() - 0.5) * 40, life: 0.5, max: 0.5, s: 3 + Math.random() * 3 }); // 輝く火花
         }
       }
     } else A.held = false;
@@ -16439,13 +16439,14 @@ class GameScene extends Phaser.Scene {
       const q = A.ghosts[i]; q.life -= dt; if (q.life <= 0) { A.ghosts.splice(i, 1); continue; }
       const k = q.life / q.max, al = k * k, gr = 1; // 位置も大きさも変えず、弱い光のまま静かに消える
       const ga = Math.pow(k, 1.5); // 最初の1フレームと同じ強さから、ゆっくり弱まる
-      const qc = q.c || this._ancientCol(0); for (const h of q.hx) { g.lineStyle(5, qc.o, 0.28 * ga); this._ancientPoly(g, h.x, h.y, h.r * 1.14, q.a, false); g.fillStyle(qc.f, 0.8 * ga); g.lineStyle(2, qc.s, 0.95 * ga); this._ancientPoly(g, h.x, h.y, h.r, q.a, true); }
+      const qc = q.c || this._ancientCol(0); for (const h of q.hx.slice(1)) { g.lineStyle(5, qc.o, 0.28 * ga); this._ancientPoly(g, h.x, h.y, h.r * 1.14, q.a, false); g.fillStyle(qc.f, 0.8 * ga); g.lineStyle(2, qc.s, 0.95 * ga); this._ancientPoly(g, h.x, h.y, h.r, q.a, true); }
     }
     const cur = A.shield;
     if (cur && pl) { // 出ている間のシールド
       const t = cur.t, flash = Math.max(0, 1 - t / 0.06), fade = 1; // 効力が続く間は強く輝き、終わったら即座に消える（残像に切り替わる）
       const hx = this._ancientHexes(pl.x, pl.y, cur.a), cc = this._ancientCol((A.gauge || 0) / ((w && w.gaugeMax) || 100)); // 色は今のゲージ量で決まる
       hx.forEach((h, i) => {
+        if (i === 0) return; // 自分と重なっている1枚は見た目だけ描かない（当たり判定は _ancientBlocks のまま）
         const tw = 0.85 + 0.15 * Math.sin(A.time * 40 + i * 1.7);
         g.lineStyle(5, cc.o, 0.28 * fade); this._ancientPoly(g, h.x, h.y, h.r * 1.14, cur.a, false); // 外のにじむ光
         g.fillStyle(cc.f, Math.min(1, 0.8 * tw + 0.2 * flash) * fade); g.lineStyle(2, cc.s, 0.95 * fade); this._ancientPoly(g, h.x, h.y, h.r, cur.a, true);
