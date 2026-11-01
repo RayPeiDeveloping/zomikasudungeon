@@ -5639,7 +5639,7 @@ const WEAPON_TYPES = [
     blastRadius: 50, blastPerSec: 14, wallBreakTime: 2, knockback: 300,
     hidden: true }, // hidden: true＝一旦なし（宝箱・武器選択画面に出ない）。戻す時はこの hidden を消す
   // 🛡 古代魔法：スティックを離すと、一瞬だけ魔法のシールドが出る。出ている間はサメの攻撃をパリィ（ダメージを受けず攻撃を終わらせる）できる。shieldDur＝シールドが出ている秒数、cooldown＝次に出せるまでの秒数
-  { key: 'ancient', name: '古代魔法', type: 'ancient', damage: 0, cooldown: 0.9, minFloor: 1, shieldDur: 0.2, gaugeMax: 100, gaugePerParry: 5 }, // gaugeMax＝パリィゲージの最大値／gaugePerParry＝パリィ成功1回でたまる量（5なら20回で満タン）
+  { key: 'ancient', name: '古代魔法', type: 'ancient', damage: 0, cooldown: 0.9, minFloor: 1, shieldDur: 0.2, gaugeMax: 100, gaugePerParry: 5, hidden: true }, // hidden: true＝グリッチ戦専用（宝箱・ドロップ・武器選択には出ない。グリッチ戦は WEAPON_TYPES.find で直接付与する）。 gaugeMax＝パリィゲージの最大値／gaugePerParry＝パリィ成功1回でたまる量（5なら20回で満タン）
 ];
 
 // 召喚された味方の表示名（バナー用）
@@ -33718,7 +33718,8 @@ function openSyncDialog() {
 // 名前欄に「developer」と入力すると、開始フロア・所持武器を選んでテストプレイできる。
 const devPanel = document.getElementById('devPanel');
 const devWeaponSelect = document.getElementById('devWeaponSelect');
-WEAPON_TYPES.forEach(w => { // デベロッパーモードでは、旧召喚術（hidden）も選べる
+WEAPON_TYPES.forEach(w => { // デベロッパーモードでは、旧召喚術（hidden）も選べる（ただし古代魔法はグリッチ戦専用なので出さない）
+  if (w.key === 'ancient') return;
   const opt = document.createElement('option');
   opt.value = w.key;
   opt.textContent = w.name;
