@@ -5970,7 +5970,7 @@ function applyWeaponLevel(base, level) {
 // ============== Phaserシーン ==============
 const TILE = 32;
 // 📺 グリッチ戦の攻撃のテスト用：'shell'（シェルゲーム）／'shoot'（射撃）／'rush'（追撃）を入れると、毎回その攻撃だけになる。普段は null（ランダム）
-const GLITCH_TEST_ATK = null; // テストで毎回同じ攻撃にする時は 'shoot' / 'rush' / 'shell' / 'fork' / 'wave'
+const GLITCH_TEST_ATK = 'wave'; // テストで毎回同じ攻撃にする時は 'shoot' / 'rush' / 'shell' / 'fork' / 'wave'
 // 🪟 フォークボム（ウイルスのウィンドウが右下へ次々と増える攻撃）の調整値
 const GLITCH_FORK = { w: TILE * 13, h: TILE * 9, corridor: TILE * 10, damage: 30, pushSpeed: 700, stepX: TILE * 0.85, stepY: TILE * 0.95, maxN: 80, openT: 0, interval: 0.065, waitT: 0.7, riseDelay: 0.5, hold: Infinity, warnT: 0.6, leaps: 10, shakeT: 1.0, peekSpeed: TILE * 4, leapSpeed: TILE * 40, accT: 0.4, leapDamage: 40, leapPause: 0.1 }; // w,h＝ウィンドウの大きさ（部屋が小さい時は部屋の8割まで縮む）／stepX,stepY＝次のウィンドウへのずれ（右下）／corridor＝2本の列のあいだに空ける通り道の幅（窓が斜めに重なって太くなる分を除いた、あいている幅）／damage＝出たウィンドウに重なっていたプレイヤーへのダメージ／pushSpeed＝通り道へ押し出される速さ（px/秒）／maxN＝1列の最大数（上限。通常は、上端が部屋の下端に重なる所まで並ぶ）／openT＝最初の2枚が出てからサメが動くまで／interval＝1枚ずつ増える間隔／waitT＝サメが潜ってから増え始めるまでの間／riseDelay＝増え終わってからサメが浮かぶまで／hold＝増え終わってから消え始めるまで（Infinity＝時間では消えない。技が終わって（rise）サメが浮かんだ時点で、順に消える）／warnT＝出現位置に赤い枠の警告を出してからウィンドウが出るまで／leaps＝ウィンドウ間の飛び込みを繰り返す回数／shakeT＝通路にゆっくり顔を出している時間（これが予告の代わり）／peekSpeed＝顔を出す時の遅い速さ／leapSpeed＝そのあと泳ぎ抜ける最高速／accT＝遅い速さから最高速まで加速する時間／leapDamage＝横切るサメに当たった時のダメージ／leapPause＝飛び込んでから次の振動までの間
 // 🌊 グリッチの攻撃「波」の調整値（秒・px。_sharkWaveMove／_sharkWaveUpdate の流れの順）
@@ -5978,15 +5978,15 @@ const GLITCH_FORK = { w: TILE * 13, h: TILE * 9, corridor: TILE * 10, damage: 30
 // 波：尾の先を中心に、前縁が広がりながら進む帯（進むほど厚く・広くなる）。当たっている間は継続ダメージを受けながら、進む向きへ押し流される。古代魔法でパリィすると、ダメージも押し流しもなくなる（波は弱まって消える）。テストで毎回この攻撃にする時は GLITCH_TEST_ATK = 'wave'。
 const GLITCH_WAVE = {
   turnT: 1.3,        // 尾をプレイヤーへ向けるまでの最大時間（向き終わったら、すぐ次へ）
-  windT: 0.55,       // 尾を振りかぶる時間
+  windT: 0.4,        // 尾を振りかぶる時間
   swingT: 0.26,      // 尾を振り抜く時間（この途中で、尾の先から波が出る）
   recoverT: 0.9,     // 振り抜いてから、潜るまで
-  bendMax: 5,        // 尾の振れ幅（大きいほど、尾が横へ大きく振れる）
-  speed: TILE * 7,   // 波の進む速さ（プレイヤーの歩く速さは約5.3マス/秒）
+  tailRot: 1.3,      // 尾の振れ幅（ラジアン。尾の長さは変えず、付け根から先を、この角度まで左右へぐるっと回す）
+  speed: TILE * 11,  // 波の進む速さ（プレイヤーの歩く速さは約5.3マス/秒）
   r0: TILE * 0.8,    // 出た時の、波の前縁の距離（尾の先から）
-  thick0: TILE * 0.9, thick1: TILE * 3.4, // 波の厚み（出た時 → 最大）
-  ang0: 0.2, ang1: 0.45, // 波の広がり（半角ラジアン。出た時 → 最大。広げすぎると、横へ走っても逃げ切れない）
-  grow: TILE * 22,   // 最大の大きさになる前縁の距離
+  thick0: TILE * 1.2, thick1: TILE * 5,   // 波の厚み（出た時 → 最大）
+  ang0: 0.35, ang1: 0.8,   // 波の広がり（半角ラジアン。出た時 → 最大。広げすぎると、横へ走っても逃げ切れない）
+  grow: TILE * 20,   // 最大の大きさになる前縁の距離
   maxR: TILE * 46,   // ここまで進んだら消える
   damage: 6, tick: 0.45, // 継続ダメージ：当たっている間、tick 秒ごとに damage（無敵時間はこの長さ）
   push: TILE * 5.5   // 押し流す速さ（進む向きへ。波の速さより遅く、歩く速さと同じくらい）
@@ -8475,7 +8475,14 @@ class GameScene extends Phaser.Scene {
     const L = S.len, W = S.wid, N = 22, ca = Math.cos(a), sa = Math.sin(a), TAU = Math.PI * 2;
     const T = (lx, ly) => ({ x: X + lx * ca - ly * sa, y: Y + lx * sa + ly * ca });
     const hf = s => s < 0.3 ? W * Math.sin(Math.PI / 2 * Math.max(0, s) / 0.3) : W * Math.max(0.1, 1 - 0.88 * Math.pow(Math.min(1.3, (s - 0.3) / 0.7), 1.25)); // 体の半分の幅：鼻は尖り、頭の後ろがいちばん太く、尾へ向かって細くなる
-    const lx = s => (0.5 - s) * L, ly = s => W * (0.9 * (0.12 + 0.88 * s * s) * Math.sin(TAU * 0.9 * s - ph) + bend * 1.3 * s * s); // 背骨：尾にいくほど大きく振れる＋曲がる時は体が弧を描く
+    let lx = s => (0.5 - s) * L, ly = s => W * (0.9 * (0.12 + 0.88 * s * s) * Math.sin(TAU * 0.9 * s - ph) + bend * 1.3 * s * s); // 背骨：尾にいくほど大きく振れる＋曲がる時は体が弧を描く
+    const tRot = S.tailRot || 0;
+    if (tRot) { // 🌊 波の尾の振り：背骨の各区間の長さはそのまま、向きだけを尾へいくほど回す（尾が伸び縮みしない）
+      const M = 220, TX = new Array(M + 1), TY = new Array(M + 1), lx0 = lx, ly0 = ly; TX[0] = lx0(0); TY[0] = ly0(0);
+      for (let k = 1; k <= M; k++) { const s0 = (k - 0.5) / M, dx = lx0(k / M) - lx0((k - 1) / M), dy = ly0(k / M) - ly0((k - 1) / M), dl = Math.hypot(dx, dy), u = Math.min(1, Math.max(0, (s0 - 0.25) / 0.75)), g = u * u * (3 - 2 * u), th = Math.atan2(dy, dx) + tRot * g; TX[k] = TX[k - 1] + dl * Math.cos(th); TY[k] = TY[k - 1] + dl * Math.sin(th); }
+      const at = (A, q) => { const f = Math.min(M, Math.max(0, q * M)), k = Math.min(M - 1, Math.floor(f)); return A[k] + (A[k + 1] - A[k]) * (f - k); };
+      lx = q => at(TX, q); ly = q => at(TY, q);
+    }
     const P = (s, off) => { const e = 0.01, tx = lx(s + e) - lx(s - e), ty = ly(s + e) - ly(s - e), m = Math.hypot(tx, ty) || 1; return T(lx(s) + (-ty / m) * off, ly(s) + (tx / m) * off); };
     // 形が変わらない部品：背骨の s の位置（横に off ずれた点）を取り付け位置にして、そこでの背骨の向きに合わせて置く。pts は (後ろ向きの距離, 横の距離) の組。flap だけ回す（形は伸び縮みしない）
     const rig = (s, off, pts, side, flap) => {
@@ -8601,17 +8608,17 @@ class GameScene extends Phaser.Scene {
     const wrap = d => Math.atan2(Math.sin(d), Math.cos(d)); w.t += dt;
     S.v *= Math.max(0, 1 - dt * 6);
     if (w.ph === 'turn') {
-      S.bend *= Math.max(0, 1 - dt * 4); S.ph += dt * Math.PI * 2 * S.beat * 0.8;
+      S.bend *= Math.max(0, 1 - dt * 4); S.tailRot = (S.tailRot || 0) * Math.max(0, 1 - dt * 4); S.ph += dt * Math.PI * 2 * S.beat * 0.8;
       if (plOk) { const d = wrap(Math.atan2(plr.y - S.y, plr.x - S.x) + Math.PI - S.a); S.a += Math.max(-3.2 * dt, Math.min(3.2 * dt, d)); if (Math.abs(d) < 0.12 || w.t >= F.turnT) { w.ph = 'wind'; w.t = 0; } } // 尾がプレイヤーの方を向く
       else if (w.t >= F.turnT) { w.ph = 'wind'; w.t = 0; }
     } else if (w.ph === 'wind') { // 尾を片側へぐっと引く
-      S.bend += (-F.bendMax * w.sd - S.bend) * Math.min(1, dt * 7); S.ph += dt * Math.PI * 2 * S.beat * 0.4;
-      if (w.t >= F.windT) { w.ph = 'swing'; w.t = 0; w.b0 = S.bend; }
+      S.bend *= Math.max(0, 1 - dt * 6); S.tailRot = (S.tailRot || 0) + (-F.tailRot * w.sd - (S.tailRot || 0)) * Math.min(1, dt * 7); S.ph += dt * Math.PI * 2 * S.beat * 0.4;
+      if (w.t >= F.windT) { w.ph = 'swing'; w.t = 0; w.b0 = S.tailRot || 0; }
     } else if (w.ph === 'swing') { // 反対側へ一気に振り抜く（扇ぐ）。半分まで来たら、尾の先から波を出す
-      const u = Math.min(1, w.t / F.swingT), es = u * u * (3 - 2 * u); S.bend = w.b0 + (F.bendMax * w.sd - w.b0) * es;
+      const u = Math.min(1, w.t / F.swingT), es = u * u * (3 - 2 * u); S.tailRot = w.b0 + (F.tailRot * w.sd - w.b0) * es;
       if (!w.fired && u >= 0.45) { w.fired = true; w.fire = true; }
       if (u >= 1) { w.ph = 'recover'; w.t = 0; }
-    } else { S.bend *= Math.max(0, 1 - dt * 3); S.ph += dt * Math.PI * 2 * S.beat * 0.8; } // recover
+    } else { S.bend *= Math.max(0, 1 - dt * 3); S.tailRot = (S.tailRot || 0) * Math.max(0, 1 - dt * 3); S.ph += dt * Math.PI * 2 * S.beat * 0.8; } // recover
     S.x += Math.cos(S.a) * S.v * dt; S.y += Math.sin(S.a) * S.v * dt;
   }
   _sharkWaveUpdate(S, shp, dt, plOk) { // 🌊 波：尾の先から出て、前縁が広がりながら進む（進むほど厚く・広くなる）。当たると継続ダメージを受けながら押し流される。古代魔法でパリィすると、ダメージも押し流しもなくなる
@@ -8723,6 +8730,7 @@ class GameScene extends Phaser.Scene {
     S.trailT -= dt; if (S.trailT <= 0) { S.trailT = 0.16; S.trail.unshift({ x: S.x, y: S.y, a: S.a, ph: S.ph, bend: S.bend, z: S.z || 0 }); if (S.trail.length > 5) S.trail.pop(); } // 泳いだあとに残る、薄い残像
     const shp = this._sharkShape(S, S.x, S.y - (S.z || 0), S.a, S.ph, S.bend); // 空中では、体を z の分だけ上に描く（地面での位置は y + z）
     this._sharkShotsUpdate(S, shp, dt, plOk); // 🟩 グリッチ弾の移動・当たり判定・描画
+    if (S.tailRot && S.mode !== 'wave') { S.tailRot *= Math.max(0, 1 - dt * 6); if (Math.abs(S.tailRot) < 0.01) S.tailRot = 0; } // 波の尾の振りは、波の攻撃が終わったら戻す
     this._sharkWaveUpdate(S, shp, dt, plOk); // 🌊 波の発生・移動・当たり判定・パリィ・描画
     // --- 🌊 潜る／浮かぶ：浮いている間(8〜12秒)→潜る(6〜9秒)→…。潜る・浮かぶ瞬間に、水しぶきが大きく上がる ---
     const SPC = [0x2aff5a, 0x9dffb4, 0x2aff5a, 0xc8ffd4], fbP = shp.sp[10], fb0 = shp.sp[9], fb1 = shp.sp[12], finH = TILE * 0.85 * S.sc * (S.dive * S.dive * (3 - 2 * S.dive));
