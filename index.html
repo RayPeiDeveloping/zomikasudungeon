@@ -8621,6 +8621,16 @@ class GameScene extends Phaser.Scene {
     } else { S.bend *= Math.max(0, 1 - dt * 3); S.tailRot = (S.tailRot || 0) * Math.max(0, 1 - dt * 3); S.ph += dt * Math.PI * 2 * S.beat * 0.8; } // recover
     S.x += Math.cos(S.a) * S.v * dt; S.y += Math.sin(S.a) * S.v * dt;
   }
+  _waveOverlap(w, x, y, r) { // 🌊 波の帯（前縁 R から厚み th の分だけ内側、広がり ±al）に、(x,y) の半径 r の円が重なっているか（ダメージ判定と同じ形）
+    const F = GLITCH_WAVE, k = Math.min(1, Math.max(0, (w.R - F.r0) / F.grow)), th = F.thick0 + (F.thick1 - F.thick0) * k, al = F.ang0 + (F.ang1 - F.ang0) * k;
+    const vx = x - w.ox, vy = y - w.oy, d = Math.hypot(vx, vy), da = Math.abs(Math.atan2(Math.sin(Math.atan2(vy, vx) - w.a), Math.cos(Math.atan2(vy, vx) - w.a))), slack = d > r ? Math.asin(Math.min(1, r / d)) : Math.PI;
+    return d - r <= w.R && d + r >= w.R - th && da <= al + slack;
+  }
+  _waveBlocks(x, y, r) { // 🌊 波は壁のように通り抜けられない：いまは波の外にいるプレイヤーが、(x,y) へ動くと波の帯に入ってしまう時は、その動きを止める（すでに波の中にいる時は、自由に出られる。パリィで弱まった波は壁にならない）
+    const S = this._shark, pl = this.player; if (!S || !S.waves || !S.waves.length || !pl) return false;
+    for (const w of S.waves) { if (w.parried) continue; if (this._waveOverlap(w, x, y, r) && !this._waveOverlap(w, pl.x, pl.y, r)) return true; }
+    return false;
+  }
   _sharkWaveUpdate(S, shp, dt, plOk) { // 🌊 波：尾の先から出て、前縁が広がりながら進む（進むほど厚く・広くなる）。当たると継続ダメージを受けながら押し流される。古代魔法でパリィすると、ダメージも押し流しもなくなる
     const F = GLITCH_WAVE, R = Math.random, pl = this.player, WV = S.waves || (S.waves = []), wrap = d => Math.atan2(Math.sin(d), Math.cos(d));
     if (!this._sharkWG || !this._sharkWG.scene) this._sharkWG = this.add.graphics().setDepth(4.4);
@@ -8639,7 +8649,7 @@ class GameScene extends Phaser.Scene {
       const k = Math.min(1, Math.max(0, (w.R - F.r0) / F.grow)), th = F.thick0 + (F.thick1 - F.thick0) * k, al = F.ang0 + (F.ang1 - F.ang0) * k; // 厚み・広がり：進むほど大きくなる
       const ca = Math.cos(w.a), sa = Math.sin(w.a);
       if (!w.parried && plOk) { // 🛡 パリィ：前縁の帯のどこかが盾に触れたら成功。ダメージも押し流しもなくなる（ダメージ直後の無敵時間中でも、盾が出ていれば止められる）
-        for (let j = 0; j <= 8; j++) { const an = w.a - al + al * 2 * j / 8, rr = Math.max(0, w.R - th * 0.5), px = w.ox + Math.cos(an) * rr, py = w.oy + Math.sin(an) * rr; if (this._ancientBlocks(px, py, th * 0.55)) { w.parried = true; this._ancientParryFx(px, py); break; } }
+        for (let j = 0; j <= 8; j++) { const an = w.a - al + al * 2 * j / 8, rr = Math.max(0, w.R - th * 0.5), px = w.ox + Math.cos(an) * rr, py = w.oy + Math.sin(an) * rr; if (this._ancientBlocks(px, py, th * 0.55)) { w.parried = true; let fx = px, fy = py; const hx = this._ancientNearHex(px, py); if (hx) { const vx = hx.x - w.ox, vy = hx.y - w.oy, dd = Math.hypot(vx, vy) || 1, cc = Math.min(dd + hx.r, Math.max(dd - hx.r, rr)); fx = w.ox + vx / dd * cc; fy = w.oy + vy / dd * cc; } /* 波の発生源から盾の六角形へ向かう線上の、波の帯が盾に触れる位置（盾の外側の面） */ this._ancientParryFx(fx, fy); break; } }
       }
       if (!w.parried && plOk) { // 当たり判定：波の帯（前縁 R から厚み th の分だけ内側、広がり ±al）にプレイヤーがいる間は、継続ダメージ＋進む向きへ押し流される
         const vx = pl.x - w.ox, vy = pl.y - w.oy, d = Math.hypot(vx, vy), pr = pl.radius || TILE * 0.32, da = Math.abs(wrap(Math.atan2(vy, vx) - w.a)), slack = d > pr ? Math.asin(Math.min(1, pr / d)) : Math.PI;
@@ -16671,14 +16681,18 @@ class GameScene extends Phaser.Scene {
     for (const h of this._ancientHexes(pl.x, pl.y, A.shield.a).slice(1)) if (Math.hypot(h.x - x, h.y - y) < h.r + rad) return true; // slice(1)＝先頭の「プレイヤーを覆う1枚」はパリィ判定から外す（見た目は残る）。前と両隣の3枚だけが判定を持つ
     return false; // 前の3枚の六角形に触れた攻撃だけをパリィする
   }
-  _ancientParryFx(x, y) { // パリィ成功の演出：火花・衝撃の輪・白いフラッシュ・PARRY!
+  _ancientNearHex(x, y) { // 🛡 パリィ判定を持つ盾の六角形（前と両隣の3枚）のうち、(x,y)にいちばん近い1枚（エフェクトを盾の上に出すため）
+    const A = this._anc, pl = this.player; if (!A || !A.shield || !pl) return null; let best = null, bd = Infinity;
+    for (const h of this._ancientHexes(pl.x, pl.y, A.shield.a).slice(1)) { const d = Math.hypot(h.x - x, h.y - y) - h.r; if (d < bd) { bd = d; best = h; } }
+    return best;
+  }
+  _ancientParryFx(x, y) { // パリィ成功の演出：火花・衝撃の輪・白いフラッシュ（PARRY! の文字は出さない）
     if (this.glitchBoss) this._gSlowT = 0.7; // 🐌 グリッチ戦：パリィ成功の瞬間が最も遅く、0.7秒かけて徐々に元の速さへ解けていく
     const A = this._anc; if (!A) return; this._parryCount = (this._parryCount || 0) + 1;
     { const gw = this.weapon || {}, gm = gw.gaugeMax || 100; A.gauge = Math.min(gm, (A.gauge || 0) + (gw.gaugePerParry || 20)); A.gFlash = 0.35; } // 🔷 パリィゲージ：パリィ成功のたびにたまる（攻撃魔法は未実装。今はためるだけ）
     for (let i = 0; i < 22; i++) { const an = Math.random() * Math.PI * 2, sp = 120 + Math.random() * 260; A.sp.push({ x, y, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp, life: 0.45 + Math.random() * 0.3, max: 0.75, s: 3 + Math.random() * 3 }); }
     A.rings.push({ x, y, t: 0 });
     try { this.cameras.main.flash(90, 255, 255, 255); this.cameras.main.shake(140, 0.005); } catch (e) {}
-    try { const tx = this.add.text(x, y - 28, 'PARRY!', { fontSize: '22px', color: '#ffffff', stroke: '#7fd0ff', strokeThickness: 5 }).setOrigin(0.5).setDepth(21); const tw = this.tweens.add({ targets: tx, y: tx.y - 30, alpha: 0, duration: 650, onComplete: () => tx.destroy() }); if (this.glitchBoss) (this._gTws || (this._gTws = [])).push(tw); } catch (e) {} // グリッチ戦：文字の動きもスローに合わせる（_gTws）
   }
   updateAncientMagic(dt) {
     const A = this._anc || (this._anc = { held: false, angle: 0, shield: null, ghosts: [], sp: [], rings: [], cd: 0, time: 0, snapT: 0, g: null });
@@ -27661,8 +27675,8 @@ class GameScene extends Phaser.Scene {
     } else {
       const nx = this.player.x + dx * moveSpeed * dt;
       const ny = this.player.y + dy * moveSpeed * dt;
-      if (!this.circleHitsWall(nx, this.player.y, r)) this.player.x = nx;
-      if (!this.circleHitsWall(this.player.x, ny, r)) this.player.y = ny;
+      if (!this.circleHitsWall(nx, this.player.y, r) && !this._waveBlocks(nx, this.player.y, r)) this.player.x = nx; // 🌊 波は壁のように通れない
+      if (!this.circleHitsWall(this.player.x, ny, r) && !this._waveBlocks(this.player.x, ny, r)) this.player.y = ny;
     }
 
     this.demonRootPushPlayer(); // 😈 根は通れない：移動のあと、根の体に食い込んでいたら外へ押し出す
