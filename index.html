@@ -243,6 +243,40 @@
     background: rgba(255,140,140,0.65); pointer-events: none;
   }
 
+  /* 🔒 ランサムウェア：武器ロック中、右スティックが壊れたように乱れる（JS側 _ransomHud が .ransomGlitch を付け外しする） */
+  @keyframes ransomBase {
+    0%   { transform: translateY(-50%); clip-path: inset(0); filter: none; }
+    8%   { transform: translateY(-50%) translate(-1.4vh, 0.5vh) skewX(10deg); clip-path: inset(0 0 58% 0); filter: hue-rotate(90deg); }
+    16%  { transform: translateY(-50%) translate(1.2vh, -0.4vh); clip-path: inset(42% 0 0 0); filter: invert(1); }
+    24%  { transform: translateY(-50%); clip-path: inset(0); filter: none; }
+    46%  { transform: translateY(-50%) translate(0.6vh, 0.2vh) scaleX(1.08); clip-path: inset(30% 0 30% 0); filter: hue-rotate(200deg) saturate(3); }
+    52%  { transform: translateY(-50%) translate(-0.8vh, 0) skewX(-12deg); clip-path: inset(0); filter: none; }
+    70%  { transform: translateY(-50%); clip-path: inset(0 40% 0 0); opacity: 0.4; }
+    74%  { transform: translateY(-50%) translate(1vh, 0.3vh); clip-path: inset(0); opacity: 1; filter: hue-rotate(300deg); }
+    100% { transform: translateY(-50%); clip-path: inset(0); filter: none; }
+  }
+  @keyframes ransomKnob {
+    0%   { transform: translate(0, 0); opacity: 1; background: rgba(255,140,140,0.65); border-radius: 50%; }
+    12%  { transform: translate(-4vh, 2vh) scale(0.7); background: rgba(0,255,120,0.8); border-radius: 20%; }
+    25%  { transform: translate(5vh, -3vh) scale(1.2, 0.6); opacity: 0.2; }
+    38%  { transform: translate(-2vh, -5vh); opacity: 1; background: rgba(255,0,200,0.8); border-radius: 50% 0 50% 0; }
+    55%  { transform: translate(3vh, 4vh) scale(0.5); opacity: 0; }
+    62%  { transform: translate(-5vh, 0); opacity: 1; background: rgba(0,220,255,0.8); border-radius: 10%; }
+    80%  { transform: translate(1vh, -2vh) scale(1.4, 0.8); background: rgba(255,255,0,0.8); }
+    100% { transform: translate(0, 0); opacity: 1; background: rgba(255,140,140,0.65); border-radius: 50%; }
+  }
+  #aimJoystickBase.ransomGlitch {
+    border-color: rgba(255,40,40,0.9); background: rgba(255,0,0,0.18);
+    box-shadow: -0.7vh 0 0 rgba(255,0,0,0.6), 0.7vh 0 0 rgba(0,255,255,0.6);
+    animation: ransomBase 0.7s steps(1, end) infinite;
+  }
+  #aimJoystickBase.ransomGlitch::after {
+    content: 'ERR'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font: bold 4vh monospace; color: #ff4040; text-shadow: 0.4vh 0 #0ff; opacity: 0.7; pointer-events: none;
+    animation: ransomBase 0.45s steps(1, end) infinite reverse;
+  }
+  #aimJoystickBase.ransomGlitch #aimJoystickKnob { animation: ransomKnob 0.55s steps(1, end) infinite; }
+
   #rotateHint {
     display: none; position: fixed; inset: 0; z-index: 250; /* ロビー(100)や各種オーバーレイ(〜140)より前に出して、縦向きだと必ず見えるようにする */
     background: rgba(10,10,16,0.94); color: #fff;
@@ -5970,9 +6004,11 @@ function applyWeaponLevel(base, level) {
 // ============== Phaserシーン ==============
 const TILE = 32;
 // 📺 グリッチ戦の攻撃のテスト用：'shell'（シェルゲーム）／'shoot'（射撃）／'rush'（追撃）を入れると、毎回その攻撃だけになる。普段は null（ランダム）
-const GLITCH_TEST_ATK = 'wave'; // テストで毎回同じ攻撃にする時は 'shoot' / 'rush' / 'shell' / 'fork' / 'wave'
+const GLITCH_TEST_ATK = null; // テストで毎回同じ攻撃にする時は 'shoot' / 'rush' / 'shell' / 'fork' / 'ransom' / 'wave' / 'combo'
 // 🪟 フォークボム（ウイルスのウィンドウが右下へ次々と増える攻撃）の調整値
 const GLITCH_FORK = { w: TILE * 13, h: TILE * 9, corridor: TILE * 10, damage: 30, pushSpeed: 700, stepX: TILE * 0.85, stepY: TILE * 0.95, maxN: 80, openT: 0, interval: 0.065, waitT: 0.7, riseDelay: 0.5, hold: Infinity, warnT: 0.6, leaps: 10, shakeT: 1.0, peekSpeed: TILE * 4, leapSpeed: TILE * 40, accT: 0.4, leapDamage: 40, leapPause: 0.1 }; // w,h＝ウィンドウの大きさ（部屋が小さい時は部屋の8割まで縮む）／stepX,stepY＝次のウィンドウへのずれ（右下）／corridor＝2本の列のあいだに空ける通り道の幅（窓が斜めに重なって太くなる分を除いた、あいている幅）／damage＝出たウィンドウに重なっていたプレイヤーへのダメージ／pushSpeed＝通り道へ押し出される速さ（px/秒）／maxN＝1列の最大数（上限。通常は、上端が部屋の下端に重なる所まで並ぶ）／openT＝最初の2枚が出てからサメが動くまで／interval＝1枚ずつ増える間隔／waitT＝サメが潜ってから増え始めるまでの間／riseDelay＝増え終わってからサメが浮かぶまで／hold＝増え終わってから消え始めるまで（Infinity＝時間では消えない。技が終わって（rise）サメが浮かんだ時点で、順に消える）／warnT＝出現位置に赤い枠の警告を出してからウィンドウが出るまで／leaps＝ウィンドウ間の飛び込みを繰り返す回数／shakeT＝通路にゆっくり顔を出している時間（これが予告の代わり）／peekSpeed＝顔を出す時の遅い速さ／leapSpeed＝そのあと泳ぎ抜ける最高速／accT＝遅い速さから最高速まで加速する時間／leapDamage＝横切るサメに当たった時のダメージ／leapPause＝飛び込んでから次の振動までの間
+// 🔀 ランサムウェア：サメが姿を現して「感染」させると、プレイヤーは t 秒のあいだ、移動の操作が上下左右反転する。サメ自身は castT 秒だけその場で止まってから、また泳ぎ回る。テストで毎回この攻撃にする時は GLITCH_TEST_ATK = 'ransom'。（武器が使えなくなるのは、フォークボム中：_ransomLock）
+const GLITCH_RANSOM = { t: 8, castT: 1.6 };
 // 🌊 グリッチの攻撃「波」の調整値（秒・px。_sharkWaveMove／_sharkWaveUpdate の流れの順）
 // 流れ：姿を出す → 尾をプレイヤーへ向ける(turn) → 尾を振りかぶる(wind) → 扇ぐように振り抜く(swing。途中で尾の先から波が出る) → 少し止まる(recover) → 潜る。
 // 波：尾の先を中心に、前縁が広がりながら進む帯（進むほど厚く・広くなる）。当たっている間は継続ダメージを受けながら、進む向きへ押し流される。古代魔法でパリィすると、ダメージも押し流しもなくなる（波は弱まって消える）。テストで毎回この攻撃にする時は GLITCH_TEST_ATK = 'wave'。
@@ -5982,7 +6018,7 @@ const GLITCH_WAVE = {
   swingT: 0.26,      // 尾を振り抜く時間（この途中で、尾の先から波が出る）
   recoverT: 0.9,     // 振り抜いてから、潜るまで
   tailRot: 1.3,      // 尾の振れ幅（ラジアン。尾の長さは変えず、付け根から先を、この角度まで左右へぐるっと回す）
-  speed: TILE * 11,  // 波の進む速さ（プレイヤーの歩く速さは約5.3マス/秒）
+  speed: TILE * 16,  // 波の進む速さ（プレイヤーの歩く速さは約5.3マス/秒）
   r0: TILE * 0.8,    // 出た時の、波の前縁の距離（尾の先から）
   thick0: TILE * 1.2, thick1: TILE * 5,   // 波の厚み（出た時 → 最大）
   ang0: 0.35, ang1: 0.8,   // 波の広がり（半角ラジアン。出た時 → 最大。広げすぎると、横へ走っても逃げ切れない）
@@ -5990,6 +6026,13 @@ const GLITCH_WAVE = {
   maxR: TILE * 46,   // ここまで進んだら消える
   damage: 6, tick: 0.45, // 継続ダメージ：当たっている間、tick 秒ごとに damage（無敵時間はこの長さ）
   push: TILE * 5.5   // 押し流す速さ（進む向きへ。波の速さより遅く、歩く速さと同じくらい）
+};
+// 🔁 連撃：既存の追撃（'rush'）を、そのつど違うランダムな方向から、続けて count 回やってくる。1回ごとに、いったん潜って（gap 秒）、プレイヤーのまわりの別の方向へ移って、姿を現してから追いかける。テストで毎回この攻撃にする時は GLITCH_TEST_ATK = 'combo'。
+const GLITCH_COMBO = {
+  count: 3,          // 追撃の回数
+  rushT: 2.0,        // 1回あたりの追いかける時間（秒）。既存の追撃は4.5秒
+  gap: 0.55,         // 1回が終わってから、潜って、次の位置へ移るまでの時間（秒）
+  dist: TILE * 11    // 現れる位置：プレイヤーからこの距離（体の中心）。壁の中なら、別の方向を選び直す
 };
 // 🥤 グリッチの攻撃「シェルゲーム」の調整値（秒・px。_sgUpdate の流れの順）
 const GLITCH_SHELL = {
@@ -8425,7 +8468,7 @@ class GameScene extends Phaser.Scene {
     this._sharkG = this.add.graphics().setDepth(4);
     if (this._sharkG2 && this._sharkG2.scene) this._sharkG2.destroy();
     if (this._sharkG0 && this._sharkG0.scene) this._sharkG0.destroy();
-    if (this._forkG && this._forkG.scene) this._forkG.destroy(); this._forkG = null; this._fork = null; // 🪟 前のフォークボムのウィンドウが残っていれば消す
+    if (this._forkG && this._forkG.scene) this._forkG.destroy(); this._forkG = null; this._fork = null; this._ransomT = 0; // 🪟 前のフォークボムのウィンドウが残っていれば消す
     this._bloodPools = []; this._bloodDirty = false; if (this._bloodG && this._bloodG.scene) this._bloodG.destroy(); this._bloodG = this.add.graphics().setDepth(3.5); // 🩸 血だまりの層
     if (this._sharkGS && this._sharkGS.scene) this._sharkGS.destroy(); this._sharkGS = this.add.graphics().setDepth(12); // 🟩 グリッチ弾・照準の層
     if (this._sharkWG && this._sharkWG.scene) this._sharkWG.destroy(); this._sharkWG = this.add.graphics().setDepth(4.4); // 🌊 波の層（サメの体・文字より手前、プレイヤー(5)より奥）
@@ -8631,6 +8674,11 @@ class GameScene extends Phaser.Scene {
     for (const w of S.waves) { if (w.parried) continue; if (this._waveOverlap(w, x, y, r) && !this._waveOverlap(w, pl.x, pl.y, r)) return true; }
     return false;
   }
+  _comboPlace(S, plr) { // 🔁 連撃：プレイヤーのまわりの、ランダムな方向へ移って、プレイヤーの方を向く（壁の中は避ける。何度やっても見つからなければ、距離を縮めて探す）
+    if (!plr) return; const C = GLITCH_COMBO, R = Math.random;
+    for (let k = 0; k < 24; k++) { const th = R() * Math.PI * 2, dist = C.dist * (k < 16 ? 1 : 0.6), x = plr.x + Math.cos(th) * dist, y = plr.y + Math.sin(th) * dist;
+      if (!this.circleHitsWall(x, y, TILE * 0.8)) { S.x = x; S.y = y; S.a = Math.atan2(plr.y - y, plr.x - x); S.v = 0; S.bend = 0; return; } }
+  }
   _sharkWaveUpdate(S, shp, dt, plOk) { // 🌊 波：尾の先から出て、前縁が広がりながら進む（進むほど厚く・広くなる）。当たると継続ダメージを受けながら押し流される。古代魔法でパリィすると、ダメージも押し流しもなくなる
     const F = GLITCH_WAVE, R = Math.random, pl = this.player, WV = S.waves || (S.waves = []), wrap = d => Math.atan2(Math.sin(d), Math.cos(d));
     if (!this._sharkWG || !this._sharkWG.scene) this._sharkWG = this.add.graphics().setDepth(4.4);
@@ -8712,7 +8760,7 @@ class GameScene extends Phaser.Scene {
       const tv = S.speed * (S.rushFixed ? GLITCH_SHELL.dashK : 7) * (0.9 + 0.1 * Math.cos(S.ph * 2)) * (1 - 0.25 * Math.abs(S.bend)); S.v += (tv - S.v) * Math.min(1, dt * 6);
       S.ph += dt * Math.PI * 2 * S.beat * 3.2;
       S.x += Math.cos(S.a) * S.v * dt; S.y += Math.sin(S.a) * S.v * dt;
-    } else if (m0 === 'aim') { // 🟩 その場で止まって、プレイヤーの方へ鼻先を向ける。最後の0.55秒は向きを固定する
+    } else if (m0 === 'aim' || m0 === 'cdive') { // 🟩 その場で止まって、プレイヤーの方へ鼻先を向ける（🔁 連撃の潜っている間も同じ）。最後の0.55秒は向きを固定する
       S.v *= Math.max(0, 1 - dt * 6);
       if (plOk && !S.aimFired) { const nx = S.x + Math.cos(S.a) * S.len * 0.5, ny = S.y + Math.sin(S.a) * S.len * 0.5, d = wrap(Math.atan2(plr.y - ny, plr.x - nx) - S.a); S.a += Math.max(-3 * dt, Math.min(3 * dt, d)); }
       S.bend *= Math.max(0, 1 - dt * 4); S.ph += dt * Math.PI * 2 * S.beat * 0.8;
@@ -8748,8 +8796,8 @@ class GameScene extends Phaser.Scene {
     const splashBurst = (n, pt = fbP) => { for (let i = 0; i < n && S.splash.length < 420; i++) S.splash.push({ x: pt.x + (R() - 0.5) * 18, y: pt.y + (R() - 0.5) * 8, z: 2 + R() * 10, vx: (R() - 0.5) * 110, vy: (R() - 0.5) * 50, vz: 70 + R() * 150, life: 0.5 + R() * 0.5, sz: 2 + Math.floor(R() * 3), c: SPC[Math.floor(R() * 4)] }); };
     S.mt -= dt;
     if (m0 === 'fin') {
-      if (S.mt <= 0) { if (S.sg) S.mt = 0.5; else if (plOk) { const ra = Math.random(); S.atk = GLITCH_TEST_ATK || (ra < 0.2 ? 'shoot' : ra < 0.4 ? 'rush' : ra < 0.6 ? 'shell' : ra < 0.8 ? 'wave' : (this._fork ? 'shoot' : 'fork')); // 🪟 前のフォークボムのウィンドウが残っている間は、重ねて出さない
-       S.mode = 'emerge'; S.mt = 0.45; splashBurst(34); } else S.mt = 2; } // しばらく泳ぎ回ったら、距離に関係なくその場で姿を現して、追撃を始める
+      if (S.mt <= 0) { if (S.sg) S.mt = 0.5; else if (plOk) { const pool = ['shoot', 'rush', 'shell', 'wave', this._fork ? 'shoot' : 'fork', 'combo', this._ransomT > 0 ? 'shoot' : 'ransom']; S.atk = GLITCH_TEST_ATK || pool[Math.min(pool.length - 1, Math.floor(Math.random() * pool.length))]; if (S.atk === 'combo') { S.cb = { left: GLITCH_COMBO.count }; this._comboPlace(S, plr); } /* 🔁 連撃：1回目も、プレイヤーのまわりのランダムな方向から */ // 🪟 前のフォークボムのウィンドウが残っている間は、重ねて出さない
+       S.mode = 'emerge'; S.mt = 0.45; splashBurst(34, S.atk === 'combo' ? { x: S.x, y: S.y } : fbP); } else S.mt = 2; } // しばらく泳ぎ回ったら、距離に関係なくその場で姿を現して、追撃を始める
     } else if (m0 === 'chase') {
       if (!plOk || S.mt <= 0) { S.mode = 'fin'; S.mt = 3 + R() * 3; S.wpT = 0; } // 追いつけない・見失ったら、泳ぎ回りに戻る
       else if (Math.hypot(plr.x - shp.sp[0].x, plr.y - shp.sp[0].y) < TILE * 3.5) { S.mode = 'emerge'; S.mt = 0.45; splashBurst(34); } // 距離が一定以内→水しぶきが飛び散り、体が出てくる
@@ -8759,7 +8807,9 @@ class GameScene extends Phaser.Scene {
         if (S.atk === 'shoot') { S.mode = 'aim'; S.mt = 1.8; S.aimFired = false; S.bp = 0; splashBurst(24); } // 射撃：少しだけ狙って、弾を放つ
         else if (S.atk === 'shell') { this._sgStart(S); splashBurst(24); } // 🥤 シェルゲーム：両隣にダミーを出して、背びれをシャッフルする（_sgStart〜_sgUpdate）
         else if (S.atk === 'fork') { this._forkStart(S); splashBurst(24); } // 🪟 フォークボム：右上と真ん中にウィンドウが出て、サメが真ん中のウィンドウに潜る（_forkStart〜_forkPhase）
+        else if (S.atk === 'ransom') { this._ransomStart(S); splashBurst(24); } // 🔀 ランサムウェア：移動の操作が一定時間反転（_ransomStart）
         else if (S.atk === 'wave') { S.mode = 'wave'; S.mt = 99; S.wv = { t: 0, ph: 'turn', fire: false, fired: false, sd: Math.random() < 0.5 ? 1 : -1, b0: 0 }; splashBurst(24); } // 🌊 波：尾をプレイヤーへ向けて、扇ぐように振る（_sharkWaveMove〜_sharkWaveUpdate）
+        else if (S.atk === 'combo') { if (!S.cb) S.cb = { left: GLITCH_COMBO.count }; S.cb.left--; S.mode = 'rush'; S.mt = GLITCH_COMBO.rushT; S.rushHit = false; S.rushFixed = false; splashBurst(24); } // 🔁 連撃：追撃を1回（残り回数を1つ減らす）
         else { S.mode = 'rush'; S.mt = 4.5; S.rushHit = false; S.rushFixed = false; splashBurst(24); } // 追撃：高速で追いかける（4.5秒間）
       }
     } else if (m0 === 'aim') { // 🟩 射撃：溜めながら狙う(1.25秒)→向きを固定(0.55秒)→発射→少し止まって潜る
@@ -8775,14 +8825,19 @@ class GameScene extends Phaser.Scene {
     } else if (m0 === 'wave') { // 🌊 波：振り抜いたあと少し止まって、潜る（出た波は、サメが潜ってもそのまま進む）
       const w = S.wv;
       if (!plOk || !w || (w.ph === 'recover' && w.t >= GLITCH_WAVE.recoverT)) { for (const i of [0, 6, 12, 18]) splashBurst(14, { x: shp.sp[i].x, y: shp.sp[i].y }); S.mode = 'fin'; S.mt = 3.5 + R() * 3; S.wpT = 0; S.wv = null; }
+    } else if (m0 === 'cdive') { // 🔁 連撃：潜って、プレイヤーのまわりの別の方向へ移り、また姿を現す
+      if (!plOk) { S.mode = 'fin'; S.mt = 3.5 + R() * 3; S.wpT = 0; }
+      else if (S.mt <= 0) { this._comboPlace(S, plr); S.mode = 'emerge'; S.mt = 0.45; splashBurst(34, { x: S.x, y: S.y }); }
     } else if (m0 === 'rush' || m0 === 'retreat' || m0 === 'grab') {
-      if ((!plOk && m0 !== 'retreat') || S.mt <= 0) { // 時間切れ・噛みつき後・戻りきった後：水しぶきを上げて、背びれに戻る
+      if (m0 === 'rush' && S.mt <= 0 && plOk && S.atk === 'combo' && S.cb && S.cb.left > 0) { for (const i of [0, 6, 12, 18]) splashBurst(14, { x: shp.sp[i].x, y: shp.sp[i].y }); S.mode = 'cdive'; S.mt = GLITCH_COMBO.gap; } // 🔁 連撃：まだ回数が残っている（かわした）なら、潜って次へ。パリィ・噛みつきの時は、既存どおり攻撃が終わる
+      else if ((!plOk && m0 !== 'retreat') || S.mt <= 0) { // 時間切れ・噛みつき後・戻りきった後：水しぶきを上げて、背びれに戻る
         for (const i of [0, 6, 12, 18]) splashBurst(14, { x: shp.sp[i].x, y: shp.sp[i].y });
         try { this.cameras.main.shake(120, 0.003); } catch (e) {}
         S.mode = 'fin'; S.mt = 3.5 + R() * 3; S.wpT = 0;
       }
+    } else if (m0 === 'ransom') { if (S.mt <= 0) { S.mode = 'fin'; S.mt = 3 + R() * 3; S.wpT = 0; } // 🔒 感染させたあと、少し止まってから泳ぎ回りに戻る（効果は残る）
     } else if (m0 === 'fork') { this._forkPhase(S, shp, dt, splashBurst); } // 🪟 フォークボムの進行
-    S.dive = Math.max(0, Math.min(1, S.dive + ((S.mode === 'fin' || S.mode === 'chase' || (S.mode === 'sg' && S.sgDown) || (S.mode === 'fork' && S.fk && S.fk.down)) ? 1 : -1) * dt / ((S.mode === 'emerge' || (S.mode === 'sg' && !S.sgDown)) ? 0.4 : 0.28))); // 出る：0.4秒／潜る：0.28秒
+    S.dive = Math.max(0, Math.min(1, S.dive + ((S.mode === 'fin' || S.mode === 'chase' || S.mode === 'cdive' || (S.mode === 'sg' && S.sgDown) || (S.mode === 'fork' && S.fk && S.fk.down)) ? 1 : -1) * dt / ((S.mode === 'emerge' || (S.mode === 'sg' && !S.sgDown)) ? 0.4 : 0.28))); // 出る：0.4秒／潜る：0.28秒
     // --- 🦈 体の当たり判定：体が出ていて低い間は、体に重なれない（押し出される）／飛びかかり中に頭に当たると噛まれる ---
     if (plOk && S.dive < 0.4) {
       const pl = this.player, pr = pl.radius, zz = S.z || 0;
@@ -8830,6 +8885,21 @@ class GameScene extends Phaser.Scene {
   //   shake／leap／ldive／pause：増え終わったら、サメがウィンドウの下から通路へゆっくり顔を出し（予告の代わり）→加速して反対側の列のウィンドウまで速く泳いで横切り、飛び込む、を GLITCH_FORK.leaps 回くり返す（横切るサメに当たるとダメージ）
   //   rise ：最後に飛び込んだウィンドウから浮かんで、泳ぎ回りに戻る。ウィンドウは時間では消えず、ここでサメが浮かんだ時点で崩れて消える
   // 当たり判定：ウィンドウは壁と同じで、入れない（縁にそって滑れる）。出た瞬間にそこにいたプレイヤーは、ダメージを受けて、2本の列のあいだの通り道へ横に押し出される（_forkCollide）。調整値は GLITCH_FORK、テストで毎回この攻撃にする時は GLITCH_TEST_ATK = 'fork'。
+  // 🔒 フォークボム中（サメが fork モードの間）は、武器が使えない（通常攻撃・各特殊武器の入口がこれを見る）。同じ間、右スティックは壊れた見た目になる（_ransomHud）
+  _ransomLock() { const S = this._shark; return !!(S && S.mode === 'fork' && S.fk && this._fork); }
+  _ransomStart(S) { // 🔀 ランサムウェア攻撃：サメが姿を現し終えたら、感染させる（_ransomT 秒、移動の操作が反転）。サメは castT 秒止まる（'ransom' モード）
+    const R = GLITCH_RANSOM; S.mode = 'ransom'; S.mt = R.castT; this._ransomT = R.t;
+    try { this.cameras.main.flash(250, 255, 40, 40); this.cameras.main.shake(300, 0.006); } catch (e) {}
+  }
+  _ransomHud() { // 武器ロック中・操作反転中だけ、画面上部に赤い警告を出す（右スティックの乱れはロック中だけ。スマホ）
+    const lock = this._ransomLock(), inv = this._ransomT > 0, show = lock || inv;
+    if (lock !== this._ransomOn) { this._ransomOn = lock; const b = document.getElementById('aimJoystickBase'); if (b) b.classList.toggle('ransomGlitch', lock); }
+    if (show && (!this._ransomTxt || !this._ransomTxt.scene)) this._ransomTxt = this.add.text(this.scale.width / 2, 60, '', { fontSize: '22px', color: '#ff4d4d', backgroundColor: '#000000bb', padding: { x: 12, y: 6 }, align: 'center' }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(1000);
+    if (this._ransomTxt && this._ransomTxt.scene) {
+      this._ransomTxt.setVisible(show);
+      if (show) { this._ransomTxt.setText([lock ? '🔒 RANSOMWARE：武器ロック中' : '', inv ? '🔀 操作反転 ' + this._ransomT.toFixed(1) + ' 秒' : ''].filter(Boolean).join('\n')); this._ransomTxt.setAlpha(0.6 + 0.4 * Math.sin(this.time.now / 90)); }
+    }
+  }
   _forkStart(S) {
     const room = S.room, F = GLITCH_FORK, pl = this.player, plOk = !!pl && this.playerHp > 0, rx = room.x * TILE, ry = room.y * TILE, rw = room.w * TILE, rh = room.h * TILE;
     const W = Math.min(F.w, rw * 0.8), H = Math.min(F.h, rh * 0.8); // 部屋が小さい時は、収まる大きさまで小さくする
@@ -15553,6 +15623,7 @@ class GameScene extends Phaser.Scene {
     if (this.vsHero) return; // 斬り合い：ふつうの武器は使わない（斬撃は _vhTick が出す）
     if (this.attackCooldown > 0 || this.transitioning || this.isDowned || this._autoWalk) return; // 自動で歩いている間（エンディングの続き）は攻撃できない
     if (this.wwNoAttack()) return; // 人狼ゲーム中の人狼以外、または夜以外の人狼：攻撃しない
+    if (this._ransomLock()) return; // 🔒 ランサムウェア：フォークボム中は、武器が使えない
     // マジックボム（chargeBomb）は「押し続けて溜め、離すと発射」専用の武器で、
     // updateMagicBombCharge()/fireMagicBomb()だけが発射を行う。スペースキー連打等による
     // 即時発射（無溜め状態での発射）を防ぐため、通常の攻撃入力はここで無視する。
@@ -16354,7 +16425,7 @@ class GameScene extends Phaser.Scene {
   updateJet(dt) {
     const w = this.weapon;
     this._jetCd = Math.max(0, (this._jetCd || 0) - dt);
-    const canUse = !!(w && w.type === 'jet' && this.player && !this.isDowned && !this.isGhost && !this.transitioning && !this._autoWalk && !this._a4Hold && !this._a4Fly && !this._astral);
+    const canUse = !!(w && w.type === 'jet' && this.player && !this.isDowned && !this.isGhost && !this.transitioning && !this._autoWalk && !this._a4Hold && !this._a4Fly && !this._astral && !this._ransomLock());
     if (!canUse) { if (this._jet) this.jetEnd(true); this.jetDrawFx(dt); return; }
     const aim = window.aimVector, pointer = this.input.activePointer;
     const pressed = IS_TOUCH_DEVICE ? !!(aim && aim.active) : (pointer.isDown && this._aimArmed);
@@ -16497,7 +16568,7 @@ class GameScene extends Phaser.Scene {
   updateAstral(dt) {
     const w = this.weapon;
     this._astralCd = Math.max(0, (this._astralCd || 0) - dt);
-    const canUse = !!(w && w.type === 'astral' && this.player && !this.isDowned && !this.isGhost && !this.transitioning && !this._autoWalk && !this._a4Hold && !this._a4Fly);
+    const canUse = !!(w && w.type === 'astral' && this.player && !this.isDowned && !this.isGhost && !this.transitioning && !this._autoWalk && !this._a4Hold && !this._a4Fly && !this._ransomLock());
     const aim = window.aimVector, pointer = this.input.activePointer;
     let pressed = false;
     if (canUse) pressed = IS_TOUCH_DEVICE ? !!(aim && aim.active) : (pointer.isDown && this._aimArmed);
@@ -16699,7 +16770,7 @@ class GameScene extends Phaser.Scene {
     const A = this._anc || (this._anc = { held: false, angle: 0, shield: null, ghosts: [], sp: [], rings: [], cd: 0, time: 0, snapT: 0, g: null });
     if (!A.g || !A.g.scene) A.g = this.add.graphics().setDepth(20);
     const g = A.g, w = this.weapon, pl = this.player; g.clear(); A.time += dt; A.cd -= dt;
-    const on = !!(w && w.type === 'ancient' && pl && !this.isGhost && !this.isDowned && !this.transitioning);
+    const on = !!(w && w.type === 'ancient' && pl && !this.isGhost && !this.isDowned && !this.transitioning && !this._ransomLock());
     if (on) {
       const held = IS_TOUCH_DEVICE ? !!(window.aimVector && window.aimVector.active) : this.input.activePointer.isDown; let angle = A.angle || this.facingAngle || 0;
       if (IS_TOUCH_DEVICE) { const aim = window.aimVector; if (aim && aim.active && (aim.x !== 0 || aim.y !== 0)) angle = Math.atan2(aim.y, aim.x); }
@@ -16750,7 +16821,7 @@ class GameScene extends Phaser.Scene {
   }
   updateMagicBombCharge(dt) {
     const w = this.weapon;
-    if (!w || !w.chargeBomb) {
+    if (!w || !w.chargeBomb || this._ransomLock()) {
       if (this.charge && this.charge.active) { this.charge.active = false; this.clearChargeVisuals(); }
       return;
     }
@@ -19753,7 +19824,7 @@ class GameScene extends Phaser.Scene {
   // 倒した方向（PCはマウスの方向）の魔法陣が選ばれ、離した時にその技を発動する。何も選ばずに離せばキャンセル。
   updateSummon2Menu(dt) {
     const w = this.weapon;
-    const active = !!(w && w.type === 'summon2' && !this.isDowned && !this.isGhost && !this.transitioning && !this._autoWalk);
+    const active = !!(w && w.type === 'summon2' && !this.isDowned && !this.isGhost && !this.transitioning && !this._autoWalk && !this._ransomLock());
     const pointer = this.input.activePointer;
     const aim = window.aimVector;
     if (this._s2GCd > 0) this._s2GCd = Math.max(0, this._s2GCd - dt); // クールダウンは武器を持ち替えても進む
@@ -25122,7 +25193,7 @@ class GameScene extends Phaser.Scene {
   //  - PC：ボタンを押している間、赤い点がマウスの位置に出る
   updateSniperAim(dt) {
     const w = this.weapon;
-    const can = !!(w && w.type === 'sniper' && this.ammo > 0 && !this.reloading && !this.isDowned && !this.isGhost && !this.transitioning && !this._autoWalk);
+    const can = !!(w && w.type === 'sniper' && this.ammo > 0 && !this.reloading && !this.isDowned && !this.isGhost && !this.transitioning && !this._autoWalk && !this._ransomLock());
     const pointer = this.input.activePointer;
     const aim = window.aimVector;
     if (!IS_TOUCH_DEVICE && !pointer.isDown) this._aimArmed = false;
@@ -27617,6 +27688,8 @@ class GameScene extends Phaser.Scene {
     } else if (dx !== 0 && dy !== 0) {
       dx *= 0.7071; dy *= 0.7071;
     }
+    if (this._ransomT > 0) { this._ransomT -= delta / 1000; dx = -dx; dy = -dy; } // 🔀 ランサムウェア：感染中は、移動の操作が反転（残り時間もここで減らす）
+    this._ransomHud();
     if (this._autoWalk) { const aw = this._autoWalkDir(); dx = aw.x; dy = aw.y; } // エンディングの続き：自動で歩く（操作は効かない）
     if (this.vsHero) { this._vhStep(dx, dy, dt * (this._vhTsEff == null ? 1 : this._vhTsEff)); dx = 0; dy = 0; } // ⚔ 斬り合い：画面の中なら、自由に動ける
     this._gTs = 1; if (this.glitchBoss && this._gSlowT > 0) { this._gSlowT -= delta / 1000; { const gu = Math.min(1, Math.max(0, 1 - this._gSlowT / 0.7)); this._gTs = 0.06 + 0.94 * gu * gu; } dx *= this._gTs; dy *= this._gTs; } // 🐌 パリィ後のスローモーション：速さの倍率（0.2→1）。自分の動きも遅くなる
