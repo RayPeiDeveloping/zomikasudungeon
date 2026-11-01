@@ -8651,12 +8651,13 @@ class GameScene extends Phaser.Scene {
       if (!w.parried && plOk) { // 🛡 パリィ：前縁の帯のどこかが盾に触れたら成功。ダメージも押し流しもなくなる（ダメージ直後の無敵時間中でも、盾が出ていれば止められる）
         for (let j = 0; j <= 8; j++) { const an = w.a - al + al * 2 * j / 8, rr = Math.max(0, w.R - th * 0.5), px = w.ox + Math.cos(an) * rr, py = w.oy + Math.sin(an) * rr; if (this._ancientBlocks(px, py, th * 0.55)) { w.parried = true; let fx = px, fy = py; const hx = this._ancientNearHex(px, py); if (hx) { const vx = hx.x - w.ox, vy = hx.y - w.oy, dd = Math.hypot(vx, vy) || 1, cc = Math.min(dd + hx.r, Math.max(dd - hx.r, rr)); fx = w.ox + vx / dd * cc; fy = w.oy + vy / dd * cc; } /* 波の発生源から盾の六角形へ向かう線上の、波の帯が盾に触れる位置（盾の外側の面） */ this._ancientParryFx(fx, fy); break; } }
       }
-      if (!w.parried && plOk) { // 当たり判定：波の帯（前縁 R から厚み th の分だけ内側、広がり ±al）にプレイヤーがいる間は、継続ダメージ＋進む向きへ押し流される
+      if (!w.parried && plOk) { // 当たり判定：波の帯（前縁 R から厚み th の分だけ内側、広がり ±al）は壁。重なっているあいだダメージを受け続け、前縁の外へ押し出されて運ばれる
         const vx = pl.x - w.ox, vy = pl.y - w.oy, d = Math.hypot(vx, vy), pr = pl.radius || TILE * 0.32, da = Math.abs(wrap(Math.atan2(vy, vx) - w.a)), slack = d > pr ? Math.asin(Math.min(1, pr / d)) : Math.PI;
         if (d - pr <= w.R && d + pr >= w.R - th && da <= al + slack) {
-          if (this._sharkHurt(F.damage, F.tick)) this.spawnBurst(pl.x, pl.y, 0x2aff5a, 8);
-          const st = F.push * dt, dx = ca * st, dy = sa * st; // 壁にそってすべる（壁には押し込まない）
-          if (!this.circleHitsWall(pl.x + dx, pl.y, pr)) pl.x += dx; if (!this.circleHitsWall(pl.x, pl.y + dy, pr)) pl.y += dy;
+          // 🧱 波は壁：重なったプレイヤーは、波の前縁の外へ押し出され、前縁に運ばれる（波の速さのまま）。通り抜けられない。部屋の壁と波にはさまれて動かせない時は、波がそのまま体を通り過ぎる。ダメージは、波に重なっているあいだ続く
+          const ux = d > 1e-3 ? vx / d : ca, uy = d > 1e-3 ? vy / d : sa, tgt = w.R + pr + 1, tx = w.ox + ux * tgt, ty = w.oy + uy * tgt;
+          if (tgt > d) { if (!this.circleHitsWall(tx, ty, pr)) { pl.x = tx; pl.y = ty; } else { if (!this.circleHitsWall(tx, pl.y, pr)) pl.x = tx; if (!this.circleHitsWall(pl.x, ty, pr)) pl.y = ty; } }
+          if (this._sharkHurt(F.damage, F.tick)) this.spawnBurst(pl.x, pl.y, 0x2aff5a, 8); // 当たっている（波に重なっている）あいだは、毎フレーム判定し続ける（間隔は F.tick の無敵時間）
         }
       }
       // --- 描画：緑の波（外のにじむ光→本体→明るい内側）＋ギザギザの白い波頭＋泡 ---
