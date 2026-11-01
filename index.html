@@ -5970,9 +5970,27 @@ function applyWeaponLevel(base, level) {
 // ============== Phaserシーン ==============
 const TILE = 32;
 // 📺 グリッチ戦の攻撃のテスト用：'shell'（シェルゲーム）／'shoot'（射撃）／'rush'（追撃）を入れると、毎回その攻撃だけになる。普段は null（ランダム）
-const GLITCH_TEST_ATK = null; // テストで毎回同じ攻撃にする時は 'shoot' / 'rush' / 'shell' / 'fork'
+const GLITCH_TEST_ATK = null; // テストで毎回同じ攻撃にする時は 'shoot' / 'rush' / 'shell' / 'fork' / 'wave'
 // 🪟 フォークボム（ウイルスのウィンドウが右下へ次々と増える攻撃）の調整値
 const GLITCH_FORK = { w: TILE * 13, h: TILE * 9, corridor: TILE * 10, damage: 30, pushSpeed: 700, stepX: TILE * 0.85, stepY: TILE * 0.95, maxN: 80, openT: 0, interval: 0.065, waitT: 0.7, riseDelay: 0.5, hold: Infinity, warnT: 0.6, leaps: 10, shakeT: 1.0, peekSpeed: TILE * 4, leapSpeed: TILE * 40, accT: 0.4, leapDamage: 40, leapPause: 0.1 }; // w,h＝ウィンドウの大きさ（部屋が小さい時は部屋の8割まで縮む）／stepX,stepY＝次のウィンドウへのずれ（右下）／corridor＝2本の列のあいだに空ける通り道の幅（窓が斜めに重なって太くなる分を除いた、あいている幅）／damage＝出たウィンドウに重なっていたプレイヤーへのダメージ／pushSpeed＝通り道へ押し出される速さ（px/秒）／maxN＝1列の最大数（上限。通常は、上端が部屋の下端に重なる所まで並ぶ）／openT＝最初の2枚が出てからサメが動くまで／interval＝1枚ずつ増える間隔／waitT＝サメが潜ってから増え始めるまでの間／riseDelay＝増え終わってからサメが浮かぶまで／hold＝増え終わってから消え始めるまで（Infinity＝時間では消えない。技が終わって（rise）サメが浮かんだ時点で、順に消える）／warnT＝出現位置に赤い枠の警告を出してからウィンドウが出るまで／leaps＝ウィンドウ間の飛び込みを繰り返す回数／shakeT＝通路にゆっくり顔を出している時間（これが予告の代わり）／peekSpeed＝顔を出す時の遅い速さ／leapSpeed＝そのあと泳ぎ抜ける最高速／accT＝遅い速さから最高速まで加速する時間／leapDamage＝横切るサメに当たった時のダメージ／leapPause＝飛び込んでから次の振動までの間
+// 🌊 グリッチの攻撃「波」の調整値（秒・px。_sharkWaveMove／_sharkWaveUpdate の流れの順）
+// 流れ：姿を出す → 尾をプレイヤーへ向ける(turn) → 尾を振りかぶる(wind) → 扇ぐように振り抜く(swing。途中で尾の先から波が出る) → 少し止まる(recover) → 潜る。
+// 波：尾の先を中心に、前縁が広がりながら進む帯（進むほど厚く・広くなる）。当たっている間は継続ダメージを受けながら、進む向きへ押し流される。古代魔法でパリィすると、ダメージも押し流しもなくなる（波は弱まって消える）。テストで毎回この攻撃にする時は GLITCH_TEST_ATK = 'wave'。
+const GLITCH_WAVE = {
+  turnT: 1.3,        // 尾をプレイヤーへ向けるまでの最大時間（向き終わったら、すぐ次へ）
+  windT: 0.55,       // 尾を振りかぶる時間
+  swingT: 0.26,      // 尾を振り抜く時間（この途中で、尾の先から波が出る）
+  recoverT: 0.9,     // 振り抜いてから、潜るまで
+  bendMax: 5,        // 尾の振れ幅（大きいほど、尾が横へ大きく振れる）
+  speed: TILE * 7,   // 波の進む速さ（プレイヤーの歩く速さは約5.3マス/秒）
+  r0: TILE * 0.8,    // 出た時の、波の前縁の距離（尾の先から）
+  thick0: TILE * 0.9, thick1: TILE * 3.4, // 波の厚み（出た時 → 最大）
+  ang0: 0.2, ang1: 0.45, // 波の広がり（半角ラジアン。出た時 → 最大。広げすぎると、横へ走っても逃げ切れない）
+  grow: TILE * 22,   // 最大の大きさになる前縁の距離
+  maxR: TILE * 46,   // ここまで進んだら消える
+  damage: 6, tick: 0.45, // 継続ダメージ：当たっている間、tick 秒ごとに damage（無敵時間はこの長さ）
+  push: TILE * 5.5   // 押し流す速さ（進む向きへ。波の速さより遅く、歩く速さと同じくらい）
+};
 // 🥤 グリッチの攻撃「シェルゲーム」の調整値（秒・px。_sgUpdate の流れの順）
 const GLITCH_SHELL = {
   showT: 1.1,        // 姿を現して、両隣にダミーが出ている時間
@@ -8410,6 +8428,7 @@ class GameScene extends Phaser.Scene {
     if (this._forkG && this._forkG.scene) this._forkG.destroy(); this._forkG = null; this._fork = null; // 🪟 前のフォークボムのウィンドウが残っていれば消す
     this._bloodPools = []; this._bloodDirty = false; if (this._bloodG && this._bloodG.scene) this._bloodG.destroy(); this._bloodG = this.add.graphics().setDepth(3.5); // 🩸 血だまりの層
     if (this._sharkGS && this._sharkGS.scene) this._sharkGS.destroy(); this._sharkGS = this.add.graphics().setDepth(12); // 🟩 グリッチ弾・照準の層
+    if (this._sharkWG && this._sharkWG.scene) this._sharkWG.destroy(); this._sharkWG = this.add.graphics().setDepth(4.4); // 🌊 波の層（サメの体・文字より手前、プレイヤー(5)より奥）
     this._sharkG0 = this.add.graphics().setDepth(3.9); // 🌊 空中にいる間の、床に落ちる影
     this._sharkG2 = this.add.graphics().setDepth(4.2); // 🌊 潜航中の背びれ・波紋・水しぶき（体より手前に描く）
     if (this._shark && this._shark.txts) this._shark.txts.forEach(q => { if (q.scene) q.destroy(); });
@@ -8577,6 +8596,67 @@ class GameScene extends Phaser.Scene {
       gs.lineStyle(f.w, f.c, Math.min(1, f.life / f.max * 1.6)); gs.lineBetween(f.x, f.y, f.x - f.vx * 0.07, f.y - f.vy * 0.07);
     }
   }
+  _sharkWaveMove(S, dt, plOk, plr) { // 🌊 波：尾をプレイヤーへ向けて（鼻先は反対向き）→振りかぶり→扇ぐように振り抜く。振り抜く途中で S.wv.fire が立ち、尾の先から波が出る（_sharkWaveUpdate）
+    const F = GLITCH_WAVE, w = S.wv; if (!w) return;
+    const wrap = d => Math.atan2(Math.sin(d), Math.cos(d)); w.t += dt;
+    S.v *= Math.max(0, 1 - dt * 6);
+    if (w.ph === 'turn') {
+      S.bend *= Math.max(0, 1 - dt * 4); S.ph += dt * Math.PI * 2 * S.beat * 0.8;
+      if (plOk) { const d = wrap(Math.atan2(plr.y - S.y, plr.x - S.x) + Math.PI - S.a); S.a += Math.max(-3.2 * dt, Math.min(3.2 * dt, d)); if (Math.abs(d) < 0.12 || w.t >= F.turnT) { w.ph = 'wind'; w.t = 0; } } // 尾がプレイヤーの方を向く
+      else if (w.t >= F.turnT) { w.ph = 'wind'; w.t = 0; }
+    } else if (w.ph === 'wind') { // 尾を片側へぐっと引く
+      S.bend += (-F.bendMax * w.sd - S.bend) * Math.min(1, dt * 7); S.ph += dt * Math.PI * 2 * S.beat * 0.4;
+      if (w.t >= F.windT) { w.ph = 'swing'; w.t = 0; w.b0 = S.bend; }
+    } else if (w.ph === 'swing') { // 反対側へ一気に振り抜く（扇ぐ）。半分まで来たら、尾の先から波を出す
+      const u = Math.min(1, w.t / F.swingT), es = u * u * (3 - 2 * u); S.bend = w.b0 + (F.bendMax * w.sd - w.b0) * es;
+      if (!w.fired && u >= 0.45) { w.fired = true; w.fire = true; }
+      if (u >= 1) { w.ph = 'recover'; w.t = 0; }
+    } else { S.bend *= Math.max(0, 1 - dt * 3); S.ph += dt * Math.PI * 2 * S.beat * 0.8; } // recover
+    S.x += Math.cos(S.a) * S.v * dt; S.y += Math.sin(S.a) * S.v * dt;
+  }
+  _sharkWaveUpdate(S, shp, dt, plOk) { // 🌊 波：尾の先から出て、前縁が広がりながら進む（進むほど厚く・広くなる）。当たると継続ダメージを受けながら押し流される。古代魔法でパリィすると、ダメージも押し流しもなくなる
+    const F = GLITCH_WAVE, R = Math.random, pl = this.player, WV = S.waves || (S.waves = []), wrap = d => Math.atan2(Math.sin(d), Math.cos(d));
+    if (!this._sharkWG || !this._sharkWG.scene) this._sharkWG = this.add.graphics().setDepth(4.4);
+    const g = this._sharkWG; g.clear();
+    const wv = S.wv;
+    if (wv && wv.fire) { // 尾の先から、プレイヤーの方へ波を出す（向きは出した時に固定。追尾しない）
+      wv.fire = false; const tl = shp.sp[shp.sp.length - 1], ang = plOk ? Math.atan2(pl.y - tl.y, pl.x - tl.x) : S.a + Math.PI;
+      WV.push({ ox: tl.x, oy: tl.y, a: ang, R: F.r0, age: 0, parried: false, fade: 1 });
+      this.spawnBurst(tl.x, tl.y, 0x9dffb4, 18); this.spawnBurst(tl.x, tl.y, 0x2aff5a, 10); try { this.cameras.main.shake(150, 0.004); } catch (e) {}
+      for (let i = 0; i < 24 && S.splash.length < 420; i++) S.splash.push({ x: tl.x + (R() - 0.5) * 20, y: tl.y + (R() - 0.5) * 20, z: 2 + R() * 8, vx: Math.cos(ang) * (60 + R() * 160) + (R() - 0.5) * 80, vy: Math.sin(ang) * (60 + R() * 160) + (R() - 0.5) * 80, vz: 60 + R() * 140, life: 0.5 + R() * 0.5, sz: 3 + Math.floor(R() * 4), c: [0x2aff5a, 0x9dffb4, 0xc8ffd4][(R() * 3) | 0] });
+    }
+    for (let i = WV.length - 1; i >= 0; i--) {
+      const w = WV[i]; w.age += dt;
+      if (w.parried) { w.fade -= dt / 0.45; w.R += F.speed * 0.2 * dt; if (w.fade <= 0) { WV.splice(i, 1); continue; } } else w.R += F.speed * dt; // パリィされた波は、勢いをなくして弱まる
+      if (w.R > F.maxR) { WV.splice(i, 1); continue; }
+      const k = Math.min(1, Math.max(0, (w.R - F.r0) / F.grow)), th = F.thick0 + (F.thick1 - F.thick0) * k, al = F.ang0 + (F.ang1 - F.ang0) * k; // 厚み・広がり：進むほど大きくなる
+      const ca = Math.cos(w.a), sa = Math.sin(w.a);
+      if (!w.parried && plOk) { // 🛡 パリィ：前縁の帯のどこかが盾に触れたら成功。ダメージも押し流しもなくなる（ダメージ直後の無敵時間中でも、盾が出ていれば止められる）
+        for (let j = 0; j <= 8; j++) { const an = w.a - al + al * 2 * j / 8, rr = Math.max(0, w.R - th * 0.5), px = w.ox + Math.cos(an) * rr, py = w.oy + Math.sin(an) * rr; if (this._ancientBlocks(px, py, th * 0.55)) { w.parried = true; this._ancientParryFx(px, py); break; } }
+      }
+      if (!w.parried && plOk) { // 当たり判定：波の帯（前縁 R から厚み th の分だけ内側、広がり ±al）にプレイヤーがいる間は、継続ダメージ＋進む向きへ押し流される
+        const vx = pl.x - w.ox, vy = pl.y - w.oy, d = Math.hypot(vx, vy), pr = pl.radius || TILE * 0.32, da = Math.abs(wrap(Math.atan2(vy, vx) - w.a)), slack = d > pr ? Math.asin(Math.min(1, pr / d)) : Math.PI;
+        if (d - pr <= w.R && d + pr >= w.R - th && da <= al + slack) {
+          if (this._sharkHurt(F.damage, F.tick)) this.spawnBurst(pl.x, pl.y, 0x2aff5a, 8);
+          const st = F.push * dt, dx = ca * st, dy = sa * st; // 壁にそってすべる（壁には押し込まない）
+          if (!this.circleHitsWall(pl.x + dx, pl.y, pr)) pl.x += dx; if (!this.circleHitsWall(pl.x, pl.y + dy, pr)) pl.y += dy;
+        }
+      }
+      // --- 描画：緑の波（外のにじむ光→本体→明るい内側）＋ギザギザの白い波頭＋泡 ---
+      const f = (w.parried ? Math.max(0, w.fade) : 1) * Math.min(1, w.age / 0.12), N = 20;
+      const band = (rIn, rOut, aH, col, a0) => { g.fillStyle(col, a0 * f); g.beginPath(); for (let j = 0; j <= N; j++) { const an = w.a - aH + aH * 2 * j / N; if (j === 0) g.moveTo(w.ox + Math.cos(an) * rOut, w.oy + Math.sin(an) * rOut); else g.lineTo(w.ox + Math.cos(an) * rOut, w.oy + Math.sin(an) * rOut); } for (let j = N; j >= 0; j--) { const an = w.a - aH * 0.8 + aH * 1.6 * j / N; g.lineTo(w.ox + Math.cos(an) * rIn, w.oy + Math.sin(an) * rIn); } g.closePath(); g.fillPath(); };
+      band(Math.max(0, w.R - th * 1.15), w.R + th * 0.12, al * 1.1, 0x2aff5a, 0.10);
+      band(Math.max(0, w.R - th), w.R, al, 0x2aff5a, 0.24);
+      band(Math.max(0, w.R - th * 0.65), w.R, al * 0.95, 0x9dffb4, 0.30);
+      for (const [rf, lw, c, a0] of [[0, 3, 0xc8ffd4, 0.95], [0.35, 2, 0x9dffb4, 0.6], [0.7, 2, 0x2aff5a, 0.45]]) { // 波頭と、その後ろの筋
+        const rr = Math.max(0, w.R - th * rf); g.lineStyle(lw, c, a0 * f); g.beginPath();
+        for (let j = 0; j <= N; j++) { const an = w.a - al + al * 2 * j / N, jit = (R() - 0.5) * (rf === 0 ? 7 : 4), x = w.ox + Math.cos(an) * (rr + jit), y = w.oy + Math.sin(an) * (rr + jit); if (j === 0) g.moveTo(x, y); else g.lineTo(x, y); }
+        g.strokePath();
+      }
+      for (let q = 0; q < 6; q++) { const an = w.a + (R() * 2 - 1) * al, rr = w.R - R() * th * 0.55, sz = 2 + ((R() * 4) | 0); g.fillStyle(R() < 0.5 ? 0xe8ffee : 0x9dffb4, 0.85 * f); g.fillRect(w.ox + Math.cos(an) * rr - sz / 2, w.oy + Math.sin(an) * rr - sz / 2, sz, sz); } // 泡
+      if (R() < 0.5) { const an = w.a + (R() * 2 - 1) * al * 0.9, rr = w.R - R() * th, len = 14 + R() * 40; g.fillStyle(R() < 0.6 ? 0x000000 : 0xc8ffd4, 0.8 * f); g.fillRect(w.ox + Math.cos(an) * rr, w.oy + Math.sin(an) * rr, len, 2); } // グリッチの走査線・黒いかけら
+    }
+  }
   _sharkHurt(dmg, inv) { // 🦈 サメの攻撃がプレイヤーに当たった時のダメージ（無敵時間・死亡処理は既存の流れに合わせる）
     if (this.isGhost || this.isDowned || this.playerInvuln > 0 || this.playerHp <= 0) return false;
     const d = this.accDmgTaken(dmg); this.recordDamageTaken(d);
@@ -8629,6 +8709,7 @@ class GameScene extends Phaser.Scene {
       const tv = S.speed * 3.5 * (0.9 + 0.1 * Math.cos(S.ph * 2)) * (1 - 0.25 * Math.abs(S.bend)); S.v += (tv - S.v) * Math.min(1, dt * 4);
       S.ph += dt * Math.PI * 2 * S.beat * 2.2;
       S.x += Math.cos(S.a) * S.v * dt; S.y += Math.sin(S.a) * S.v * dt;
+    } else if (m0 === 'wave') { this._sharkWaveMove(S, dt, plOk, plr); // 🌊 波：尾をプレイヤーへ向けて、扇ぐように振る
     } else if (m0 === 'fork') { this._forkMove(S, dt, plOk, plr); // 🪟 フォークボム中の泳ぎ（ウィンドウへ向かう）
     }
     // --- 見た目の切り替え（ゆっくり：0.2秒ごと以上）---
@@ -8642,12 +8723,13 @@ class GameScene extends Phaser.Scene {
     S.trailT -= dt; if (S.trailT <= 0) { S.trailT = 0.16; S.trail.unshift({ x: S.x, y: S.y, a: S.a, ph: S.ph, bend: S.bend, z: S.z || 0 }); if (S.trail.length > 5) S.trail.pop(); } // 泳いだあとに残る、薄い残像
     const shp = this._sharkShape(S, S.x, S.y - (S.z || 0), S.a, S.ph, S.bend); // 空中では、体を z の分だけ上に描く（地面での位置は y + z）
     this._sharkShotsUpdate(S, shp, dt, plOk); // 🟩 グリッチ弾の移動・当たり判定・描画
+    this._sharkWaveUpdate(S, shp, dt, plOk); // 🌊 波の発生・移動・当たり判定・パリィ・描画
     // --- 🌊 潜る／浮かぶ：浮いている間(8〜12秒)→潜る(6〜9秒)→…。潜る・浮かぶ瞬間に、水しぶきが大きく上がる ---
     const SPC = [0x2aff5a, 0x9dffb4, 0x2aff5a, 0xc8ffd4], fbP = shp.sp[10], fb0 = shp.sp[9], fb1 = shp.sp[12], finH = TILE * 0.85 * S.sc * (S.dive * S.dive * (3 - 2 * S.dive));
     const splashBurst = (n, pt = fbP) => { for (let i = 0; i < n && S.splash.length < 420; i++) S.splash.push({ x: pt.x + (R() - 0.5) * 18, y: pt.y + (R() - 0.5) * 8, z: 2 + R() * 10, vx: (R() - 0.5) * 110, vy: (R() - 0.5) * 50, vz: 70 + R() * 150, life: 0.5 + R() * 0.5, sz: 2 + Math.floor(R() * 3), c: SPC[Math.floor(R() * 4)] }); };
     S.mt -= dt;
     if (m0 === 'fin') {
-      if (S.mt <= 0) { if (S.sg) S.mt = 0.5; else if (plOk) { const ra = Math.random(); S.atk = GLITCH_TEST_ATK || (ra < 0.25 ? 'shoot' : ra < 0.5 ? 'rush' : ra < 0.75 ? 'shell' : (this._fork ? 'shoot' : 'fork')); // 🪟 前のフォークボムのウィンドウが残っている間は、重ねて出さない
+      if (S.mt <= 0) { if (S.sg) S.mt = 0.5; else if (plOk) { const ra = Math.random(); S.atk = GLITCH_TEST_ATK || (ra < 0.2 ? 'shoot' : ra < 0.4 ? 'rush' : ra < 0.6 ? 'shell' : ra < 0.8 ? 'wave' : (this._fork ? 'shoot' : 'fork')); // 🪟 前のフォークボムのウィンドウが残っている間は、重ねて出さない
        S.mode = 'emerge'; S.mt = 0.45; splashBurst(34); } else S.mt = 2; } // しばらく泳ぎ回ったら、距離に関係なくその場で姿を現して、追撃を始める
     } else if (m0 === 'chase') {
       if (!plOk || S.mt <= 0) { S.mode = 'fin'; S.mt = 3 + R() * 3; S.wpT = 0; } // 追いつけない・見失ったら、泳ぎ回りに戻る
@@ -8658,6 +8740,7 @@ class GameScene extends Phaser.Scene {
         if (S.atk === 'shoot') { S.mode = 'aim'; S.mt = 1.8; S.aimFired = false; S.bp = 0; splashBurst(24); } // 射撃：少しだけ狙って、弾を放つ
         else if (S.atk === 'shell') { this._sgStart(S); splashBurst(24); } // 🥤 シェルゲーム：両隣にダミーを出して、背びれをシャッフルする（_sgStart〜_sgUpdate）
         else if (S.atk === 'fork') { this._forkStart(S); splashBurst(24); } // 🪟 フォークボム：右上と真ん中にウィンドウが出て、サメが真ん中のウィンドウに潜る（_forkStart〜_forkPhase）
+        else if (S.atk === 'wave') { S.mode = 'wave'; S.mt = 99; S.wv = { t: 0, ph: 'turn', fire: false, fired: false, sd: Math.random() < 0.5 ? 1 : -1, b0: 0 }; splashBurst(24); } // 🌊 波：尾をプレイヤーへ向けて、扇ぐように振る（_sharkWaveMove〜_sharkWaveUpdate）
         else { S.mode = 'rush'; S.mt = 4.5; S.rushHit = false; S.rushFixed = false; splashBurst(24); } // 追撃：高速で追いかける（4.5秒間）
       }
     } else if (m0 === 'aim') { // 🟩 射撃：溜めながら狙う(1.25秒)→向きを固定(0.55秒)→発射→少し止まって潜る
@@ -8670,6 +8753,9 @@ class GameScene extends Phaser.Scene {
         for (const i of [0, 6, 12, 18]) splashBurst(14, { x: shp.sp[i].x, y: shp.sp[i].y });
         S.mode = 'fin'; S.mt = 3.5 + R() * 3; S.wpT = 0;
       }
+    } else if (m0 === 'wave') { // 🌊 波：振り抜いたあと少し止まって、潜る（出た波は、サメが潜ってもそのまま進む）
+      const w = S.wv;
+      if (!plOk || !w || (w.ph === 'recover' && w.t >= GLITCH_WAVE.recoverT)) { for (const i of [0, 6, 12, 18]) splashBurst(14, { x: shp.sp[i].x, y: shp.sp[i].y }); S.mode = 'fin'; S.mt = 3.5 + R() * 3; S.wpT = 0; S.wv = null; }
     } else if (m0 === 'rush' || m0 === 'retreat' || m0 === 'grab') {
       if ((!plOk && m0 !== 'retreat') || S.mt <= 0) { // 時間切れ・噛みつき後・戻りきった後：水しぶきを上げて、背びれに戻る
         for (const i of [0, 6, 12, 18]) splashBurst(14, { x: shp.sp[i].x, y: shp.sp[i].y });
