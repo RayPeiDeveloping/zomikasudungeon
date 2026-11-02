@@ -6030,7 +6030,7 @@ const GLITCH_WARP = {
   hell: { stay: 15, demonDy: TILE * 4.5, hp: 999999 }, // 🔥 地獄（実際の地獄マップと同じ見た目・作りの部屋）：stay＝転送されてから戻るまで(秒)／demonDy＝悪魔がプレイヤーの何px上にいるか(画面の上の端に収まる位置)／hp＝悪魔のHP(倒せない)
   lounge: { stay: 20, hp: 999999, firstBomb: 2, detonator: [9.5, 2.5] }, // 💬 交流ルーム：stay＝戻るまでの上限(秒。ふつうは爆弾が全部起爆したら戻る)／hp＝デトネーターのHP(倒せない)／firstBomb＝最初に爆弾をまくまでの秒／detonator＝デトネーターの位置(部屋の左上からのマス)
   angel: { stay: 60, hp: 999999, openCount: 3, angel: [18.5, 5] }, // 🪽 天使の調伏の儀：stay＝戻るまでの上限(秒)／hp＝天使のHP(倒せない)／openCount＝天使が最初の技（A4_OPENING の頭から）を何回出したら戻るか／angel＝天使の位置(部屋の左上からのマス。本物の儀式部屋と同じ)
-  wolf: { stay: 20, hp: 999999, simahar: [28.5, 19.5] }, // 🐺 人狼広場（人狼ゲームの元のマップの広場。左に転送され、右にシマハルがいる）：stay＝戻るまでの秒（時間で戻る）／hp＝シマハルのHP(倒せない)／simahar＝シマハルの位置(部屋の左上からのマス)
+  wolf: { stay: 20, hp: 999999, simahar: [19.5, 11.5] }, // 🐺 人狼広場（人狼ゲームの元のマップの広場。左に転送され、右にシマハルがいる）：stay＝戻るまでの秒（時間で戻る）／hp＝シマハルのHP(倒せない)／simahar＝シマハルの位置(部屋の左上からのマス)
   holy: { stay: 15, hp: 999999, snakes: [[9.5, 4.5], [23.5, 4.5]] }, // ✨ 聖域：stay＝戻るまでの秒（時間で戻る）／hp＝ウロボロスの頭のHP(倒せない)／snakes＝2匹のウロボロスの位置(部屋の左上からのマス)
   chargers: { n: 6, ring: TILE * 5, appear: 1.0, range: TILE * 12, hpMult: 1, dmgMult: 1 }, // n＝チャージャーの数／ring＝円の半径（真ん中にプレイヤー）／appear＝並んでから最初の突進の溜めを始めるまで(秒)／range＝この距離以内なら突進を始める
 };
@@ -9155,21 +9155,12 @@ class GameScene extends Phaser.Scene {
     if (n > 0) gw.bombSeen = true;
     return !!gw.bombSeen && n === 0;
   }
-  // 🐺 パターン 'wolf'：人狼ゲームの元のマップ（版1）の広場（草地・半径 PVP.werewolf.plazaR のまるい広場と、広場から10軒の家へ向かう通路。まわりは岩）の左あたりへ転送される。右にシマハルがいる。stay 秒（20秒）たつと戻る。
-  //   まわりの岩は壊せる（シマハルのビームなど）。壊れた所と通路は、人狼マップの「道」と同じ茶色い土の地面になる（_gwWolfFloor）。戻る時は領域ぜんぶ岩へ戻る（_warpClear）。
-  _gwPat_wolf_room() { return { w: 46, h: 38, spawn: [17.5, 19.5], look: 'glitchWolf' }; } // 領域（48×40）いっぱいまで広げた部屋。広場の中心は部屋の真ん中 (23, 19)。転送先は広場の左寄り（中心から5.5マス左）
-  _gwPat_wolf_terrain(gw, rx, ry, w, h) { // 広場のまるい形と、広場から各家へ向かう通路（元のマップと同じ本数・幅）だけを開けて、あとは岩のまま（壊せる）。通路は家の手前までは作れないので、部屋の端（外周の壁の手前）で行き止まり
-    const grid = this.dungeon.grid, W = PVP.werewolf, cx = w / 2, cy = h / 2, dirs = [];
-    for (let k = 0; k < W.houses; k++) { const a = -Math.PI / 2 + Math.PI * 2 * k / W.houses; dirs.push([Math.cos(a), Math.sin(a)]); } // 0番が真上、時計回り（元のマップと同じ）
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      const px = x + 0.5 - cx, py = y + 0.5 - cy;
-      let open = Math.hypot(px, py) <= W.plazaR;
-      if (!open && x >= 1 && y >= 1 && x < w - 1 && y < h - 1) for (const d of dirs) { // 外周1マスは壁のまま
-        const along = px * d[0] + py * d[1], perp = Math.abs(px * d[1] - py * d[0]); // 広場の中心から家へ向かう線に沿った距離／その線からのずれ
-        if (perp <= W.roadW / 2 && along >= W.plazaR - 2 && along <= W.houseDist - W.houseIn + 0.5) { open = true; break; }
-      }
-      if (!open && grid[ry + y]) grid[ry + y][rx + x] = 0;
-    }
+  // 🐺 パターン 'wolf'：人狼ゲームの元のマップ（版1）の広場（草地・半径 PVP.werewolf.plazaR のまるい広場。まわりは岩）の左あたりへ転送される。右にシマハルがいる。stay 秒（20秒）たつと戻る。
+  //   まわりの岩は壊せる（シマハルのビームなど）。壊れた所は、人狼マップの「道」と同じ茶色い土の地面になる（_gwWolfFloor）。戻る時は領域ぜんぶ岩へ戻る（_warpClear）。
+  _gwPat_wolf_room() { return { w: 27, h: 23, spawn: [7.5, 11.5], look: 'glitchWolf' }; } // 広場の中心は部屋の真ん中 (13.5, 11.5)。転送先は広場の左寄り（中心から6マス左）
+  _gwPat_wolf_terrain(gw, rx, ry, w, h) { // 広場のまるい形の外は、岩のまま（壊せる）
+    const grid = this.dungeon.grid, R = PVP.werewolf.plazaR;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (Math.hypot(x + 0.5 - w / 2, y + 0.5 - h / 2) > R && grid[ry + y]) grid[ry + y][rx + x] = 0;
   }
   _gwWolfFloor(x, y, wf) { // 人狼広場の領域の床の色：広場の中＝草地（人狼マップの広場と同じ）／そのほか（壊れた壁）＝茶色い土（人狼マップの道と同じ 0x6b5236）
     if (Math.hypot(x + 0.5 - (wf.fx + wf.fw / 2), y + 0.5 - (wf.fy + wf.fh / 2)) <= PVP.werewolf.plazaR) {
