@@ -6006,7 +6006,7 @@ const TILE = 32;
 // 📺 グリッチ戦の攻撃のテスト用：'shell'（シェルゲーム）／'shoot'（射撃）／'rush'（追撃）を入れると、毎回その攻撃だけになる。普段は null（ランダム）
 const GLITCH_TEST_ATK = null; // テストで毎回同じ攻撃にする時は 'shoot' / 'rush' / 'shell' / 'fork' / 'ransom' / 'wave' / 'combo'
 // 🪟 フォークボム（ウイルスのウィンドウが右下へ次々と増える攻撃）の調整値
-const GLITCH_FORK = { w: TILE * 13, h: TILE * 9, corridor: TILE * 10, damage: 30, pushSpeed: 700, stepX: TILE * 0.85, stepY: TILE * 0.95, maxN: 80, openT: 0, interval: 0.065, waitT: 0.7, riseDelay: 0.5, hold: Infinity, warnT: 0.6, leaps: 10, burrowMin: 1.5, burrowMax: 2.7, burrowSpeed: TILE * 8, burrowWobble: 2, vibAmp: 5, peekSpeed: TILE * 8, leapSpeed: TILE * 40, accT: 0.15, leapDamage: 40, leapPause: 0.1 }; // w,h＝ウィンドウの大きさ（部屋が小さい時は部屋の8割まで縮む）／stepX,stepY＝次のウィンドウへのずれ（右下）／corridor＝2本の列のあいだに空ける通り道の幅（窓が斜めに重なって太くなる分を除いた、あいている幅）／damage＝出たウィンドウに重なっていたプレイヤーへのダメージ／pushSpeed＝通り道へ押し出される速さ（px/秒）／maxN＝1列の最大数（上限。通常は、上端が部屋の下端に重なる所まで並ぶ）／openT＝最初の2枚が出てからサメが動くまで／interval＝1枚ずつ増える間隔／waitT＝サメが潜ってから増え始めるまでの間／riseDelay＝増え終わってからサメが浮かぶまで／hold＝増え終わってから消え始めるまで（Infinity＝時間では消えない。技が終わって（rise）サメが浮かんだ時点で、順に消える）／warnT＝出現位置に赤い枠の警告を出してからウィンドウが出るまで／leaps＝ウィンドウ間の飛び込みを繰り返す回数／burrowMin,burrowMax＝窓の下に潜って、列に沿って上下に動いている時間（秒。この範囲でランダム）／burrowSpeed＝列に沿って動く縦方向の速さ（px/秒）／burrowWobble＝プレイヤーの高さを追う時のふらつき（窓の枚数）／vibAmp＝サメに近い窓の震えの大きさ（px）／peekSpeed＝飛び出し始めの速さ／leapSpeed＝そのあと泳ぎ抜ける最高速／accT＝飛び出し始めから最高速まで加速する時間／leapDamage＝横切るサメに当たった時のダメージ／leapPause＝飛び込んでから次に潜って動き出すまでの間
+const GLITCH_FORK = { w: TILE * 13, h: TILE * 9, corridor: TILE * 10, damage: 30, pushSpeed: 700, stepX: TILE * 0.85, stepY: TILE * 0.95, maxN: 80, openT: 0, interval: 0.065, waitT: 0.7, riseDelay: 0.5, hold: Infinity, warnT: 0.6, leaps: 10, burrowMin: 1.5, burrowMax: 2.7, stayT: 0.3, burrowSpeed: TILE * 8, burrowWobble: 3, vibAmp: 5, peekSpeed: TILE * 8, leapSpeed: TILE * 40, accT: 0.15, leapDamage: 40, leapPause: 0.1 }; // w,h＝ウィンドウの大きさ（部屋が小さい時は部屋の8割まで縮む）／stepX,stepY＝次のウィンドウへのずれ（右下）／corridor＝2本の列のあいだに空ける通り道の幅（窓が斜めに重なって太くなる分を除いた、あいている幅）／damage＝出たウィンドウに重なっていたプレイヤーへのダメージ／pushSpeed＝通り道へ押し出される速さ（px/秒）／maxN＝1列の最大数（上限。通常は、上端が部屋の下端に重なる所まで並ぶ）／openT＝最初の2枚が出てからサメが動くまで／interval＝1枚ずつ増える間隔／waitT＝サメが潜ってから増え始めるまでの間／riseDelay＝増え終わってからサメが浮かぶまで／hold＝増え終わってから消え始めるまで（Infinity＝時間では消えない。技が終わって（rise）サメが浮かんだ時点で、順に消える）／warnT＝出現位置に赤い枠の警告を出してからウィンドウが出るまで／leaps＝ウィンドウ間の飛び込みを繰り返す回数／burrowMin,burrowMax＝窓の下に潜って、列に沿って上下に動いている時間（秒。この範囲でランダム）／burrowSpeed＝列に沿って動く縦方向の速さ（px/秒）／burrowWobble＝プレイヤーの高さを追う時のふらつき（窓の枚数）／vibAmp＝サメに近い窓の震えの大きさ（px）／peekSpeed＝飛び出し始めの速さ／leapSpeed＝そのあと泳ぎ抜ける最高速／accT＝飛び出し始めから最高速まで加速する時間／leapDamage＝横切るサメに当たった時のダメージ／leapPause＝飛び込んでから次に潜って動き出すまでの間
 // 🔀 ランサムウェア：サメが姿を現して「感染」させると、プレイヤーは t 秒のあいだ、移動の操作が上下左右反転する。サメ自身は castT 秒だけその場で止まってから、また泳ぎ回る。テストで毎回この攻撃にする時は GLITCH_TEST_ATK = 'ransom'。（武器が使えなくなるのは、フォークボム中：_ransomLock）
 const GLITCH_RANSOM = { t: 8, castT: 1.6 };
 // 🌊 グリッチの攻撃「波」の調整値（秒・px。_sharkWaveMove／_sharkWaveUpdate の流れの順）
@@ -8935,17 +8935,17 @@ class GameScene extends Phaser.Scene {
     const Fk = this._fork, F = GLITCH_FORK, cur = f.cur, col = Fk && cur && Fk.cols[cur.col];
     if (!col || !col.length) { f.ph = 'rise'; f.t = 0; return; }
     f.col = cur.col; f.bs = cur.ci; f.bt = cur.ci; f.bT = F.burrowMin + Math.random() * (F.burrowMax - F.burrowMin); // bs＝列の上の今の位置（窓の番号。小数）／bt＝向かう位置／bT＝潜っている時間
-    f.vibW = null; f.jit = Math.random() < 0.4 ? 0 : (Math.random() * 2 - 1) * F.burrowWobble; /* 4割はプレイヤーにぴったり、残りは上下にランダムにずらす */ f.ph = 'burrow'; f.t = 0; f.hit = false;
+    f.vibW = null; f.stay = 0; f.jit = (Math.random() * 2 - 1) * F.burrowWobble; /* 上下に、-burrowWobble〜+burrowWobble 枚分の乱数でずらす（0に固めない） */ f.ph = 'burrow'; f.t = 0; f.hit = false;
   }
   _forkBurrow(f, S, dt) { // 🪟 潜っている間：列の中心線に沿って、プレイヤーの高さへ向かって上下に動く。サメに近い窓だけが震える。時間になったら飛び出す
     const Fk = this._fork, F = GLITCH_FORK, col = Fk && Fk.cols[f.col]; if (!col || !col.length) { f.ph = 'rise'; f.t = 0; return; }
-    const w0 = col[0], last = col.length - 1, pl = this.player;
-    if (pl && this.playerHp > 0 && !this.isGhost) f.bt = ((pl.x - w0.x) * F.stepX + (pl.y - w0.y) * F.stepY) / (F.stepX * F.stepX + F.stepY * F.stepY) + (f.jit || 0); // プレイヤーを通る、列に直角な線上の位置へ（そのまま飛び出せば当たる位置）。jit＝そこから列に沿って上下にずらす量（窓の枚数）
+    const w0 = col[0], last = col.length - 1, pl = this.player, stay = f.t >= f.bT; if (stay) f.stay = (f.stay || 0) + dt; // stay＝潜る時間が終わって、飛び出す前にその場で留まっている間（追わない・震えは続く）
+    if (!stay && pl && this.playerHp > 0 && !this.isGhost) f.bt = ((pl.x - w0.x) * F.stepX + (pl.y - w0.y) * F.stepY) / (F.stepX * F.stepX + F.stepY * F.stepY) + (f.jit || 0); // プレイヤーを通る、列に直角な線上の位置へ（そのまま飛び出せば当たる位置）。jit＝そこから列に沿って上下にずらす量（窓の枚数）
     f.bt = Math.max(0, Math.min(last, f.bt));
-    const ds = F.burrowSpeed / F.stepY * dt; f.bs = Math.max(0, Math.min(last, f.bs + Math.max(-ds, Math.min(ds, f.bt - f.bs))));
+    const ds = stay ? 0 : F.burrowSpeed / F.stepY * dt; f.bs = Math.max(0, Math.min(last, f.bs + Math.max(-ds, Math.min(ds, f.bt - f.bs))));
     S.x = w0.x + F.stepX * f.bs; S.y = w0.y + F.stepY * f.bs; S.fkHide = true; // 見えない（窓の下）
     const nw = this._forkTopNear(col, S.x, S.y); if (f.vibW && f.vibW !== nw) f.vibW.vib = false; f.vibW = nw; if (nw) nw.vib = true; // サメに近い窓だけ震える
-    if (f.t >= f.bT) this._forkLeapStart(f, S);
+    if (stay && f.stay >= F.stayT) this._forkLeapStart(f, S);
   }
   _forkLeapStart(f, S) { // 🪟 予告なしで飛び出す：反対側の列の、プレイヤーに近い窓へ向かって（向きはこの瞬間に決まる）
     const Fk = this._fork, pl = this.player, plOk = !!pl && this.playerHp > 0, oc = f.col === 'A' ? 'B' : 'A';
