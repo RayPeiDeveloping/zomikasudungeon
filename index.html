@@ -9304,7 +9304,8 @@ this._ultUpdate(S, dt, plOk); // 🌀 必殺技：ゲージが55%でワープを
   }
   _warpReturn(S, plOk) { // 元の場所へ戻る：先にプレイヤーを戻してから、敵を片づけて床を壁に戻す（壁の中なら部屋の真ん中へ）。戻ったあとは、泳ぎ回りに戻る
     const gw = S.gw, A = gw && gw.A, pl = this.player;
-    if (plOk && pl && gw && gw.back && A && pl.x >= A.x0 - TILE * 2) { // 転送先にいる時だけ戻す（力尽きて部屋に戻された後などは、動かさない）
+    const Zr = this.dungeon && this.dungeon.glitchZone, farX = Zr ? (Zr.x - 3 - GLITCH_WARP.arenaGap) * TILE : A ? A.x0 - TILE * 2 : 0; // 🛟 元のマップの右のはし（これより右＝転送先の領域のどこか）。壁を壊して部屋の左へはみ出していても、ここより右にいれば戻す
+    if (plOk && pl && gw && gw.back && A && pl.x >= farX) { // 転送先の側にいる時だけ戻す（力尽きて元の部屋に戻された後などは、動かさない）
       let nx = gw.back.x, ny = gw.back.y;
       if (this.circleHitsWall(nx, ny, pl.radius || 10)) { const rm = this.dungeon.rooms[0]; nx = (rm.x + rm.w / 2) * TILE; ny = (rm.y + rm.h / 2) * TILE; }
       this.interruptBandage();
