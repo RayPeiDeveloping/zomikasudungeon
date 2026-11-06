@@ -7010,6 +7010,7 @@ class GameScene extends Phaser.Scene {
     this.s2Unlocked = this.s2InitUnlocked(); this.s2Trial = null; this.rt = null; this._rtGfx = null; this._rtTxt = null; this._rtSeq = 0; this._s2TrialGfx = null; this._s2TrialTxt = null; // 調伏の儀：このゲームで解放済みの技 / 進行中の儀
     this._sniperCursor = null; // スナイパーの赤い照準点（召喚術の照準と同じ仕組み・同じaimGfxを使い回す）
     this.aimGfx = this.add.graphics().setDepth(10); // 召喚術・スナイパーの照準ポインター
+    this.aimDotGfx = this.add.graphics().setDepth(13); // スナイパーの赤い照準点だけ、ナイトメアの壁の影（depth 12）より上に出す（黄色い急所の円は aimGfx のまま＝影の下なので、壁の裏の敵の位置はばれない）
     // トラップで一度拘束された敵が「弱っている（もう一発当てるとボーナスダメージ）」間、
     // その敵の上に表示するマーク用（同期不要のローカル演出のみ）。
     this.trapVulnGfx = this.add.graphics().setDepth(4.6);
@@ -26665,6 +26666,7 @@ this._ultUpdate(S, dt, plOk); // 🌀 必殺技：ゲージが55%でワープを
       const c = this._sniperCursor;
       this._sniperCursor = null;
       this.aimGfx.clear();
+      if (this.aimDotGfx) this.aimDotGfx.clear();
       // 離した時、ほとんど動かしていない（誤タッチ）場合は何もしない
       if (can && Phaser.Math.Distance.Between(c.x, c.y, this.player.x, this.player.y) > 14) {
         this.fireSniperShot(c.x, c.y);
@@ -26691,8 +26693,8 @@ this._ultUpdate(S, dt, plOk); // 🌀 必殺技：ゲージが55%でワープを
         g.strokeCircle(e.gfx.x, e.gfx.y, zr);
       }
     }
-    g.fillStyle(0xff2b2b, 1);
-    g.fillCircle(c.x, c.y, 6);
+    const dg = this.aimDotGfx; // 赤い点は影より上の層に描く
+    if (dg) { dg.clear(); dg.fillStyle(0xff2b2b, 1); dg.fillCircle(c.x, c.y, 6); }
   }
 
   // 敵の急所（ストライクゾーン）の半径。狙っている間だけ敵の中心に表示され、ここに当てると
@@ -26837,7 +26839,7 @@ this._ultUpdate(S, dt, plOk); // 🌀 必殺技：ゲージが55%でワープを
     if (this.allies) this.allies.forEach(a => { this.tweens.killTweensOf(a.gfx); this.tweens.killTweensOf(a.hpBar); a.gfx.destroy(); a.hpBar.destroy(); });
     this.allies = [];
     this._aimCursor = null;
-    if (this.aimGfx) this.aimGfx.clear();
+    if (this.aimGfx) this.aimGfx.clear(); if (this.aimDotGfx) this.aimDotGfx.clear();
   }
 
   // attacker: 攻撃してきた敵（分かる場合）。プレイヤーのターゲット指定（forced）がない時は、その敵を狙い返す。
