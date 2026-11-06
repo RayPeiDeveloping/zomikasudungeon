@@ -6977,6 +6977,7 @@ class GameScene extends Phaser.Scene {
     // カメラズームに掛ける。これにより、画面が大きい/小さいどの端末でも見えるエリアの比率と
     // UIとの相対サイズ感が揃う。
     this.cameras.main.setZoom(window.GAME_VIEW_ZOOM || 1);
+    this.cameras.main.setRoundPixels(true); // 床の区画の境目に、細い線がチラチラ見えるのを防ぐ（カメラ位置を整数ピクセルにそろえる）
     if (!this._floorRebakeBound && this.game.canvas) {
       this._floorRebakeBound = true;
       this.game.canvas.addEventListener('webglcontextrestored', () => setTimeout(() => this._rebakeFloor(), 0));
