@@ -6841,7 +6841,7 @@ class GameScene extends Phaser.Scene {
     this.skullRevives = this.accKey === 'skull' ? SKULL_WISPS : 0; // ドクロ：残りの鬼火の数＝あと何回生き返れるか（1回の挑戦ごとに SKULL_WISPS 個）
     this._initAccKey = this.accKey; // 「もう一度」でやり直す時に、この状態（ロビーで付けていた装飾品）へ戻すために覚えておく
     this._paused = false; this._pauseAt = 0; this._pbChkAt = null; { const po = document.getElementById('pauseOverlay'); if (po) po.style.display = 'none'; const pb = document.getElementById('pauseBtn'); if (pb) { pb.style.display = 'none'; setPauseIcon(pb, false); } } // ⏸ ポーズは、始めるたびに解除しておく
-    this.fixYellow = false; // 📌 武器の「固定」：オンの間は、今持っているのと違う武器の黄色の宝箱を取らない（「もう一度」では保つ。ロビーへ戻ると切れる）
+    this.fixYellow = false; // 📌 武器の「固定」：オンの間は、今持っているのと違う武器の黄色の宝箱を取らない（「もう一度」で再戦すると切れる。ロビーへ戻っても切れる。中断セーブからの再開では引き継ぐ）
     { const fb = document.getElementById('weaponFixBtn'); if (fb) { fb.classList.remove('on'); fb.setAttribute('aria-pressed', 'false'); const fixToggle = () => { if (this._rlEffect === 'red') { this._syncFixBtn(); return; } this.fixYellow = !this.fixYellow; fb.classList.toggle('on', this.fixYellow); fb.setAttribute('aria-pressed', this.fixYellow ? 'true' : 'false'); fb.blur(); };
       let fixTouchAt = 0; // スティックを押さえたまま別の指で押すと、スマホでは click が発火しないことがある。touchstart で切り替える（時計ボタンと同じ）。touchstart で処理した時は、続けて来る click を無視する
       fb.ontouchstart = (ev) => { ev.preventDefault(); ev.stopPropagation(); fixTouchAt = Date.now(); fixToggle(); };
@@ -15556,6 +15556,7 @@ this._ultUpdate(S, dt, plOk); // 🌀 必殺技：ゲージが55%でワープを
       accKey: this.accKey || '', initAcc: this._initAccKey || '', usedAcc: (this._usedAccKeys || []).slice(0, 40),
       skullRevives: this.skullRevives || 0,
       rlEffect: this._rlEffect || null, rlWisps: this._rlWisps || 0,
+      fixYellow: !!this.fixYellow, // 📌 武器の「固定」がオンだったか（再開しても引き継ぐ）
       s2Unlocked: s2u,
       demonRun: !!this._demonRun, demonRedOn: !!this._demonRedOn, demonSeen: !!this._demonSeenEnemy, demonMet: !!(this._demonMetCounted || this._demonMetResumed), // 😈 25階の悪魔に会う条件（1階から全滅で来ているか）と、会った回数を数え済みか
       runStats: { time: +rs.time || 0, kills: +rs.kills || 0, bosses: +rs.bosses || 0 },
@@ -15601,6 +15602,7 @@ this._ultUpdate(S, dt, plOk); // 🌀 必殺技：ゲージが55%でワープを
       const mhp = Math.floor(Number(d.maxHp)); if (mhp >= 1 && mhp <= 100000) this.playerMaxHp = mhp;
       const hp = Math.round(Number(d.hp)); this.playerHp = Math.max(1, Math.min(this.playerMaxHp, Number.isFinite(hp) ? hp : this.playerMaxHp));
       const sr = Math.floor(Number(d.skullRevives)); if (this.accKey === 'skull' && sr >= 0) this.skullRevives = Math.min(sr, SKULL_WISPS);
+      if (d.fixYellow === true) { this.fixYellow = true; this._syncFixBtn(); } // 📌 武器の「固定」がオンのまま中断していたら、再開してもオンにする（ボタンの表示も合わせる）
       if (this._rlEffect === 'cyan') { const w = Math.floor(Number(d.rlWisps)); if (w >= 0 && w <= 99) this._rlWisps = w; }
       if (d.s2Unlocked && typeof d.s2Unlocked === 'object') { const u = this.s2Unlocked || (this.s2Unlocked = {}); Object.keys(d.s2Unlocked).forEach(k => { if (d.s2Unlocked[k] === true) u[k] = true; }); }
       const r = d.runStats || {};
@@ -32764,7 +32766,7 @@ this._ultUpdate(S, dt, plOk); // 🌀 必殺技：ゲージが55%でワープを
     try {
       this.resetS2ForRestart(); // 降魔術：調伏の儀の途中経過・解放済みの技・技の状態を全て初期化
       this.clearAllies();
-      this._rlEffect = null; this._rlWisps = 0; this._syncFixBtn(); // 🎰 ルーレットの色の効果は、次のダンジョン1回だけ：やり直したら消える
+      this._rlEffect = null; this._rlWisps = 0; this.fixYellow = false; this._syncFixBtn(); // 📌 武器の「固定」も、やり直したら解除（ボタンの表示も戻る） 🎰 ルーレットの色の効果は、次のダンジョン1回だけ：やり直したら消える
       // 🎁 やり直したら、装飾品まわりも1回目の挑戦の始まり（ロビーで付けていた状態）に戻す：チェストで拾った装飾品・鬼火の数・時計・リザルトの「新しい装飾品」
       this.equipRunAccessory(this._initAccKey || ''); // 拾った装飾品を外して、元の装飾品へ（鎧の最大HPもここで戻る）
       this.skullRevives = this.accKey === 'skull' ? SKULL_WISPS : 0; // 同じ装飾品のままだと上は何もしないので、鬼火の数はここで必ず満タンに戻す
